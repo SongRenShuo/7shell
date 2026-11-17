@@ -36,6 +36,7 @@ import {
   List,
   ListChecks,
   LoaderCircle,
+  Monitor,
   Network,
   PanelBottom,
   RotateCw,
@@ -51,6 +52,7 @@ import { sessionEndpoint } from "@/lib/menu/sessions";
 import BatchPanel from "@/components/batch/BatchPanel.vue";
 import ContainerPane from "@/components/container/ContainerPane.vue";
 import KubernetesPane from "@/components/k8s/KubernetesPane.vue";
+import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import CommandInputBar from "@/components/commands/CommandInputBar.vue";
 import CommandsPanel from "@/components/commands/CommandsPanel.vue";
 import FileBrowser from "@/components/files/FileBrowser.vue";
@@ -192,11 +194,13 @@ function openTabMenu(event: MouseEvent, tab: WorkspaceTab, index: number): void 
       {
         kind: tab.kind,
         // The settings page has no stream of its own either: it writes a file rather than holding
-        // a connection, so there is nothing for the menu to offer a retry for.
+        // a connection, so there is nothing for the menu to offer a retry for. Neither has the
+        // workbench — its handle is the whole of its answer, which `hasHandle` carries.
         status:
           tab.kind === "inspect" ||
           tab.kind === "settings" ||
           tab.kind === "batch" ||
+          tab.kind === "workbench" ||
           tab.kind === "container" ||
           tab.kind === "kubernetes"
             ? null
@@ -288,6 +292,8 @@ function closeLabel(tab: WorkspaceTab): string {
       return t("settings.tab.close");
     case "batch":
       return t("batch.tab.close");
+    case "workbench":
+      return t("workbench.tab.close");
     case "container":
       return t("container.tab.close");
     case "kubernetes":
@@ -301,6 +307,10 @@ function closeLabel(tab: WorkspaceTab): string {
 function dotClass(tab: WorkspaceTab): string | null {
   if (tab.kind === "files") {
     return tab.status === "failed" ? "bg-destructive" : null;
+  }
+  // A workbench has no stream either: only the failure that left it without a connection shows.
+  if (tab.kind === "workbench") {
+    return tab.failure ? "bg-destructive" : null;
   }
   // Neither page has a status of its own: an inspect page's connection belongs to a terminal
   // somewhere else, and the settings page has none to report.
@@ -610,6 +620,7 @@ function tabStyle(): Record<string, string> | undefined {
             />
             <Terminal v-else-if="entry.tab.kind === 'terminal'" :size="12" class="shrink-0" />
             <Folder v-else-if="entry.tab.kind === 'files'" :size="12" class="shrink-0" />
+            <Monitor v-else-if="entry.tab.kind === 'workbench'" :size="12" class="shrink-0" />
             <Settings v-else-if="entry.tab.kind === 'settings'" :size="12" class="shrink-0" />
             <ListChecks v-else-if="entry.tab.kind === 'batch'" :size="12" class="shrink-0" />
             <Boxes v-else-if="entry.tab.kind === 'container'" :size="12" class="shrink-0" />
@@ -828,6 +839,7 @@ function tabStyle(): Record<string, string> | undefined {
           :handle="tab.handle"
           :protocol="tab.session.protocol"
           :packed-transfers="tab.packed"
+          :initial-path="tab.initialPath"
           class="min-h-0 flex-1"
         />
 
@@ -860,6 +872,41 @@ function tabStyle(): Record<string, string> | undefined {
             </button>
           </div>
         </footer>
+      </template>
+
+      <!--
+        The desktop workbench. It is handed the tab, whose handle is the SSH connection everything
+        on it reads through — the same kind of handle a terminal holds, drawn here without a stream
+        under it. A tab whose handle the machine took away has no connection to draw the face over,
+        so it says so instead, with the reason when there was one.
+      -->
+      <template v-else-if="tab.kind === 'workbench'">
+        <WorkbenchPane
+          v-if="tab.handle"
+          :key="tab.id"
+          :tab="tab"
+          :active="tab.id === terminals.activeTabId"
+          class="min-h-0 flex-1"
+        />
+
+        <div v-else class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+          <CircleAlert :size="18" class="text-destructive" />
+          <p v-if="tab.failure" class="text-xs">
+            {{ describeShellError(translate, tab.failure).message }}
+          </p>
+          <p v-if="tab.failure" class="font-mono text-[10px] text-muted-foreground">
+            {{ describeShellError(translate, tab.failure).code }}
+          </p>
+          <p v-else class="text-xs text-muted-foreground">{{ t("workbench.tab.ended") }}</p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+            @click="terminals.reconnect(tab.id)"
+          >
+            <RotateCw :size="12" />
+            {{ t("workbench.tab.retry") }}
+          </button>
+        </div>
       </template>
 
       <!--

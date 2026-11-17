@@ -102,6 +102,8 @@ export interface Session {
   readonly terminal: TerminalSettings;
   /** What a remote desktop asks of the system client. Absent on SSH sessions and older exports. */
   readonly desktop?: DesktopSettings;
+  /** What the desktop workbench draws. Absent on every other protocol and on older exports. */
+  readonly workbench?: WorkbenchSettings;
   /** What a Telnet console expects on the wire. Absent on every other protocol. */
   readonly telnet?: TelnetSettings;
   /** The serial port and its line parameters. Absent on every other protocol. */
@@ -133,6 +135,12 @@ export interface DesktopSettings {
   fullscreen: boolean;
   /** Whether the local drives are mapped into the session. */
   redirectDrives: boolean;
+}
+
+/** What the desktop workbench draws. Nothing here was typed into a terminal. */
+export interface WorkbenchSettings {
+  /** Which built-in backdrop the workbench draws. Absent asks for the interface's own default. */
+  readonly wallpaper?: string;
 }
 
 /** What the Enter key puts on a Telnet wire: the teletype pair, a bare CR, or a bare LF. */
@@ -386,6 +394,11 @@ export type SftpOutcome =
       /** Whether this backend offers packed transfers. SFTP does; the others do not. */
       readonly packed: boolean;
     };
+
+/** What a workbench power action answered: the command left, or it did not. */
+export interface WorkbenchPowerOutcome {
+  readonly issued: boolean;
+}
 
 export type TransferDirection = "download" | "upload";
 

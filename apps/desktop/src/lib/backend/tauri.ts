@@ -102,6 +102,7 @@ import type {
   TransferInfo,
   UploadAnswer,
   UploadOutcome,
+  WorkbenchPowerOutcome,
   VaultArchive,
   VaultState,
   ZmodemEvent,
@@ -929,6 +930,21 @@ export function terminalSerialPorts(): Promise<SerialPortInfo[]> {
  */
 export function desktopOpen(sessionId: string): Promise<void> {
   return invoke<void>("desktop_open", { sessionId });
+}
+
+/**
+ * Runs one workbench power action for a Linux desktop session.
+ *
+ * The acknowledgement travels with the call rather than being implied: what it says is that a person
+ * answered the question in front of them, which is exactly what the policy gate is allowed to act on.
+ */
+export function workbenchPower(
+  sessionId: string,
+  handle: string,
+  action: string,
+  acknowledged: boolean,
+): Promise<WorkbenchPowerOutcome> {
+  return invoke<WorkbenchPowerOutcome>("workbench_power", { sessionId, handle, action, acknowledged });
 }
 
 export function tunnelsOpen(): Promise<OpenTunnel[]> {

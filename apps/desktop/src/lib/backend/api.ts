@@ -100,6 +100,7 @@ import type {
   TerminalData,
   UploadAnswer,
   UploadOutcome,
+  WorkbenchPowerOutcome,
   VaultArchive,
   VaultState,
   ZmodemEvent,
@@ -967,6 +968,19 @@ export const backend = {
   desktop: {
     open: (sessionId: string): Promise<void> => forward("desktop_open", () => desktop.desktopOpen(sessionId)),
   },
+
+  /**
+   * The desktop workbench's one action that reaches the far side. Everything else it shows is a
+   * reading of the connection the session already carries; this is the one thing somebody can ask
+   * the machine to do, and the acknowledgement it carries is the answer the policy gate acts on.
+   */
+  workbenchPower: (
+    sessionId: string,
+    handle: string,
+    action: string,
+    acknowledged: boolean,
+  ): Promise<WorkbenchPowerOutcome> =>
+    forward("workbench_power", () => desktop.workbenchPower(sessionId, handle, action, acknowledged)),
 
   /**
    * What the host behind a terminal is doing. Asked for by handle, because a sample rides the

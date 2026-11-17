@@ -64,6 +64,7 @@ import { usePreferencesStore } from "@/stores/preferences";
 import {
   type FilesTab,
   type TerminalTab,
+  type WorkbenchTab,
   containerFilesSessionId,
   podFilesSessionId,
   tunnelFailureKey,
@@ -1540,5 +1541,197 @@ describe("opening a session that is already open", () => {
     await store.closeToTheLeft(drawn[2] as string, drawn);
 
     expect(store.tabs.map((entry) => entry.id)).toEqual([drawn[2]]);
+  });
+});
+
+describe("the desktop workbench", () => {
+  /** A Linux desktop session: an SSH session underneath, a workbench on top. */
+  const desk: Session = { ...session, id: "desk-1", name: "lab desk", protocol: "linuxDesk" };
+
+  /** The workbench tab in the workspace, for assertions that are about the workbench. */
+  function workbenchTab(store: ReturnType<typeof useTerminalsStore>): WorkbenchTab | undefined {
+    return store.tabs.find((tab): tab is WorkbenchTab => tab.kind === "workbench");
+  }
+
+  /** The workbench tab, or a failure: a test with no workbench tab has nothing to assert about one. */
+  function workbenchTabOrFail(store: ReturnType<typeof useTerminalsStore>): WorkbenchTab {
+    const tab = workbenchTab(store);
+    if (!tab) {
+      throw new Error("the workspace has no workbench tab");
+    }
+    return tab;
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    usePreferencesStore().sessionLayout = "terminal";
+    endedListeners.length = 0;
+    localStorage.clear();
+    sessionOpenMock.mockReset();
+    sessionSystemMock.mockReset().mockResolvedValue({ name: null, kernel: null, distro: null, distroLike: [] });
+    terminalCloseMock.mockReset().mockResolvedValue(undefined);
+    tunnelsOpenMock.mockReset().mockResolvedValue([]);
+    filesOpenMock.mockReset();
+    filesCloseMock.mockReset().mockResolvedValue(undefined);
+    filesListMock.mockReset().mockResolvedValue({ path: "/home/user", entries: [] });
+    transfersOpenMock.mockReset().mockResolvedValue([]);
+    onTerminalEndedMock.mockReset().mockImplementation((listener: (handle: string, reason?: string) => void) => {
+      endedListeners.push(listener);
+      return () => {};
+    });
+    endedTerminalMock.mockReset().mockReturnValue(undefined);
+  });
+
+  it("opens a Linux desktop session as a workbench tab, not a terminal tab", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+
+    expect(sessionOpenMock, "the same SSH open a terminal would have made").toHaveBeenCalledWith(desk.id);
+    expect(store.tabs).toHaveLength(1);
+    const tab = workbenchTabOrFail(store);
+    expect(tab.handle).toBe("handle-1");
+    expect(tab.failure).toBeNull();
+    expect(terminalTab(store), "no terminal tab stands beside it").toBeUndefined();
+  });
+
+  it("opens an SSH session as a terminal tab, which is what no workbench capability means", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(session);
+
+    expect(store.tabs).toHaveLength(1);
+    expect(terminalTabOrFail(store).handle).toBe("handle-1");
+    expect(workbenchTab(store)).toBeUndefined();
+  });
+
+  it("raises the host key decision for the workbench, and opens it once answered", async () => {
+    sessionOpenMock.mockResolvedValueOnce({ kind: "hostKeyUnknown", key: presented }).mockResolvedValueOnce(opened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    expect(store.decision?.kind).toBe("hostKeyUnknown");
+    expect(store.decision?.target).toEqual({ to: "workbench" });
+    expect(store.tabs).toHaveLength(0);
+
+    await store.confirmTrust();
+
+    expect(store.tabs).toHaveLength(1);
+    expect(workbenchTabOrFail(store).handle).toBe("handle-1");
+  });
+
+  it("counts an open workbench as the session being open, so a row click does not dial again", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    await store.goTo(desk);
+
+    expect(sessionOpenMock, "the row click went to the tab instead").toHaveBeenCalledTimes(1);
+    expect(store.tabs).toHaveLength(1);
+  });
+
+  it("reads a workbench whose machine ended the connection as the session not being open", async () => {
+    sessionOpenMock.mockResolvedValueOnce(opened()).mockResolvedValueOnce({ ...opened(), handle: "handle-2" });
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    for (const listener of endedListeners) {
+      listener("handle-1");
+    }
+    expect(workbenchTabOrFail(store).handle, "the tab says the connection is gone").toBeNull();
+    expect(store.openTabsOf(desk.id), "and the row reads as closed").toHaveLength(0);
+
+    // A row click now dials again, because "the session is open" has nothing to point at.
+    await store.goTo(desk);
+    expect(sessionOpenMock).toHaveBeenCalledTimes(2);
+    expect(store.tabs).toHaveLength(2);
+  });
+
+  it("closes the session's file tabs first when the workbench tab is closed, then the connection", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    filesOpenMock.mockResolvedValue(filesOpened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    await store.openFiles(desk);
+    const workbench = workbenchTabOrFail(store);
+    const browser = filesTab(store);
+    if (!browser) {
+      throw new Error("the workspace has no file tab");
+    }
+
+    await store.closeTab(workbench.id);
+
+    expect(filesCloseMock, "the browser riding the connection goes first").toHaveBeenCalledWith("f1");
+    expect(terminalCloseMock, "then the connection itself").toHaveBeenCalledWith("handle-1");
+    expect(filesCloseMock.mock.invocationCallOrder[0]).toBeLessThan(terminalCloseMock.mock.invocationCallOrder[0] ?? 0);
+    expect(tunnelsOpenMock, "and the forwards the connection carried are re-read").toHaveBeenCalledTimes(2);
+    expect(store.tabs).toHaveLength(0);
+  });
+
+  it("leaves the workbench tab, saying why, when a file browser refuses to close", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    filesOpenMock.mockResolvedValue(filesOpened());
+    filesCloseMock.mockRejectedValue(refused);
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    await store.openFiles(desk);
+    const workbench = workbenchTabOrFail(store);
+
+    await store.closeTab(workbench.id);
+
+    expect(terminalCloseMock, "the connection was not cut under the browser").not.toHaveBeenCalled();
+    expect(store.tabs.some((tab) => tab.kind === "files")).toBe(true);
+    expect(store.tabs.some((tab) => tab.id === workbench.id)).toBe(true);
+  });
+
+  it("numbers a workbench as its own kind, so it is no copy of the session's terminal", async () => {
+    sessionOpenMock
+      .mockResolvedValueOnce(opened())
+      .mockResolvedValueOnce({ ...opened(), handle: "handle-2" })
+      .mockResolvedValueOnce({ ...opened(), handle: "handle-3" });
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    await store.open(desk);
+    await store.open(session);
+
+    const first = workbenchTabOrFail(store);
+    const second = store.tabs.filter((tab): tab is WorkbenchTab => tab.kind === "workbench")[1];
+    if (!second) {
+      throw new Error("the second open did not make a second workbench");
+    }
+    expect(store.copyOf(first.id)).toBe(0);
+    expect(store.copyOf(second.id)).toBe(1);
+    expect(store.copyOf(terminalTabOrFail(store).id), "a terminal of the same session starts at its own zero").toBe(0);
+  });
+
+  it("reconnects a workbench whose connection is gone by opening the session again", async () => {
+    sessionOpenMock.mockResolvedValueOnce(opened()).mockResolvedValueOnce({ ...opened(), handle: "handle-2" });
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    const id = workbenchTabOrFail(store).id;
+    for (const listener of endedListeners) {
+      listener("handle-1");
+    }
+
+    await store.reconnect(id);
+
+    expect(store.tabs, "the dead tab went, a fresh one took its answer").toHaveLength(1);
+    expect(workbenchTabOrFail(store).handle).toBe("handle-2");
   });
 });

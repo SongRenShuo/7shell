@@ -42,8 +42,8 @@ export function reopenAction(openTabs: number, remembered: SessionReopen): Reope
 export interface SessionTabLike {
   readonly id: string;
   readonly sessionId: string;
-  /** What kind of a tab it is: a terminal and its file manager are not copies of each other. */
-  readonly kind: "terminal" | "files";
+  /** What kind of a tab it is: a terminal, a browser and a workbench are not copies of each other. */
+  readonly kind: "terminal" | "files" | "workbench";
 }
 
 /**
