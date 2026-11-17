@@ -839,6 +839,7 @@ function tabStyle(): Record<string, string> | undefined {
           :handle="tab.handle"
           :protocol="tab.session.protocol"
           :packed-transfers="tab.packed"
+          :initial-path="tab.initialPath"
           class="min-h-0 flex-1"
         />
 

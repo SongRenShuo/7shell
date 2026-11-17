@@ -95,10 +95,14 @@ import { usePreferencesStore } from "@/stores/preferences";
 import type { Protocol } from "@/types/generated/protocols";
 import type { SftpEntry } from "@/types/session";
 
-const props = withDefaults(defineProps<{ handle: string; protocol?: Protocol; packedTransfers?: boolean }>(), {
-  protocol: "ssh",
-  packedTransfers: true,
-});
+const props = withDefaults(
+  defineProps<{ handle: string; protocol?: Protocol; packedTransfers?: boolean; initialPath?: string }>(),
+  {
+    protocol: "ssh",
+    packedTransfers: true,
+    initialPath: undefined,
+  },
+);
 
 /**
  * The features that belong to one backend rather than to every browser.
@@ -281,6 +285,28 @@ function dismissFailure(): void {
     browser.value.failure = null;
   }
 }
+
+/**
+ * A path the open was asked to land on, taken once.
+ *
+ * The ask travels on the tab this browser was opened from, and it is answered here rather than in
+ * the store: the walk is this panel's own — the same one the address bar takes — and it happens
+ * only while the browser still stands where it opened, because a browser already somewhere is
+ * answering to the person who moved it, not to the entry they pressed earlier. Nothing is written
+ * down anywhere for it; the request was about where to start, not about where to keep going back.
+ */
+watch(
+  () => props.initialPath,
+  (wanted) => {
+    const open = browser.value;
+    if (wanted === undefined || open === null || open.path !== open.home || open.path === wanted) {
+      return;
+    }
+    void files.navigate(props.handle, wanted);
+  },
+  { immediate: true },
+);
+
 const parent = computed(() => (browser.value ? parentPath(browser.value.path) : null));
 const crumbs = computed(() => (browser.value ? crumbsOf(browser.value.path) : []));
 
