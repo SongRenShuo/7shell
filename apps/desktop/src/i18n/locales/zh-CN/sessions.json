@@ -120,7 +120,7 @@
         "terminal": "远程终端",
         "local": "本地与设备",
         "files": "文件服务",
-        "desktop": "远程桌面",
+        "desktop": "桌面",
         "containers": "容器与集群",
         "other": "其他"
       },
@@ -184,6 +184,16 @@
         "title": "映射",
         "drives": "本地驱动器",
         "note": "把本机驱动器映射进会话。会话期间远端可以读写这些驱动器。"
+      },
+      "workbench": {
+        "title": "工作台",
+        "wallpaper": "壁纸",
+        "wallpaperDefault": "界面默认",
+        "wallpaperAurora": "极光",
+        "wallpaperDawn": "晨曦",
+        "wallpaperForest": "森林",
+        "wallpaperPlain": "素色",
+        "note": "这台机器的工作台使用这里选择的壁纸作为背景。不选时沿用界面本身的壁纸。"
       },
       "host": "主机",
       "hostPlaceholder": "example.com",

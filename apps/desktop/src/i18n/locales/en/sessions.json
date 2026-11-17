@@ -120,7 +120,7 @@
         "terminal": "Remote terminals",
         "local": "Local & devices",
         "files": "File services",
-        "desktop": "Remote desktop",
+        "desktop": "Desktop",
         "containers": "Containers & clusters",
         "other": "Other"
       },
@@ -184,6 +184,16 @@
         "title": "Mapping",
         "drives": "Local drives",
         "note": "Map this computer's drives into the session. The remote can read and write them while it is open."
+      },
+      "workbench": {
+        "title": "Workbench",
+        "wallpaper": "Wallpaper",
+        "wallpaperDefault": "Interface default",
+        "wallpaperAurora": "Aurora",
+        "wallpaperDawn": "Dawn",
+        "wallpaperForest": "Forest",
+        "wallpaperPlain": "Plain",
+        "note": "This machine's workbench draws the backdrop chosen here. Without one it uses the interface's own wallpaper."
       },
       "host": "Host",
       "hostPlaceholder": "example.com",
