@@ -116,6 +116,7 @@ fn session(id: &str, protocol: sevenshell_types::Protocol, host: &str, port: u16
         auth: SessionAuth::with_password(AuthMethod::Password),
         terminal: TerminalSettings::default(),
         desktop: sevenshell_types::DesktopSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
         telnet: sevenshell_types::TelnetSettings::default(),
         serial: sevenshell_types::SerialSettings::default(),
         local: sevenshell_types::LocalSettings::default(),

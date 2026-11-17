@@ -81,7 +81,7 @@ pub use session::{
     Session, SessionAuth, SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SftpEntry,
     SftpListing, SftpOutcome, SftpPasteItem, SftpPasteOutcome, TelnetSettings, TerminalSettings, TransferDirection,
     TransferInfo, TransferState, TunnelFailure, UploadAnswer, UploadOutcome, VaultArchive, VaultState, WebDavSettings,
-    WslSettings,
+    WorkbenchPowerOutcome, WorkbenchSettings, WslSettings,
 };
 pub use settings::{
     AI_SESSION_RETENTION_DAYS_DEFAULT, AI_SESSION_RETENTION_DAYS_MAX, AI_SESSION_RETENTION_DAYS_MIN, AppLayout,

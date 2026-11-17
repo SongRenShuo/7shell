@@ -752,6 +752,7 @@ mod tests {
             auth: sevenshell_types::SessionAuth::with_password(sevenshell_types::AuthMethod::Password),
             terminal: sevenshell_types::TerminalSettings::default(),
             desktop: sevenshell_types::DesktopSettings::default(),
+            workbench: sevenshell_types::WorkbenchSettings::default(),
             telnet: sevenshell_types::TelnetSettings::default(),
             serial: sevenshell_types::SerialSettings::default(),
             local: sevenshell_types::LocalSettings::default(),

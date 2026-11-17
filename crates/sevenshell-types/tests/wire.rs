@@ -479,6 +479,7 @@ fn a_session_with_a_route_and_forwards_serializes_with_camel_case_fields() {
         },
         terminal: TerminalSettings::default(),
         desktop: sevenshell_types::DesktopSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
         telnet: sevenshell_types::TelnetSettings::default(),
         serial: sevenshell_types::SerialSettings::default(),
         local: sevenshell_types::LocalSettings::default(),
@@ -527,6 +528,42 @@ fn desktop_settings_serialize_with_camel_case_fields() {
     assert_eq!(json["height"], serde_json::json!(1080));
     assert_eq!(json["fullscreen"], serde_json::json!(true));
     assert_eq!(json["redirectDrives"], serde_json::json!(false));
+}
+
+#[test]
+fn a_workbench_session_serializes_with_camel_case_fields() {
+    // The workbench session is an SSH session on the wire: the same fields, with the protocol
+    // naming the machine the interface draws a workbench for. Nothing here is workbench-shaped
+    // yet except the protocol id, which is the point — the descriptor's `workbench` capability,
+    // not a new wire shape, is what tells the interface which pane to mount.
+    let session = Session {
+        id: "workbench-1".to_owned(),
+        name: "lab".to_owned(),
+        group_id: None,
+        protocol: Protocol::LinuxDesk,
+        host: "host.example".to_owned(),
+        port: 22,
+        user: "root".to_owned(),
+        auth: SessionAuth::with_password(AuthMethod::Password),
+        terminal: TerminalSettings::default(),
+        desktop: sevenshell_types::DesktopSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
+        telnet: sevenshell_types::TelnetSettings::default(),
+        serial: sevenshell_types::SerialSettings::default(),
+        local: sevenshell_types::LocalSettings::default(),
+        wsl: sevenshell_types::WslSettings::default(),
+        container: sevenshell_types::ContainerSettings::default(),
+        kubernetes: sevenshell_types::KubernetesSettings::default(),
+        webdav: sevenshell_types::WebDavSettings::default(),
+        ftp: sevenshell_types::FtpSettings::default(),
+        jump: Vec::new(),
+        forwards: Vec::new(),
+        updated_at: 1,
+    };
+
+    let json = check(&session, "Session");
+    assert_eq!(json["protocol"], serde_json::json!("linuxDesk"));
+    assert_eq!(json["host"], serde_json::json!("host.example"));
 }
 
 #[test]

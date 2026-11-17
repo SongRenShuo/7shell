@@ -208,7 +208,10 @@ impl Core {
     ) -> Result<OpenOutcome, ShellError> {
         let session = self.session(session_id)?;
         match session.protocol {
-            Protocol::Ssh => {}
+            // The workbench session is an SSH session in every mechanical sense: the open order —
+            // credential, host-key probe, decision, re-verify, authenticate — is the same order,
+            // and the only difference is the tab the interface mounts first.
+            Protocol::Ssh | Protocol::LinuxDesk => {}
             Protocol::Rdp => {
                 return Err(ShellError::app_unsupported(
                     "this session is a remote desktop, not a terminal",
@@ -392,6 +395,7 @@ impl Core {
                 until_cancelled(sevenshell_term::open_wsl(spec, size), cancel).await?
             }
             Protocol::Ssh
+            | Protocol::LinuxDesk
             | Protocol::Rdp
             | Protocol::WebDav
             | Protocol::Ftp
@@ -929,6 +933,7 @@ mod tests {
             auth: SessionAuth::with_password(AuthMethod::Password),
             terminal: TerminalSettings::default(),
             desktop: sevenshell_types::DesktopSettings::default(),
+            workbench: sevenshell_types::WorkbenchSettings::default(),
             telnet: sevenshell_types::TelnetSettings::default(),
             serial: sevenshell_types::SerialSettings::default(),
             local: sevenshell_types::LocalSettings::default(),

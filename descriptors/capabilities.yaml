@@ -117,6 +117,15 @@ capabilities:
   # in-process channels (view, input, resize, clipboard) were removed with the embedded engine in
   # c981da4; `systemClient` is the whole promise this build makes about a remote desktop.
 
+  # The desktop workbench is the other answer, and it is drawn by this process: a front page for a
+  # machine that composes the surfaces its connection already carries (system mark, monitor
+  # sample, file entries) into one view. Only the linuxDesk protocol claims it, and it is what
+  # decides that a session opens onto the workbench instead of a terminal.
+  - key: workbench
+    order: 150
+    group: desktop
+    labelKey: capability.workbench.label
+
   # -- Containers ---------------------------------------------------------
   # The workbench has panes for all five, and the Docker runtime is covered by live tests; the
   # other runtimes use the same command construction, with the environment gap recorded in AGENTS.

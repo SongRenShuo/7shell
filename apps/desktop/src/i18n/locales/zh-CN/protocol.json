@@ -6,6 +6,9 @@
     "rdp": {
       "label": "远程桌面（RDP）"
     },
+    "linuxDesk": {
+      "label": "Linux 桌面"
+    },
     "webdav": {
       "label": "WebDAV"
     },

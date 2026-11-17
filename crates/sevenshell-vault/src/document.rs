@@ -45,8 +45,10 @@ use crate::credential::{KeyEntry, SecretEntry, SecretKind, ServicePassword};
 /// Version 12 added the assistant's stored conversations and the table the secrets of an external
 /// MCP server will live in: an older build reading one would parse the document, drop both tables
 /// and write it back — every conversation and every server credential gone in the course of
-/// somebody opening the window.
-pub const VAULT_SCHEMA_VERSION: u32 = 12;
+/// somebody opening the window. Version 13 added a workbench session's backdrop choice, which an
+/// older build would drop on its next write — a face the person chose for that machine, gone
+/// without a word.
+pub const VAULT_SCHEMA_VERSION: u32 = 13;
 
 /// How many sent commands are remembered. Enough to cover a working session's worth of "what was
 /// that line", and bounded so the vault does not grow with every command ever typed.
@@ -971,7 +973,8 @@ pub(crate) fn migrate(mut document: Document) -> Result<Document, ShellError> {
     // meant — so the steps are the version number alone. 9 → 10: a session secret may now be a
     // kubeconfig document. 10 → 11: the document may now carry an assistant provider's key. 11 → 12:
     // it may now carry the assistant's conversations and an MCP server's credentials, and an older
-    // document simply has neither table. The number moves so an older build refuses the whole file as
+    // document simply has neither table. 12 → 13: a session may now carry the workbench's backdrop
+    // choice. The number moves so an older build refuses the whole file as
     // too new instead of failing to read one unknown secret variant and calling the vault corrupt, and
     // so a build that predates the keys cannot drop them by writing the document back.
     document.schema_version = VAULT_SCHEMA_VERSION;
@@ -1016,6 +1019,7 @@ mod tests {
             auth: SessionAuth::with_password(AuthMethod::Password),
             terminal: TerminalSettings::default(),
             desktop: sevenshell_types::DesktopSettings::default(),
+            workbench: sevenshell_types::WorkbenchSettings::default(),
             telnet: sevenshell_types::TelnetSettings::default(),
             serial: sevenshell_types::SerialSettings::default(),
             local: sevenshell_types::LocalSettings::default(),

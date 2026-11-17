@@ -28,6 +28,9 @@ pub struct Session {
     /// What a remote desktop asks of the system client. Ignored by SSH sessions.
     #[serde(default)]
     pub desktop: DesktopSettings,
+    /// How the desktop workbench draws this machine. Only a `linuxDesk` session reads it.
+    #[serde(default, skip_serializing_if = "WorkbenchSettings::is_empty")]
+    pub workbench: WorkbenchSettings,
     /// What a Telnet console expects on the wire. Ignored by every other protocol.
     #[serde(default)]
     pub telnet: TelnetSettings,
@@ -504,6 +507,43 @@ impl Default for DesktopSettings {
             redirect_drives: true,
         }
     }
+}
+
+/// What the desktop workbench draws for this session.
+///
+/// The workbench is the `linuxDesk` protocol's front page, and this carries the personal bits a
+/// person chooses for how *this machine's* workbench looks. They live on the session beside the
+/// rest of what the vault holds rather than in the interface's storage, because a face chosen
+/// for one machine is a setting about that machine, not a habit of the person who chose it — and
+/// it should travel with the session the way every other per-session choice does.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbenchSettings {
+    /// Which built-in backdrop the workbench draws. `None` is the interface's default, and a
+    /// document written before this field existed has none of it — which is what every older
+    /// document meant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallpaper: Option<String>,
+}
+
+impl WorkbenchSettings {
+    /// Whether nothing has been chosen. An empty setting is left out of the wire document, the
+    /// way the other per-protocol settings that default to nothing are.
+    pub fn is_empty(&self) -> bool {
+        self.wallpaper.is_none()
+    }
+}
+
+/// Whether a power action the workbench asked for reached the machine.
+///
+/// `shutdown` and `reboot` often take the connection down before the command can report an exit
+/// status, so "no status" is the action working rather than failing. An exit status the machine
+/// did report is the machine's own answer, and a non-zero one is this type's only failure path —
+/// which the error envelope carries, not this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbenchPowerOutcome {
+    pub issued: bool,
 }
 
 /// A folder in the session tree. Groups nest, and are ordered by `order`.

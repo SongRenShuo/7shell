@@ -136,6 +136,13 @@
       "planned": false
     },
     {
+      "key": "workbench",
+      "order": 150,
+      "group": "desktop",
+      "labelKey": "capability.workbench.label",
+      "planned": false
+    },
+    {
       "key": "container",
       "order": 190,
       "group": "container",
@@ -242,6 +249,30 @@
       "supportLevel": "connect",
       "capabilities": [
         "systemClient"
+      ]
+    },
+    {
+      "id": "linuxDesk",
+      "rustVariant": "LinuxDesk",
+      "order": 22,
+      "labelKey": "protocol.linuxDesk.label",
+      "defaultPort": 22,
+      "runtime": "native",
+      "transport": "tcp",
+      "supportLevel": "connect",
+      "capabilities": [
+        "shell",
+        "exec",
+        "resize",
+        "keepalive",
+        "hostMetrics",
+        "sftp",
+        "scp",
+        "jumpHost",
+        "forwarding",
+        "dynamicForwarding",
+        "recording",
+        "workbench"
       ]
     },
     {

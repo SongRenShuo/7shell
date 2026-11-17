@@ -57,6 +57,9 @@
     "systemClient": {
       "label": "Opens in the system remote desktop client"
     },
+    "workbench": {
+      "label": "Desktop workbench"
+    },
     "container": {
       "label": "Containers"
     },

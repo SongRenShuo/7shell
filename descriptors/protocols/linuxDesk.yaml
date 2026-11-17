@@ -1,0 +1,31 @@
+schemaVersion: 1
+order: 22
+id: linuxDesk
+rustVariant: LinuxDesk
+labelKey: protocol.linuxDesk.label
+defaultPort: 22
+# A Linux machine reached over SSH, whose front page is the desktop workbench: the session is
+# carried by the same machinery as `ssh` (same open path, same host-key order, same vault
+# fields, no remote footprint), and the only difference is the tab the interface mounts first.
+# The workbench composes surfaces the connection already carries — the system mark, the host
+# monitor's sample, the file browser — rather than opening any new way to reach the machine.
+runtime: native
+transport: tcp
+supportLevel: connect
+# The capabilities this protocol honours are the SSH set the workbench and its terminal actually
+# use, plus `workbench`, which only this protocol claims: it is what tells the interface to mount
+# the workbench tab and what later tells the agent interface which tools a workbench session has.
+# Agent forwarding is left unclaimed on purpose: nothing here uses it yet.
+capabilities:
+  - shell
+  - exec
+  - resize
+  - keepalive
+  - hostMetrics
+  - sftp
+  - scp
+  - jumpHost
+  - forwarding
+  - dynamicForwarding
+  - recording
+  - workbench
