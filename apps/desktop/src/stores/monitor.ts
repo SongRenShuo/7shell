@@ -178,15 +178,34 @@ export const useMonitorStore = defineStore("monitor", () => {
    * blanking the panel for a click. The handle is a terminal's, because a sample rides the
    * connection that terminal opened. A tab about no host at all — the settings page — is nobody's
    * session, so the panel falls back to saying it has no connection rather than to the last one.
+   *
+   * A workbench tab is the other way in: it holds the SSH connection itself, so when the workbench
+   * is what is on screen the sample rides that handle — and when a terminal of the same session is
+   * on screen instead, the terminal's handle is the one used, because that is the connection the
+   * person is looking at.
    */
   const target = computed<MonitorTarget | null>(() => {
     const active = terminals.activeTab;
     const activeSession = active ? sessionOf(active) : null;
     // The monitor reads a host by running commands over an SSH channel. A local shell, a serial
     // console and Telnet have no such channel, and the honest answer is the panel's empty state,
-    // not an error card saying a feature is missing.
-    if (!activeSession || activeSession.protocol !== "ssh") {
+    // not an error card saying a feature is missing. The Linux desktop session is an SSH one in
+    // every mechanical sense, so its channel is real too.
+    if (!activeSession || (activeSession.protocol !== "ssh" && activeSession.protocol !== "linuxDesk")) {
       return null;
+    }
+
+    const activeWorkbench = active?.kind === "workbench" ? active : null;
+    if (activeWorkbench && activeWorkbench.handle !== null && activeWorkbench.failure === null) {
+      const { session } = activeWorkbench;
+      return {
+        handle: activeWorkbench.handle,
+        sessionId: session.id,
+        name: session.name,
+        host: session.host,
+        port: session.port,
+        user: session.user,
+      };
     }
 
     const open = terminals.tabs.find(

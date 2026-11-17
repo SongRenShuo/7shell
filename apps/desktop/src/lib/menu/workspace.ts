@@ -16,7 +16,7 @@ import type { MenuEntry } from "./types";
 
 export interface TabMenuState {
   /** Which half of the workspace this is: neither page has a stream to reconnect. */
-  readonly kind: "terminal" | "files" | "inspect" | "settings" | "batch" | "container" | "kubernetes";
+  readonly kind: "terminal" | "files" | "workbench" | "inspect" | "settings" | "batch" | "container" | "kubernetes";
   /** `null` for a page, which has no stream of its own to have ended. */
   readonly status: "open" | "ended" | "failed" | null;
   /** Whether it is already drawing a browser: one with a handle must not be opened a second time. */
@@ -46,6 +46,11 @@ export function canReconnect(state: TabMenuState): boolean {
     return false;
   }
   if (state.kind === "files") {
+    return !state.hasHandle;
+  }
+  // A workbench has no stream to end, so the handle is its whole answer: one there means the
+  // connection is up and there is nothing to retry, one gone means the open is the retry.
+  if (state.kind === "workbench") {
     return !state.hasHandle;
   }
   if (state.kind === "container" || state.kind === "kubernetes") {
