@@ -84,6 +84,7 @@ fn sample_session(id: &str, name: &str) -> Session {
         auth: SessionAuth::with_password(AuthMethod::Password),
         terminal: TerminalSettings::default(),
         desktop: DesktopSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
         telnet: TelnetSettings::default(),
         serial: SerialSettings::default(),
         local: LocalSettings::default(),

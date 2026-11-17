@@ -122,6 +122,7 @@ fn lab(decisions: &[ApprovalDecision]) -> Option<Lab> {
         auth: SessionAuth::with_password(AuthMethod::Password),
         terminal: TerminalSettings::default(),
         desktop: DesktopSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
         telnet: TelnetSettings::default(),
         serial: SerialSettings::default(),
         local: LocalSettings::default(),
