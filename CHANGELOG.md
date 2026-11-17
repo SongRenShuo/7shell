@@ -4,6 +4,25 @@ All notable changes to 7Shell are documented in this file. The format is
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Linux desktop workbench
+
+- A new connection type, **Linux desktop** (`linuxDesk`): an SSH session whose front page is a
+  desktop workbench — the system card (operating system, host name, live processor, memory and
+  disk readings), file quick entries with this session's recent directories, the session card
+  with entries to the terminal, the file browser and the monitor pages, and power actions behind
+  a confirmation and the policy matrix. It is an ordinary SSH session underneath — the same open
+  order, the same host-key decisions, no remote footprint — and every surface it draws rides the
+  connection it already carries (00c2c5a, 0d15ee3, 426a058, 51b2757, ae0cc7a…44373bd, a026fe2).
+- The session editor's workbench section: a per-machine backdrop choice (default or one of four
+  built-in wallpapers), stored on the session; the vault document moves to schema 13, and older
+  documents open with the default (00c2c5a, 51b2757).
+- A file browser can be opened onto the path an entry named, from the workbench's recent list
+  (44373bd).
+
 ## [0.2.0] - 2026-11-17
 
 The browser-host release. The interface now runs in a normal browser from a loopback host, so
