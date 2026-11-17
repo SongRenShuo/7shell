@@ -154,7 +154,13 @@ mod tests {
 
         let (core, _events): (Arc<Core>, _) = Core::new(vault);
         let journal = Arc::new(RecordingJournal::default());
-        core.set_policy(PolicyMatrix { global: rule, ..PolicyMatrix::default() }, Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>));
+        core.set_policy(
+            PolicyMatrix {
+                global: rule,
+                ..PolicyMatrix::default()
+            },
+            Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>),
+        );
         (directory, core, journal)
     }
 
@@ -192,7 +198,12 @@ mod tests {
         // runs first.
         let (_directory, core, journal) = core_with_policy(PolicyRule::default());
         let error = core
-            .workbench_power("session-that-never-existed", "handle-that-never-existed", "format", true)
+            .workbench_power(
+                "session-that-never-existed",
+                "handle-that-never-existed",
+                "format",
+                true,
+            )
             .await
             .expect_err("an unknown verb is refused");
 

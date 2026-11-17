@@ -1047,7 +1047,12 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let handle: String = from_args(&args, "handle")?;
             let action: String = from_args(&args, "action")?;
             let acknowledged: bool = from_args(&args, "acknowledged")?;
-            to_value(state.core.workbench_power(&session_id, &handle, &action, acknowledged).await?)
+            to_value(
+                state
+                    .core
+                    .workbench_power(&session_id, &handle, &action, acknowledged)
+                    .await?,
+            )
         }
 
         "container_connect" => {
