@@ -46,6 +46,10 @@
  *
  * The fourth is the settings page — about the application rather than about a host, which is why it
  * is the one shape with no session in it. See [`SettingsTab`] and [`sessionOf`].
+ *
+ * A Linux desktop session opens as a fifth: the workbench, which holds a handle like a terminal
+ * does — the connection underneath is the same SSH one — but draws no stream, so it has no status
+ * machine to move and no panel to split. See [`WorkbenchTab`].
  */
 
 import { defineStore } from "pinia";
@@ -121,6 +125,7 @@ export type OpenTarget =
   | { readonly to: "terminal"; readonly tabId?: string }
   | { readonly to: "files" }
   | { readonly to: "panel"; readonly tabId: string }
+  | { readonly to: "workbench" }
   // A batch is not about the session that raised the decision: it is about the request, which the
   // batch store kept for exactly this — so the answer asks it to repeat that request.
   | { readonly to: "batch" };
@@ -181,6 +186,33 @@ export interface FilesTab {
    * session, and a session outlives any one tab.
    */
   readonly ownerId?: string;
+  /**
+   * A path the open was asked to land on, or nothing for the session's own default.
+   *
+   * Read once by the browser when it is drawn — it is a request about where to start rather than a
+   * state to keep, which is why it lives on the tab and nowhere a settings file could reach. A
+   * browser that is already up is navigated instead; see `openFiles`.
+   */
+  readonly initialPath?: string;
+}
+
+/**
+ * The desktop workbench, drawn as a tab: the face a Linux desktop session opens as.
+ *
+ * The connection underneath is an ordinary SSH one — the same open, the same handle a terminal would
+ * have kept — but this tab draws no stream, so it has no status machine: there is a handle, or there
+ * is the failure that left the tab without one. When the machine itself ends the connection (a power
+ * action does exactly that), the bus reports the handle closed and the handle going is what tells the
+ * tab the session is over.
+ */
+export interface WorkbenchTab {
+  readonly kind: "workbench";
+  id: string;
+  readonly session: Session;
+  /** The handle the backend knows this connection by, once there is one. */
+  handle: string | null;
+  /** The envelope of the failure that left the tab without a connection, when there was one. */
+  failure: ShellError | null;
 }
 
 /** The host pages the monitor opens: a closer look at one machine, in a tab of its own. */
@@ -248,7 +280,15 @@ export interface KubernetesTab {
   connectionId: string | null;
 }
 
-export type WorkspaceTab = TerminalTab | FilesTab | InspectTab | SettingsTab | BatchTab | ContainerTab | KubernetesTab;
+export type WorkspaceTab =
+  | TerminalTab
+  | FilesTab
+  | WorkbenchTab
+  | InspectTab
+  | SettingsTab
+  | BatchTab
+  | ContainerTab
+  | KubernetesTab;
 
 /**
  * The session a tab is about, or nothing when it is about no host.
@@ -381,6 +421,17 @@ export const useTerminalsStore = defineStore("terminals", () => {
     void refreshTunnels();
     const tab = tabs.value.find((entry): entry is TerminalTab => entry.kind === "terminal" && entry.handle === handle);
     if (!tab) {
+      // A workbench draws no stream, but it rides one: the connection ending is what its tab has to
+      // reflect, and the handle going is what says the session no longer has anywhere to be. There
+      // is no envelope for "the machine went away", so the tab keeps its failure empty and its
+      // missing handle is the whole of what it says.
+      const workbench = tabs.value.find(
+        (entry): entry is WorkbenchTab => entry.kind === "workbench" && entry.handle === handle,
+      );
+      if (workbench) {
+        workbench.handle = null;
+        return;
+      }
       // No tab draws this handle. Anything that creates one later asks the bus what happened,
       // which is why the reason is remembered rather than dropped here.
       return;
@@ -434,7 +485,15 @@ export const useTerminalsStore = defineStore("terminals", () => {
     recents.record(session.id);
     connectingSessionIds.value.push(session.id);
     try {
-      acceptTerminal(session, await backend.terminal.open(session.id));
+      const outcome = await backend.terminal.open(session.id);
+      // A Linux desktop session is an SSH session in every mechanical sense — the same open on the
+      // same connection — but what it opens as is the workbench, not a terminal. The capability, not
+      // a name comparison, decides: every protocol that says it has a workbench opens as one.
+      if (protocolSupports(session.protocol, "workbench")) {
+        acceptWorkbench(session, outcome);
+      } else {
+        acceptTerminal(session, outcome);
+      }
       forgetFailure(session.id);
     } catch (error) {
       recordFailure(session, asShellError(error, "session_open"));
@@ -468,11 +527,17 @@ export const useTerminalsStore = defineStore("terminals", () => {
    * exists is gone back to instead of duplicated: it is the same kind of thing, and a second copy of
    * it would drift.
    */
-  async function openFiles(session: Session): Promise<void> {
+  async function openFiles(session: Session, initialPath?: string): Promise<void> {
     // A remote desktop has no SFTP side; the menu does not offer this, and a caller that reaches it
     // some other way gets nothing rather than an SSH attempt against an RDP port. A WebDAV folder
-    // is the opposite: the file browser is the whole session.
-    if (session.protocol !== "ssh" && session.protocol !== "webdav" && session.protocol !== "ftp") {
+    // is the opposite: the file browser is the whole session. A Linux desktop session is an SSH one
+    // underneath, so its SFTP side is real and the workbench's file area opens onto it.
+    if (
+      session.protocol !== "ssh" &&
+      session.protocol !== "linuxDesk" &&
+      session.protocol !== "webdav" &&
+      session.protocol !== "ftp"
+    ) {
       return;
     }
     // A browser that is already up is still this session being used, which is why the record is
@@ -483,6 +548,12 @@ export const useTerminalsStore = defineStore("terminals", () => {
     );
     if (showing) {
       activeTabId.value = showing.id;
+      // A path handed in with the ask is a place to be, not only a place to open: a browser that is
+      // already up walks there through the navigation it already uses — the same walk the address
+      // bar takes — and writes nothing down anywhere for it.
+      if (initialPath !== undefined && showing.handle !== null) {
+        await files.navigate(showing.handle, initialPath);
+      }
       return;
     }
     if (connectingSessionIds.value.includes(session.id)) {
@@ -491,7 +562,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
 
     connectingSessionIds.value.push(session.id);
     try {
-      acceptFiles(session, await files.open(session.id));
+      acceptFiles(session, await files.open(session.id), initialPath);
       forgetFailure(session.id);
     } catch (error) {
       recordFailure(session, asShellError(error, "files_open"));
@@ -638,16 +709,23 @@ export const useTerminalsStore = defineStore("terminals", () => {
   }
 
   /**
-   * The tabs a session has open right now: a shell that is running, or a browser that is up.
+   * The tabs a session has open right now: a shell that is running, a browser that is up, or a
+   * workbench whose connection is still held.
    *
    * Not the monitor's pages, which are about a host without being connected to it, and not a tab
    * that ended or failed: "the session is open" is a question about a connection, and a tab whose
-   * only content is the reason there is none is not an answer to it.
+   * only content is the reason there is none is not an answer to it. The workbench has no stream
+   * that could end, so its answer is the handle itself — a machine that took its connection down
+   * reports through the bus, which clears the handle (see `markEnded`), and a tab without one is
+   * the session being closed, not open.
    */
   function openTabsOf(sessionId: string): WorkspaceTab[] {
-    return tabs.value.filter((tab) =>
-      tab.kind === "terminal" || tab.kind === "files" ? tab.session.id === sessionId && tab.status === "open" : false,
-    );
+    return tabs.value.filter((tab) => {
+      if (tab.kind === "terminal" || tab.kind === "files") {
+        return tab.session.id === sessionId && tab.status === "open";
+      }
+      return tab.kind === "workbench" && tab.session.id === sessionId && tab.handle !== null && tab.failure === null;
+    });
   }
 
   /**
@@ -725,7 +803,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
   const sessionCopies = computed<Record<string, number>>(() =>
     sessionCopyIndex(
       tabs.value.flatMap((tab) =>
-        tab.kind === "terminal" || tab.kind === "files"
+        tab.kind === "terminal" || tab.kind === "files" || tab.kind === "workbench"
           ? [{ id: tab.id, sessionId: tab.session.id, kind: tab.kind }]
           : [],
       ),
@@ -843,7 +921,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
     raiseDecision(session, { to: "terminal" }, outcome);
   }
 
-  function acceptFiles(session: Session, outcome: SftpOutcome): void {
+  function acceptFiles(session: Session, outcome: SftpOutcome, initialPath?: string): void {
     if (outcome.kind === "opened") {
       addTab({
         kind: "files",
@@ -853,11 +931,40 @@ export const useTerminalsStore = defineStore("terminals", () => {
         status: "open",
         failure: null,
         packed: outcome.packed,
+        initialPath,
       });
       return;
     }
 
     raiseDecision(session, { to: "files" }, outcome);
+  }
+
+  /**
+   * Draws the workbench a Linux desktop session opens as.
+   *
+   * The handle is an ordinary SSH connection's — the same one a terminal would have kept — but the
+   * tab holding it draws no stream, so nothing here waits on a terminal bus and there is no status
+   * to move. A decision is raised the way every open raises one; the answer re-enters through
+   * `open`, and the fork there decides the shape again, which is why the target carries no tab id.
+   */
+  function acceptWorkbench(session: Session, outcome: OpenOutcome): void {
+    if (outcome.kind === "opened") {
+      rememberTunnels(outcome.tunnels);
+      rememberTunnelFailures(outcome.tunnelFailures);
+      addTab({
+        kind: "workbench",
+        id: crypto.randomUUID(),
+        session,
+        handle: outcome.handle,
+        failure: null,
+      });
+      // Asked once the connection is up rather than as part of opening it, exactly as a terminal's
+      // is: which mark a row draws is not worth a moment of the connection somebody is waiting for.
+      void describeHost(session, outcome.handle);
+      return;
+    }
+
+    raiseDecision(session, { to: "workbench" }, outcome);
   }
 
   /**
@@ -1164,6 +1271,12 @@ export const useTerminalsStore = defineStore("terminals", () => {
       await openFiles(session);
       return;
     }
+    if (target.to === "workbench") {
+      // The open again rather than an accept: the fork decides the shape, and if the session's
+      // settings changed in the meantime it is the settings that win.
+      await open(session);
+      return;
+    }
     if (target.to === "panel") {
       // The tab may be gone: a decision does not hold a tab open, and the person may have closed
       // it rather than answer.
@@ -1200,6 +1313,12 @@ export const useTerminalsStore = defineStore("terminals", () => {
     }
     if (target.to === "files") {
       addFiles(session, { handle: null, status: "failed", failure });
+      return;
+    }
+    if (target.to === "workbench") {
+      // The workbench is where the person who asked is looking, so the failure is drawn there —
+      // the same rule the terminal branch below follows, in a tab of the shape they asked for.
+      addTab({ kind: "workbench", id: crypto.randomUUID(), session, handle: null, failure });
       return;
     }
     if (target.to === "panel") {
@@ -1266,6 +1385,35 @@ export const useTerminalsStore = defineStore("terminals", () => {
           // The connection is gone from the interface either way; a backend that already forgot it
           // has nothing left to report.
         }
+      }
+      return;
+    }
+
+    // A workbench tab is one backend connection, exactly as a container tab is: an SSH connection
+    // with a face on it instead of a shell. The file tabs this session opened ride that connection,
+    // and their browsers' channel is cut the moment it goes — so they are closed first, the same
+    // order a terminal's panel follows, and a browser that refuses to close stops the whole close,
+    // because cutting the connection under a browser that is still moving files is not better than
+    // leaving the tab for a retry.
+    if (tab.kind === "workbench") {
+      const owned = tabs.value.filter(
+        (entry): entry is FilesTab => entry.kind === "files" && entry.session.id === tab.session.id,
+      );
+      for (const filesTab of owned) {
+        await closeTab(filesTab.id);
+        if (filesTab.status === "failed") {
+          return;
+        }
+      }
+      try {
+        if (tab.handle !== null) {
+          await backend.terminal.close(tab.handle);
+        }
+        forget(tab.id);
+        // Closing a connection closes the forwards that were carrying its traffic.
+        await refreshTunnels();
+      } catch (error) {
+        tab.failure = asShellError(error, "terminal_close");
       }
       return;
     }
@@ -1396,12 +1544,14 @@ export const useTerminalsStore = defineStore("terminals", () => {
     if (tab.kind === "files") {
       return tab.handle;
     }
-    // A page about a host draws no browser, and neither does the settings page, the batch panel or
-    // a remote desktop, so there is nowhere for a dropped file to land in any of them.
+    // A page about a host draws no browser, and neither does the settings page, the batch panel,
+    // the workbench or a remote desktop, so there is nowhere for a dropped file to land in any of
+    // them.
     if (
       tab.kind === "inspect" ||
       tab.kind === "settings" ||
       tab.kind === "batch" ||
+      tab.kind === "workbench" ||
       tab.kind === "container" ||
       tab.kind === "kubernetes"
     ) {
@@ -1561,6 +1711,13 @@ export const useTerminalsStore = defineStore("terminals", () => {
     if (tab.kind === "files") {
       forget(id);
       await openFiles(tab.session);
+      return;
+    }
+    if (tab.kind === "workbench") {
+      // The open again rather than a revive in place: the workbench has no stream to keep on
+      // screen while a new connection is made, so a fresh tab is the whole of what a reconnect is.
+      forget(id);
+      await open(tab.session);
       return;
     }
 
