@@ -139,9 +139,18 @@ async fn a_terminal_carries_bytes_in_both_directions() {
     terminal.write(line.as_bytes()).await.expect("write should be accepted");
 
     let mut seen = Vec::new();
+    // The other end of this terminal is the test itself, and a real terminal client answers the
+    // cursor-position query a host writes into the stream — xterm.js does it for the actual
+    // interface, which is why the product never sees this. A newer conhost waits on the answer
+    // before it shows the prompt, so the loop below replies once, the way a terminal would.
+    let mut answered_cursor_query = false;
     let found = tokio::time::timeout(Duration::from_secs(30), async {
         while let Some(chunk) = terminal.next_output().await {
             seen.extend_from_slice(&chunk);
+            if !answered_cursor_query && seen.windows(4).any(|w| w == b"\x1b[6n") {
+                answered_cursor_query = true;
+                terminal.write(b"\x1b[1;1R").await.expect("answer should be accepted");
+            }
             if String::from_utf8_lossy(&seen).contains("pty-ok") {
                 return true;
             }
