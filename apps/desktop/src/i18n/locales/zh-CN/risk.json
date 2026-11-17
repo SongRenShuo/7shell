@@ -40,6 +40,11 @@
       "namespaceDelete": "删除命名空间及其中的全部内容",
       "evict": "把 Pod 从节点上驱逐",
       "unknown": "当前版本不认识的集群请求"
+    },
+    "workbench": {
+      "reboot": "重启机器",
+      "shutdown": "关闭机器电源",
+      "unknown": "当前版本不认识的工作台操作"
     }
   }
 }
