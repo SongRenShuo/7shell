@@ -127,6 +127,18 @@ export interface Session {
   readonly updatedAt: number;
 }
 
+/**
+ * How the desktop workbench draws this machine.
+ *
+ * The ids are a contract shared with the workbench pane: the editor offers them and the pane draws
+ * them, so neither may rename one without the other. The wire type carries a plain string, and an
+ * id a build does not know is that build's default backdrop rather than an error.
+ */
+export interface WorkbenchSettings {
+  /** Which built-in backdrop the workbench draws. Absent means the interface's default. */
+  readonly wallpaper?: string;
+}
+
 /** The fields the RDP editor groups under "display" and "mapping". */
 export interface DesktopSettings {
   /** Window size in pixels; ignored when `fullscreen` is on. */
