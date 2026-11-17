@@ -461,4 +461,58 @@ describe("session editor store", () => {
     expect(editor.kubeContextsFailure?.code).toBeTruthy();
     expect(editor.kubeContextsBusy).toBe(false);
   });
+
+  it("reads a workbench session's saved wallpaper into the draft and saves the choice back", () => {
+    const editor = useSessionEditorStore();
+    editor.fill({
+      ...sample("lab", "lab"),
+      protocol: "linuxDesk",
+      workbench: { wallpaper: "aurora" },
+    });
+
+    expect(editor.isWorkbench).toBe(true);
+    expect(editor.workbenchWallpaper).toBe("aurora");
+    expect(editor.draft().workbench).toEqual({ wallpaper: "aurora" });
+
+    // Another choice saves under its own id, and "no choice" saves as nothing at all: the field
+    // the wire document omits is the one every older session already means by its absence.
+    editor.workbenchWallpaper = "forest";
+    expect(editor.draft().workbench).toEqual({ wallpaper: "forest" });
+    editor.workbenchWallpaper = "";
+    expect(editor.draft().workbench).toBeUndefined();
+  });
+
+  it("carries no workbench block on a protocol the workbench does not apply to", () => {
+    const editor = useSessionEditorStore();
+    editor.fill(sample("ssh-host", "ssh-host"));
+
+    // A value held from a draft that was on a workbench kind is not written onto another kind —
+    // the same rule the container and cluster blocks follow. Switching back brings it out again.
+    editor.workbenchWallpaper = "aurora";
+    expect(editor.isWorkbench).toBe(false);
+    expect(editor.draft().workbench).toBeUndefined();
+
+    editor.setProtocol("linuxDesk");
+    expect(editor.draft().workbench).toEqual({ wallpaper: "aurora" });
+    editor.setProtocol("ssh");
+    expect(editor.draft().workbench).toBeUndefined();
+  });
+
+  it("restores the wallpaper when the editor reopens on the saved session", async () => {
+    const library = useSessionsStore();
+    const editor = useSessionEditorStore();
+    editor.fill({ ...sample("lab", "lab"), protocol: "linuxDesk" });
+    editor.workbenchWallpaper = "dawn";
+
+    await library.save(editor.draft());
+    const saved = sessionSaveMock.mock.calls[0]?.[0];
+    expect(saved?.workbench).toEqual({ wallpaper: "dawn" });
+
+    // A reopening draft starts from nothing and reads the choice back out of the saved session.
+    editor.fill(null);
+    expect(editor.workbenchWallpaper).toBe("");
+    const reopened = library.sessions.find((session) => session.id === "lab");
+    editor.fill(reopened ?? null);
+    expect(editor.workbenchWallpaper).toBe("dawn");
+  });
 });

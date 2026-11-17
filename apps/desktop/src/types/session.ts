@@ -102,6 +102,8 @@ export interface Session {
   readonly terminal: TerminalSettings;
   /** What a remote desktop asks of the system client. Absent on SSH sessions and older exports. */
   readonly desktop?: DesktopSettings;
+  /** How the desktop workbench draws this machine. Only a `linuxDesk` session reads it. */
+  readonly workbench?: WorkbenchSettings;
   /** What a Telnet console expects on the wire. Absent on every other protocol. */
   readonly telnet?: TelnetSettings;
   /** The serial port and its line parameters. Absent on every other protocol. */
@@ -123,6 +125,18 @@ export interface Session {
   /** Ports to forward while this session is open. */
   readonly forwards?: readonly LocalForward[];
   readonly updatedAt: number;
+}
+
+/**
+ * How the desktop workbench draws this machine.
+ *
+ * The ids are a contract shared with the workbench pane: the editor offers them and the pane draws
+ * them, so neither may rename one without the other. The wire type carries a plain string, and an
+ * id a build does not know is that build's default backdrop rather than an error.
+ */
+export interface WorkbenchSettings {
+  /** Which built-in backdrop the workbench draws. Absent means the interface's default. */
+  readonly wallpaper?: string;
 }
 
 /** The fields the RDP editor groups under "display" and "mapping". */

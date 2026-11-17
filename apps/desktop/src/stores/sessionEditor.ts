@@ -17,7 +17,13 @@ import { backend } from "@/lib/backend/api";
 import { type ShellError, asShellError } from "@/lib/backend/errors";
 import { useSessionsStore } from "@/stores/sessions";
 import type { ContainerRuntime, ContainerSettings, ContainerTransport } from "@/types/container";
-import { PROTOCOLS, protocolById, type AuthMethodId, type Protocol } from "@/types/generated/protocols";
+import {
+  PROTOCOLS,
+  protocolById,
+  protocolSupports,
+  type AuthMethodId,
+  type Protocol,
+} from "@/types/generated/protocols";
 import type { KubeconfigSource, KubeContextInfo, KubernetesSettings } from "@/types/k8s";
 import type {
   BackspaceMode,
@@ -249,6 +255,16 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
   const desktopFullscreen = ref(DEFAULT_DESKTOP.fullscreen);
   const desktopDrives = ref(DEFAULT_DESKTOP.redirectDrives);
 
+  /**
+   * Which built-in backdrop the workbench draws for this machine, as the session's choice names it.
+   *
+   * Empty is "no choice", which saves as nothing at all: an absent field is what every session
+   * written before the choice existed carries, and the interface's default is what both of those
+   * mean. The ids are the four the workbench pane draws; anything else the wire may carry is not
+   * offered here, but a session that names one keeps it rather than being quietly rewritten.
+   */
+  const workbenchWallpaper = ref("");
+
   /** The Telnet keyboard translation, which is the whole of what a console can be configured with. */
   const telnetEnter = ref<EnterMode>(DEFAULT_TELNET.enter);
   const telnetBackspace = ref<BackspaceMode>(DEFAULT_TELNET.backspace);
@@ -311,17 +327,29 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
       protocol.value === "rawTcp" ||
       protocol.value === "rdp" ||
       protocol.value === "webdav" ||
-      protocol.value === "ftp",
+      protocol.value === "ftp" ||
+      // A workbench session rides the SSH open path, so it is reached the same way.
+      protocol.value === "linuxDesk",
   );
 
   /** Whether this connection has a person to name. Only SSH, RDP, WebDAV and FTP do. */
   const needsUser = computed(
     () =>
-      protocol.value === "ssh" || protocol.value === "rdp" || protocol.value === "webdav" || protocol.value === "ftp",
+      protocol.value === "ssh" ||
+      protocol.value === "rdp" ||
+      protocol.value === "webdav" ||
+      protocol.value === "ftp" ||
+      protocol.value === "linuxDesk",
   );
 
   /** Whether SSH's authentication, route and forwarding sections apply. */
   const isSsh = computed(() => protocol.value === "ssh");
+
+  /**
+   * Whether the desktop workbench section applies: the protocol descriptor claims the capability,
+   * so a protocol that gains it later lights the section up without this store learning its name.
+   */
+  const isWorkbench = computed(() => protocolSupports(protocol.value, "workbench"));
 
   /** Whether the remote-desktop display section applies. */
   const isRdp = computed(() => protocol.value === "rdp");
@@ -375,7 +403,9 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     // has to be answered, and even that can be left for an anonymous server.
     user: needsUser.value && !isWebDav.value && user.value.trim() === "",
     port: needsEndpoint.value && !isWebDav.value && !validPort(port.value, 1),
-    key: isSsh.value && method.value === "publicKey" && !attachedKey.value?.keyRef,
+    // A workbench session signs in the way SSH does, so a public-key choice there is as incomplete
+    // without a key as it is on SSH itself.
+    key: (isSsh.value || isWorkbench.value) && method.value === "publicKey" && !attachedKey.value?.keyRef,
     serialPort: protocol.value === "serial" && serialPort.value.trim() === "",
     serialBaud: protocol.value === "serial" && !validBaud(serialBaud.value),
     // An engine on another machine is reached through a saved session; an empty id has no route.
@@ -460,6 +490,10 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     desktopHeight.value = String(desktop.height);
     desktopFullscreen.value = desktop.fullscreen;
     desktopDrives.value = desktop.redirectDrives;
+    // The wallpaper is read whatever the protocol is, and only written back onto a session whose
+    // descriptor claims the workbench: a value held for one kind survives a switch away and back,
+    // the way the SSH-only fields do.
+    workbenchWallpaper.value = session?.workbench?.wallpaper ?? "";
     const telnet = session?.telnet ?? DEFAULT_TELNET;
     telnetEnter.value = telnet.enter;
     telnetBackspace.value = telnet.backspace;
@@ -563,6 +597,10 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
         fullscreen: desktopFullscreen.value,
         redirectDrives: desktopDrives.value,
       },
+      // Only a protocol whose descriptor claims the workbench carries a backdrop, and no choice is
+      // no field: an empty workbench block on the wire would be a section the reader must ignore.
+      workbench:
+        isWorkbench.value && workbenchWallpaper.value !== "" ? { wallpaper: workbenchWallpaper.value } : undefined,
       telnet: { enter: telnetEnter.value, backspace: telnetBackspace.value },
       serial: {
         port: serialPort.value.trim(),
@@ -686,6 +724,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     desktopHeight,
     desktopFullscreen,
     desktopDrives,
+    workbenchWallpaper,
     telnetEnter,
     telnetBackspace,
     serialPort,
@@ -702,6 +741,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     needsEndpoint,
     needsUser,
     isSsh,
+    isWorkbench,
     isRdp,
     isWebDav,
     isFtp,
