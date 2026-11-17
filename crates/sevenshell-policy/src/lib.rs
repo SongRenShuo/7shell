@@ -14,10 +14,12 @@
 pub mod command_risk;
 pub mod container_risk;
 pub mod matrix;
+pub mod workbench_risk;
 
 pub use command_risk::classify;
 pub use container_risk::{container_action, kubernetes_request};
 pub use matrix::{PolicyAuditEvent, PolicyDecision, PolicySource, PolicyTarget, decide};
+pub use workbench_risk::workbench_action;
 pub use sevenshell_types::{RiskAssessment, RiskLevel, RiskReason};
 
 /// Where a policy decision goes once it has been made.

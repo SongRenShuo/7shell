@@ -30,6 +30,8 @@ pub enum Subsystem {
     Container,
     /// A Kubernetes API server and the kubeconfig used to reach it.
     K8s,
+    /// The desktop workbench a `linuxDesk` session opens onto.
+    Workbench,
     Fs,
     Store,
     Policy,
@@ -45,6 +47,7 @@ impl Subsystem {
             Self::Ssh => "ssh",
             Self::Sftp => "sftp",
             Self::Rdp => "rdp",
+            Self::Workbench => "workbench",
             Self::Terminal => "terminal",
             Self::Container => "container",
             Self::K8s => "k8s",
@@ -380,6 +383,18 @@ impl ShellError {
         Self::new(ErrorCode::RdpLaunchFailed, Origin::new(Subsystem::Rdp))
             .with_detail(detail)
             .with_outcome(OperationOutcome::NotSent)
+    }
+
+    // -- Workbench ---------------------------------------------------------
+
+    /// The machine refused a power action the workbench asked for, or reported that it failed.
+    ///
+    /// What the machine said travels as the detail; it is the server's own reply text about a
+    /// command this build chose, so it names a problem on the far side rather than a secret.
+    pub fn workbench_power_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::WorkbenchPowerFailed, Origin::new(Subsystem::Workbench))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::Sent)
     }
 
     // -- SFTP --------------------------------------------------------------

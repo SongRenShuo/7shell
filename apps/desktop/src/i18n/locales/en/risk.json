@@ -40,6 +40,11 @@
       "namespaceDelete": "Deletes a namespace and everything in it",
       "evict": "Evicts a pod from its node",
       "unknown": "A cluster request this version does not recognise"
+    },
+    "workbench": {
+      "reboot": "Restarts the machine",
+      "shutdown": "Powers the machine off",
+      "unknown": "A workbench action this version does not recognise"
     }
   }
 }

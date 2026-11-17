@@ -1042,6 +1042,13 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             state.core.open_desktop(&session_id).await?;
             Ok(Value::Null)
         }
+        "workbench_power" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let handle: String = from_args(&args, "handle")?;
+            let action: String = from_args(&args, "action")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(state.core.workbench_power(&session_id, &handle, &action, acknowledged).await?)
+        }
 
         "container_connect" => {
             let session_id: String = from_args(&args, "sessionId")?;

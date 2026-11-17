@@ -69,6 +69,10 @@ error_catalog! {
     #[doc = "The system Remote Desktop client could not be started."]
     RdpLaunchFailed => "RDP-LAUNCH-FAILED", "errors.rdp.launchFailed";
 
+    // -- Workbench ---------------------------------------------------------
+    #[doc = "The machine refused a power action, or reported that it failed."]
+    WorkbenchPowerFailed => "WORKBENCH-POWER-FAILED", "errors.workbench.powerFailed";
+
     // -- SFTP --------------------------------------------------------------
     #[doc = "The remote path does not exist."]
     SftpNotFound => "SFTP-NOT-FOUND", "errors.sftp.notFound";

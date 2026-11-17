@@ -20,6 +20,9 @@
     "rdp": {
       "launchFailed": "The Windows Remote Desktop client could not be started."
     },
+    "workbench": {
+      "powerFailed": "The machine did not accept the power action. {detail}"
+    },
     "terminal": {
       "unreachable": "Could not reach {host}:{port}. Nothing answered there, or it is not a Telnet service.",
       "serialFailed": "Could not open serial port {port}. Check that the device is connected and no other program holds it.",
