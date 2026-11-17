@@ -692,3 +692,69 @@ describe("the process page", () => {
     expect(monitor.processes).toEqual([]);
   });
 });
+
+describe("following the workbench on screen", () => {
+  /** A Linux desktop session: an SSH session underneath, a workbench on top. */
+  const desk: Session = { ...session, id: "desk-1", name: "lab desk", protocol: "linuxDesk" };
+
+  /** Puts a workbench tab in the workspace and makes it the one on screen. */
+  function workspaceWithWorkbench(handle: string | null): void {
+    const terminals = useTerminalsStore();
+    terminals.tabs.push({
+      kind: "workbench",
+      id: "tab-workbench",
+      session: desk,
+      handle,
+      failure: null,
+    });
+    terminals.activate("tab-workbench");
+  }
+
+  it("rides the workbench's own connection while the workbench is on screen", async () => {
+    workspaceWithWorkbench("w1");
+    monitorSampleMock.mockResolvedValue(metrics());
+
+    const monitor = useMonitorStore();
+    expect(monitor.target?.handle).toBe("w1");
+    expect(monitor.available, "a workbench is a real channel to sample").toBe(true);
+
+    monitor.start();
+    await settle();
+    expect(monitorSampleMock).toHaveBeenCalledWith("w1");
+
+    monitor.stop();
+  });
+
+  it("takes the terminal's handle when a terminal of the same session is on screen instead", async () => {
+    const terminals = useTerminalsStore();
+    terminals.tabs.push({
+      kind: "workbench",
+      id: "tab-workbench",
+      session: desk,
+      handle: "w1",
+      failure: null,
+    });
+    terminals.tabs.push({
+      kind: "terminal",
+      id: "tab-terminal",
+      session: desk,
+      handle: "t1",
+      status: "open",
+      failure: null,
+      panel: null,
+    });
+    terminals.activate("tab-terminal");
+
+    const monitor = useMonitorStore();
+    expect(monitor.target?.handle, "the terminal is what is being looked at").toBe("t1");
+    expect(monitor.target?.sessionId).toBe(desk.id);
+  });
+
+  it("has nothing to sample when the workbench's connection is gone", () => {
+    workspaceWithWorkbench(null);
+
+    const monitor = useMonitorStore();
+    expect(monitor.target).toBeNull();
+    expect(monitor.available).toBe(false);
+  });
+});

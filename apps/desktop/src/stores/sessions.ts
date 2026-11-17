@@ -97,16 +97,19 @@ export const useSessionsStore = defineStore("sessions", () => {
     const terminals = useTerminalsStore();
     return new Set(
       terminals.tabs
-        // A page about a host exists only once a connection is up; the two kinds that carry a
-        // status are open only when that status says so.
+        // A page about a host exists only once a connection is up; the kinds that carry a status
+        // are open only when that status says so, and the workbench — which has none — is open
+        // only while it still holds the handle the connection came as.
         .filter(
           (tab) =>
             tab.kind === "inspect" ||
-            (tab.kind !== "settings" &&
-              tab.kind !== "batch" &&
-              tab.kind !== "container" &&
-              tab.kind !== "kubernetes" &&
-              tab.status === "open"),
+            (tab.kind === "workbench"
+              ? tab.handle !== null && tab.failure === null
+              : tab.kind !== "settings" &&
+                tab.kind !== "batch" &&
+                tab.kind !== "container" &&
+                tab.kind !== "kubernetes" &&
+                tab.status === "open"),
         )
         .map((tab) => sessionOf(tab))
         .filter((session) => session !== null)
