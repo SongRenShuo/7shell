@@ -95,7 +95,7 @@ const PROTOCOL_GROUPS: readonly { labelKey: string; protocols: readonly Protocol
   { labelKey: "sessions.editor.protocolGroups.terminal", protocols: ["ssh", "telnet", "rawTcp"] },
   { labelKey: "sessions.editor.protocolGroups.local", protocols: ["local", "wsl", "serial"] },
   { labelKey: "sessions.editor.protocolGroups.files", protocols: ["webdav", "ftp"] },
-  { labelKey: "sessions.editor.protocolGroups.desktop", protocols: ["rdp"] },
+  { labelKey: "sessions.editor.protocolGroups.desktop", protocols: ["rdp", "linuxDesk"] },
   { labelKey: "sessions.editor.protocolGroups.containers", protocols: ["container", "kubernetes"] },
 ];
 
@@ -182,6 +182,25 @@ function chooseProtocol(value: string): void {
 
 /** The two protocols with a display, a mapping and no terminal on this side. */
 const isDesktop = computed(() => editor.protocol === "rdp");
+
+/**
+ * The built-in backdrops the workbench can draw, in the order somebody meets them.
+ *
+ * The ids are a contract shared with the workbench pane and the session wire type, so they are
+ * spelled here rather than derived from anything: a rename on one side would silently orphan the
+ * choices already saved. The first option is "no choice", which saves as nothing at all.
+ */
+const WORKBENCH_WALLPAPERS: readonly { id: string; labelKey: string }[] = [
+  { id: "aurora", labelKey: "sessions.editor.workbench.wallpaperAurora" },
+  { id: "dawn", labelKey: "sessions.editor.workbench.wallpaperDawn" },
+  { id: "forest", labelKey: "sessions.editor.workbench.wallpaperForest" },
+  { id: "plain", labelKey: "sessions.editor.workbench.wallpaperPlain" },
+];
+
+const workbenchWallpaperOptions = computed<SelectOption[]>(() => [
+  { value: "", label: t("sessions.editor.workbench.wallpaperDefault") },
+  ...WORKBENCH_WALLPAPERS.map((wallpaper) => ({ value: wallpaper.id, label: t(wallpaper.labelKey) })),
+]);
 
 /** The sizes the reference dialog offers before somebody types their own. */
 const RESOLUTIONS = [
@@ -592,7 +611,7 @@ async function forgetKey(): Promise<void> {
             </p>
           </section>
 
-          <section v-if="editor.isSsh || isDesktop || editor.isWebDav || editor.isFtp">
+          <section v-if="editor.isSsh || editor.isWorkbench || isDesktop || editor.isWebDav || editor.isFtp">
             <template v-if="!isDesktop && !editor.isWebDav && !editor.isFtp">
               <label class="block text-xs font-medium" for="session-method">{{ t("sessions.editor.method") }}</label>
               <Select id="session-method" v-model="editor.method" class="mt-1" :options="methodOptions" />
@@ -732,6 +751,25 @@ async function forgetKey(): Promise<void> {
             <p class="mt-1 text-[11px] text-muted-foreground">{{ t("sessions.editor.mapping.note") }}</p>
           </section>
 
+          <!--
+            The workbench's own section, and the only one a linuxDesk session has to itself. What
+            the machine looks like is a fact about that machine, so it travels on the session like
+            every other per-machine choice rather than in the interface's storage.
+          -->
+          <section v-if="editor.isWorkbench">
+            <h3 class="text-xs font-medium">{{ t("sessions.editor.workbench.title") }}</h3>
+            <label class="mt-2 block text-xs font-medium" for="session-workbench-wallpaper">{{
+              t("sessions.editor.workbench.wallpaper")
+            }}</label>
+            <Select
+              id="session-workbench-wallpaper"
+              v-model="editor.workbenchWallpaper"
+              class="mt-1"
+              :options="workbenchWallpaperOptions"
+            />
+            <p class="mt-1 text-[11px] text-muted-foreground">{{ t("sessions.editor.workbench.note") }}</p>
+          </section>
+
           <section v-if="!isDesktop">
             <h3 class="text-xs font-medium">{{ t("sessions.editor.terminal.title") }}</h3>
 
@@ -761,7 +799,7 @@ async function forgetKey(): Promise<void> {
             </label>
           </section>
 
-          <section v-if="editor.isSsh">
+          <section v-if="editor.isSsh || editor.isWorkbench">
             <h3 class="text-xs font-medium">{{ t("sessions.editor.jumps.title") }}</h3>
             <p class="mt-1 text-[11px] text-muted-foreground">{{ t("sessions.editor.jumps.note") }}</p>
 
@@ -851,7 +889,7 @@ async function forgetKey(): Promise<void> {
             </div>
           </section>
 
-          <section v-if="editor.isSsh">
+          <section v-if="editor.isSsh || editor.isWorkbench">
             <div class="flex items-center justify-between">
               <h3 class="text-xs font-medium">{{ t("sessions.editor.forwards.title") }}</h3>
               <button
