@@ -1718,6 +1718,20 @@ describe("the desktop workbench", () => {
     expect(store.copyOf(terminalTabOrFail(store).id), "a terminal of the same session starts at its own zero").toBe(0);
   });
 
+  it("opens a terminal for a workbench session without the fork answering with another workbench", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+
+    const store = useTerminalsStore();
+    await store.openTerminalTab(desk);
+
+    const terminal = store.tabs.find((tab): tab is TerminalTab => tab.kind === "terminal");
+    expect(terminal, "the entry said terminal, so a terminal is what mounts").toBeTruthy();
+    expect(
+      store.tabs.some((tab) => tab.kind === "workbench"),
+      "the workbench fork has no say in this path",
+    ).toBe(false);
+  });
+
   it("reconnects a workbench whose connection is gone by opening the session again", async () => {
     sessionOpenMock.mockResolvedValueOnce(opened()).mockResolvedValueOnce({ ...opened(), handle: "handle-2" });
 

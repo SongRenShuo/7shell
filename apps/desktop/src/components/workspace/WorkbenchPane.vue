@@ -180,9 +180,15 @@ watch(
 
 // -- the entries -------------------------------------------------------------
 
-/** A second connection to the same machine, as asking for another terminal anywhere is. */
+/**
+ * A terminal of this session's own, as the entry says.
+ *
+ * Not `open`: the fork that mounts the workbench is what a session's open *is* here, and the
+ * entry would hand back another front page. The store's terminal-only path exists for exactly
+ * this ask.
+ */
 function openTerminal(): void {
-  void terminals.open(session.value);
+  void terminals.openTerminalTab(session.value);
 }
 
 function openFiles(path?: string): void {
