@@ -57,6 +57,9 @@
     "systemClient": {
       "label": "由系统远程桌面客户端打开"
     },
+    "workbench": {
+      "label": "桌面工作台"
+    },
     "container": {
       "label": "容器"
     },

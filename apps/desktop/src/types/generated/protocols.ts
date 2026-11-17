@@ -4,6 +4,7 @@
 export type ProtocolId =
   | "ssh"
   | "rdp"
+  | "linuxDesk"
   | "webdav"
   | "ftp"
   | "telnet"
@@ -45,6 +46,7 @@ export type CapabilityKey =
   | "keyMaterial"
   | "platformAgent"
   | "systemClient"
+  | "workbench"
   | "container"
   | "containerImages"
   | "containerLogs"
@@ -104,6 +106,15 @@ export const PROTOCOLS: readonly ProtocolDescriptor[] = [
     transport: "tcp",
     supportLevel: "connect",
     capabilities: ["systemClient"],
+  },
+  {
+    id: "linuxDesk",
+    labelKey: "protocol.linuxDesk.label",
+    defaultPort: 22,
+    runtime: "native",
+    transport: "tcp",
+    supportLevel: "connect",
+    capabilities: ["shell", "exec", "resize", "keepalive", "hostMetrics", "sftp", "scp", "jumpHost", "forwarding", "dynamicForwarding", "recording", "workbench"],
   },
   {
     id: "webdav",
@@ -241,6 +252,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
   { key: "keyMaterial", group: "auth", labelKey: "capability.keyMaterial.label" },
   { key: "platformAgent", group: "auth", labelKey: "capability.platformAgent.label" },
   { key: "systemClient", group: "desktop", labelKey: "capability.systemClient.label" },
+  { key: "workbench", group: "desktop", labelKey: "capability.workbench.label" },
   { key: "container", group: "container", labelKey: "capability.container.label" },
   { key: "containerImages", group: "container", labelKey: "capability.containerImages.label" },
   { key: "containerLogs", group: "container", labelKey: "capability.containerLogs.label" },
