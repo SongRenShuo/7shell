@@ -78,6 +78,26 @@ full-screen choice and drive mapping are stored per session (`DesktopSettings`),
 one machine can differ. Drive mapping is on by default, matching what the reference dialog calls
 regular: the remote can read and write the local drives while a session is open.
 
+## The desktop workbench
+
+The `linuxDesk` protocol is the second answer to "show me that machine", and it is the opposite
+shape: where RDP hands the session to another program, the workbench draws one — and where RDP
+needs a desktop environment on the far side, the workbench needs nothing but the SSH connection
+it is. Most machines an SSH client reaches are headless servers, which is exactly the finding the
+reference study recorded about the two products it examined: their "Linux desktops" are web
+workbenches over management data, not streams of screen pixels
+([the research note](调研报告/20261118-0017-linux桌面连接-调研报告.md) holds the evidence and the decision).
+
+A `linuxDesk` session is an ordinary SSH session in every mechanical sense — same open path, same
+host-key order, same vault fields, no new command on the wire (the dispatch arms in
+`crates/sevenshell-core/src/sessions.rs` are the whole backend difference). What differs is the
+front page: a session whose protocol supports the `workbench` capability mounts a workbench tab
+instead of a terminal tab, and the terminal, the file browser and the monitor pages open from it
+onto the same connection. The workbench itself composes surfaces this document already describes —
+the system mark, the host monitor's sample, the file browser's entries — and adds no new way for
+anything to reach the machine. Personal bits (recent file entries) live in the WebView's own
+storage like the recent-session list: usage memory, not settings.
+
 ## Opening a session
 
 The order is the security property, so it is worth reading once:
