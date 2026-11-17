@@ -5,7 +5,7 @@
 
 ## 流程与协作
 
-- [`AGENTS.md`](../AGENTS.md) — 仓库级代理与贡献者指令入口（并行登记、三档测试、提交纪律）
+- [`AGENTS.md`](https://github.com/7wdn/7shell/blob/main/AGENTS.md) — 仓库级代理与贡献者指令入口（并行登记、三档测试、提交纪律）
 - [`开发流程-派活与验收清单.md`](开发流程-派活与验收清单.md) — 派活六字段模板、验收五条、测试三档分层、常见坑
 - [`pips/README.md`](pips/README.md) — PIP 提案机制（什么时候写、状态流转）
 

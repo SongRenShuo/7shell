@@ -69,4 +69,11 @@ ignore = [
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
   "RUSTSEC-2026-0429",
+  # Two more in the same `zip` 4.6.1, same reader, same dead end — the AE authentication gap
+  # (RUSTSEC-2026-0545) and the local-header/central-directory mismatch (RUSTSEC-2026-0548). The
+  # updater reads signed archives that did not come from a stranger, zip 4.6.1 is the newest
+  # release the plugin allows, and the fix lives behind a major the plugin has not moved to.
+  # Leave with the four above when it does.
+  "RUSTSEC-2026-0545",
+  "RUSTSEC-2026-0548",
 ]
