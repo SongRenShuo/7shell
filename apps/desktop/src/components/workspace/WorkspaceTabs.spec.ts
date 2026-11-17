@@ -18,6 +18,10 @@ vi.mock("@/lib/runtime", () => ({ isDesktopRuntime: vi.fn(() => true) }));
 vi.mock("@/lib/backend/tauri", () => ({
   filesClose: vi.fn(async () => null),
   filesOpen: vi.fn(),
+  monitorSample: vi.fn(async () => {
+    throw new Error("no sample was asked for");
+  }),
+  sessionOpen: vi.fn(),
   snippetsOpen: vi.fn(async () => []),
   commandHistory: vi.fn(async () => []),
   onDesktopResized: vi.fn(async () => () => {}),
@@ -27,9 +31,9 @@ vi.mock("@/lib/backend/tauri", () => ({
 
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs.vue";
 import { i18n } from "@/i18n";
-import { filesOpen } from "@/lib/backend/tauri";
+import { filesOpen, sessionOpen } from "@/lib/backend/tauri";
 import { usePreferencesStore } from "@/stores/preferences";
-import { type TerminalPanel, useTerminalsStore } from "@/stores/terminals";
+import { type TerminalPanel, type WorkbenchTab, useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
 const session: Session = {
@@ -45,6 +49,23 @@ const session: Session = {
 };
 
 const other: Session = { ...session, id: "session-2", name: "db", host: "db.example.test" };
+
+/** A Linux desktop session, which opens as a workbench rather than a terminal. */
+const desk: Session = { ...session, id: "desk-1", name: "lab desk", protocol: "linuxDesk" };
+
+/** Mounts the workspace over one workbench tab, connected or failed as the case needs. */
+async function renderWorkbench(handle: string | null, failure: WorkbenchTab["failure"] = null): Promise<WorkbenchTab> {
+  const terminals = useTerminalsStore();
+  const tab: WorkbenchTab = { kind: "workbench", id: "tab-workbench", session: desk, handle, failure };
+  terminals.tabs = [tab];
+  terminals.openedOrder = [tab.id];
+  terminals.activeTabId = tab.id;
+
+  app = createApp({ render: () => h(WorkspaceTabs) }).use(i18n);
+  app.mount(host);
+  await nextTick();
+  return tab;
+}
 
 const openPanel: TerminalPanel = { handle: null, status: "opening", failure: null };
 
@@ -374,5 +395,64 @@ describe("the workspace's own strips", () => {
       expect(drawn.classList.contains("select-none"), `${what} is not selectable`).toBe(true);
       expect(drawn.classList.contains("cursor-default"), `${what} shows no I-beam`).toBe(true);
     }
+  });
+});
+
+describe("the workbench in the workspace", () => {
+  it("draws the tab the strip can tell apart: its name, its mark and its own close label", async () => {
+    const tab = await renderWorkbench("w1");
+
+    expect(tabName(tab.id), "named after the session, like a terminal is").toBe("lab desk");
+    expect(host.querySelector(`[data-tab="${tab.id}"] svg`), "an icon of its own in the strip").not.toBeNull();
+
+    const close = host.querySelector<HTMLElement>(`[data-tab="${tab.id}"] button[title]`);
+    expect(close?.getAttribute("title")).toBe("Close workbench");
+    expect(
+      host.querySelector(`[data-tab="${tab.id}"] .bg-success`),
+      "no status dot: there is no stream to report",
+    ).toBeNull();
+  });
+
+  it("draws the pane over the connection the tab holds", async () => {
+    await renderWorkbench("w1");
+
+    expect(host.querySelector("[data-workbench-system]"), "the workbench's own face").not.toBeNull();
+  });
+
+  it("says why a workbench without a connection is standing there, and offers the way back", async () => {
+    vi.mocked(sessionOpen).mockResolvedValue({
+      kind: "opened",
+      handle: "w2",
+      sessionId: desk.id,
+      tunnels: [],
+      tunnelFailures: [],
+    });
+    // The envelope a refused open leaves behind, shaped like the one `asShellError` builds.
+    const failure = {
+      version: 1,
+      code: "APP-INTERNAL",
+      messageKey: "errors.app.internal",
+      messageParams: { operation: "session_open" },
+      origin: { subsystem: "app" },
+      outcome: "unknown",
+    } as const;
+    const tab = await renderWorkbench(null, failure as never);
+
+    expect(host.querySelector("[data-workbench-system]"), "no face is drawn without a connection").toBeNull();
+    // The envelope the failure carries, with its code for a report to quote.
+    expect(host.textContent).toContain("APP-INTERNAL");
+
+    const retry = [...host.querySelectorAll<HTMLElement>("button")].find(
+      (entry) => entry.textContent?.trim() === "Connect again",
+    );
+    expect(retry).toBeDefined();
+    retry?.click();
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(sessionOpen).toHaveBeenCalledWith(desk.id);
+    expect(useTerminalsStore().tabs.some((entry) => entry.kind === "workbench")).toBe(true);
+    expect(tab.id, "the dead tab went with the close the reconnect does").toBe("tab-workbench");
   });
 });
