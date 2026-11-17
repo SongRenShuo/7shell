@@ -1,0 +1,50 @@
+{
+  "workbench": {
+    "tab": {
+      "close": "Close workbench",
+      "ended": "The machine is not connected. Connecting again opens the workbench with it.",
+      "retry": "Connect again"
+    },
+    "system": {
+      "title": "System",
+      "os": "Operating system",
+      "address": "Address",
+      "hostname": "Hostname",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disks": "Disks",
+      "waiting": "Waiting for the first reading…"
+    },
+    "files": {
+      "title": "Files",
+      "home": "Home directory",
+      "recent": "Recently opened",
+      "recentEmpty": "Directories this session's browser has been in gather here."
+    },
+    "session": {
+      "title": "Session",
+      "address": "Address",
+      "status": "Status",
+      "connected": "Connected",
+      "disconnected": "Not connected"
+    },
+    "entry": {
+      "title": "Open",
+      "terminal": "Open terminal",
+      "files": "Open files",
+      "monitor": "Open monitor"
+    },
+    "power": {
+      "title": "Power",
+      "reboot": "Restart",
+      "shutdown": "Shut down",
+      "rebootTitle": "Restart {name}?",
+      "rebootMessage": "The machine runs its own restart command. Every connection to it — this one included — goes down with it, and whatever is running there is stopped.",
+      "shutdownTitle": "Shut down {name}?",
+      "shutdownMessage": "The machine runs its own shutdown command. Every connection to it — this one included — goes down with it, and whatever is running there is stopped.",
+      "rebootConfirm": "Restart machine",
+      "shutdownConfirm": "Shut down machine",
+      "issued": "The command was issued. The machine may disconnect at any moment."
+    }
+  }
+}
