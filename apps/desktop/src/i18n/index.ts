@@ -30,6 +30,7 @@ import enShell from "./locales/en/shell.json";
 import enSync from "./locales/en/sync.json";
 import enTerminal from "./locales/en/terminal.json";
 import enVault from "./locales/en/vault.json";
+import enWorkbench from "./locales/en/workbench.json";
 import zhCnAi from "./locales/zh-CN/ai.json";
 import zhCnApp from "./locales/zh-CN/app.json";
 import zhCnAuth from "./locales/zh-CN/auth.json";
@@ -54,6 +55,7 @@ import zhCnShell from "./locales/zh-CN/shell.json";
 import zhCnSync from "./locales/zh-CN/sync.json";
 import zhCnTerminal from "./locales/zh-CN/terminal.json";
 import zhCnVault from "./locales/zh-CN/vault.json";
+import zhCnWorkbench from "./locales/zh-CN/workbench.json";
 
 export const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
 
@@ -113,6 +115,7 @@ const messages = {
     ...enK8s,
     ...enMcp,
     ...enAi,
+    ...enWorkbench,
   },
   "zh-CN": {
     ...zhCnCommands,
@@ -139,6 +142,7 @@ const messages = {
     ...zhCnK8s,
     ...zhCnMcp,
     ...zhCnAi,
+    ...zhCnWorkbench,
   },
 };
 

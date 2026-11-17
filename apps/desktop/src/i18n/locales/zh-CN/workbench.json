@@ -1,0 +1,50 @@
+{
+  "workbench": {
+    "tab": {
+      "close": "关闭工作台",
+      "ended": "机器当前未连接。重新连接后，工作台会随之打开。",
+      "retry": "重新连接"
+    },
+    "system": {
+      "title": "系统",
+      "os": "操作系统",
+      "address": "地址",
+      "hostname": "主机名",
+      "cpu": "处理器",
+      "memory": "内存",
+      "disks": "磁盘",
+      "waiting": "等待第一次采样…"
+    },
+    "files": {
+      "title": "文件",
+      "home": "主目录",
+      "recent": "最近访问",
+      "recentEmpty": "本会话的文件浏览器去过的目录会汇集在这里。"
+    },
+    "session": {
+      "title": "会话",
+      "address": "地址",
+      "status": "状态",
+      "connected": "已连接",
+      "disconnected": "未连接"
+    },
+    "entry": {
+      "title": "打开",
+      "terminal": "打开终端",
+      "files": "打开文件",
+      "monitor": "打开监控"
+    },
+    "power": {
+      "title": "电源",
+      "reboot": "重启",
+      "shutdown": "关机",
+      "rebootTitle": "重启 {name}？",
+      "rebootMessage": "机器将执行自身的重启命令。所有连接（包括这一条）都会随之中断，机器上正在运行的内容会停止。",
+      "shutdownTitle": "关闭 {name}？",
+      "shutdownMessage": "机器将执行自身的关机命令。所有连接（包括这一条）都会随之中断，机器上正在运行的内容会停止。",
+      "rebootConfirm": "重启机器",
+      "shutdownConfirm": "关闭机器",
+      "issued": "命令已下达，机器可能随时断开连接。"
+    }
+  }
+}
