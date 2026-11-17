@@ -60,7 +60,11 @@ let host: HTMLDivElement;
 let app: App | undefined;
 
 /** Mounts the panel over a directory the store is told about, which is what the panel draws. */
-async function render(entries: readonly SftpEntry[], props: Record<string, unknown> = {}): Promise<void> {
+async function render(
+  entries: readonly SftpEntry[],
+  props: Record<string, unknown> = {},
+  browserOverrides: Record<string, unknown> = {},
+): Promise<void> {
   useFilesStore().browsers[HANDLE] = {
     handle: HANDLE,
     sessionId: "session-1",
@@ -70,6 +74,7 @@ async function render(entries: readonly SftpEntry[], props: Record<string, unkno
     entries: [...entries],
     loading: false,
     failure: null,
+    ...browserOverrides,
   };
 
   app = createApp({ render: () => h(FileBrowser, { handle: HANDLE, ...props }) }).use(i18n);
@@ -1221,5 +1226,47 @@ describe("a failure in the panel", () => {
 
     expect(browser.failure).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+describe("the path the open was asked to land on", () => {
+  // These run outside the panel's own describe, so they carry the same hooks themselves.
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    host = document.createElement("div");
+    document.body.append(host);
+    vi.mocked(filesList).mockClear();
+  });
+
+  afterEach(() => {
+    app?.unmount();
+    app = undefined;
+    host.remove();
+  });
+
+  it("walks once to the path, through the same navigation the address bar takes", async () => {
+    await render([], { initialPath: "/srv/data" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(filesList).toHaveBeenCalledWith(HANDLE, "/srv/data");
+    expect(useFilesStore().browsers[HANDLE]?.path).toBe("/srv/data");
+  });
+
+  it("leaves a browser alone that is already somewhere its own walk put it", async () => {
+    await render([], { initialPath: "/srv/data" }, { path: "/elsewhere" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    // The tree reads directories of its own; what matters is that this browser did not walk.
+    expect(useFilesStore().browsers[HANDLE]?.path).toBe("/elsewhere");
+  });
+
+  it("answers nothing when the ask names the directory it opened at", async () => {
+    await render([], { initialPath: "/home/user" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(useFilesStore().browsers[HANDLE]?.path, "the walk would end where it started").toBe("/home/user");
   });
 });
