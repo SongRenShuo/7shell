@@ -518,6 +518,31 @@ export const useTerminalsStore = defineStore("terminals", () => {
   }
 
   /**
+   * Opens a plain terminal for a session whose front page is the workbench.
+   *
+   * The workbench's terminal entry asks for a terminal, and [`open`](#open) would answer it with
+   * another workbench: the fork that gives a workbench session its front page catches every open
+   * of that session, this one included. This is the way around it — the same open order, the same
+   * host-key decisions, mounted as the thing the button said. A terminal a person asked for from
+   * the workbench is the one tab this session opens without the fork's opinion.
+   */
+  async function openTerminalTab(session: Session): Promise<void> {
+    if (connectingSessionIds.value.includes(session.id)) {
+      return;
+    }
+    recents.record(session.id);
+    connectingSessionIds.value.push(session.id);
+    try {
+      acceptTerminal(session, await backend.terminal.open(session.id));
+      forgetFailure(session.id);
+    } catch (error) {
+      recordFailure(session, asShellError(error, "session_open"));
+    } finally {
+      connectingSessionIds.value = connectingSessionIds.value.filter((id) => id !== session.id);
+    }
+  }
+
+  /**
    * Opens the file manager for a saved session: its own tab, whatever shape a session opens in.
    *
    * The entry stands beside the terminal rather than being something the terminal brings with it,
@@ -1997,6 +2022,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
     tunnelProblem,
     initialize,
     open,
+    openTerminalTab,
     openFiles,
     openContainerFiles,
     openPodFiles,

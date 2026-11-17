@@ -226,9 +226,9 @@ describe("the workbench pane", () => {
     expect(sessionOpenMock).toHaveBeenCalledWith(desk.id);
     expect(terminals.tabs).toHaveLength(2);
     const second = terminals.tabs[1];
-    // The fork decides the shape: another connection to a Linux desktop session is another
-    // workbench, never a terminal.
-    expect(second?.kind).toBe("workbench");
+    // The entry says terminal, so a terminal is what mounts — `open` would fork to another
+    // workbench, which is why the pane asks the store for the terminal-only path.
+    expect(second?.kind).toBe("terminal");
     expect(second && "handle" in second ? second.handle : undefined).toBe("t1");
   });
 
