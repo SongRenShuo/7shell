@@ -29,6 +29,8 @@ defineProps<{
   }[];
   /** The time, already formatted by the owner; the bar adds no clock of its own. */
   clock: string;
+  /** Where the bar sits: at the reference's insets, or shrunk to its contents and centred. */
+  align?: "left" | "center";
   /** What the power control is called. */
   power: string;
   labels: {
@@ -52,7 +54,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div data-workbench-taskbar class="taskbar">
+  <div data-workbench-taskbar class="taskbar" :class="align === 'center' ? 'is-centered' : undefined">
     <!--
       The wash and the blur are one layer of their own so the contents stay crisp: a backdrop filter
       on the same element that holds the text also blurs the text in some engines.
@@ -136,6 +138,17 @@ const emit = defineEmits<{
   border-radius: 12px;
   box-shadow: 0 2px 10px #00000069;
   user-select: none;
+}
+
+/*
+ * Centred: the bar shrinks to fit its contents and sits in the middle of the desk instead of
+ * spanning it. `fit-content` keeps the pill a pill — a bar stretched to half the desk would read
+ * as a strip with too much air in it — and the floor inset stays where the reference puts it.
+ */
+.taskbar.is-centered {
+  width: fit-content;
+  min-width: 50%;
+  margin: 0 auto 15px;
 }
 
 .taskbar-mask {

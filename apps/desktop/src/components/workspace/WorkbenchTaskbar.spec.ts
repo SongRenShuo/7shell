@@ -27,7 +27,7 @@ let starters = 0;
 let app: App | undefined;
 let root: HTMLDivElement | undefined;
 
-function mount(): void {
+function mount(align?: "left" | "center"): void {
   launches = [];
   clocks = 0;
   powers = 0;
@@ -38,6 +38,7 @@ function mount(): void {
         h(WorkbenchTaskbar, {
           entries: ENTRIES,
           clock: CLOCK,
+          align,
           power: "Shut down",
           labels: { starter: "Applications", clock: "Clock" },
           onLaunch: (id: string) => {
@@ -154,4 +155,49 @@ describe("the taskbar", () => {
 
     expect(powers).toBe(1);
   });
+
+  it("names every button for a reader, and names no two of them the same", () => {
+    const buttons = [...document.querySelectorAll<HTMLElement>("[data-workbench-taskbar] button")];
+    expect(buttons.length, "the starter, every entry, the clock and the power control").toBe(ENTRIES.length + 3);
+
+    const names = buttons.map((button) => button.getAttribute("aria-label"));
+    for (const name of names) {
+      expect(name, "an unnamed control is a blank spot in a screen reader's walk of the bar").toBeTruthy();
+    }
+    expect(
+      new Set(names).size,
+      "two controls answering to one name are indistinguishable before they are clicked",
+    ).toBe(names.length);
+  });
+
+  it("spans the desk at the reference's insets when no alignment was asked for", () => {
+    expect(document.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered")).toBe(false);
+  });
+
+  it("shrinks to its contents and sits in the middle when it is asked to", () => {
+    unmountCurrent();
+    mount("center");
+
+    const bar = document.querySelector("[data-workbench-taskbar]");
+    expect(bar?.classList.contains("is-centered"), "the centred look is the bar's own class").toBe(true);
+
+    click(bar!.querySelector("[data-workbench-taskbar-starter]") as Element);
+    expect(starters).toBe(1);
+  });
+
+  it("keeps the reference's look when it is told to sit at the insets", () => {
+    unmountCurrent();
+    mount("left");
+
+    expect(document.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered")).toBe(false);
+  });
 });
+
+/** Takes the current mount down, for the cases that remount with a different alignment. */
+function unmountCurrent(): void {
+  app?.unmount();
+  app = undefined;
+  root?.remove();
+  root = undefined;
+  document.body.innerHTML = "";
+}
