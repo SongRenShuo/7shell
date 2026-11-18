@@ -37,6 +37,9 @@ export const ERROR_CATALOG = {
   "SFTP-ARCHIVE-FAILED": "errors.sftp.archiveFailed",
   "SFTP-TRANSFER-FAILED": "errors.sftp.transferFailed",
   "SFTP-OPERATION-FAILED": "errors.sftp.operationFailed",
+  // The trash
+  "TRASH-OPERATION-FAILED": "errors.trash.operationFailed",
+  "TRASH-ENTRY-NOT-FOUND": "errors.trash.entryNotFound",
   // The text editor's own refusals
   "FILE-NOT-TEXT": "errors.file.notText",
   "FILE-TOO-LARGE": "errors.file.tooLarge",

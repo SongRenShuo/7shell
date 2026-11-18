@@ -92,6 +92,7 @@ import {
   type TabSortMode,
   type HomeLayout,
   type CustomColors,
+  type FilesDeleteMode,
   type FilesLayout,
   type SessionLayout,
   type SessionReopen,
@@ -473,6 +474,8 @@ function currentValue(row: SettingsRowDefinition): string | boolean | readonly s
       return preferences.monitorEnabled;
     case "filesLayout":
       return preferences.filesLayout;
+    case "filesDeleteMode":
+      return preferences.filesDeleteMode;
     case "packedTransfer":
       return preferences.packedTransfer;
     case "commandCompletion":
@@ -631,6 +634,9 @@ function choose(row: SettingsRowDefinition, value: string | boolean | readonly s
       return;
     case "filesLayout":
       void preferences.setFilesLayout(value as FilesLayout);
+      return;
+    case "filesDeleteMode":
+      void preferences.setFilesDeleteMode(value as FilesDeleteMode);
       return;
     case "packedTransfer":
       void preferences.setPackedTransfer(value === true);

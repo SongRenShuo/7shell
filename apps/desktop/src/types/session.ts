@@ -394,6 +394,40 @@ export interface SftpPasteOutcome {
   readonly results: readonly SftpPasteItem[];
 }
 
+/**
+ * One entry in the remote trash, from `sevenshell_types::TrashEntry`.
+ *
+ * `originalPath` is absent when no trashinfo could be paired with the entry — such an entry can be
+ * removed but not restored, because where it came from is nobody's guess to make.
+ */
+export interface TrashEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly originalPath?: string;
+  readonly deletedAt?: number;
+  readonly isDir: boolean;
+  readonly size?: number;
+}
+
+/** One path a delete sent to the trash, with whether it is a folder. */
+export interface TrashMoveRequest {
+  readonly path: string;
+  readonly isDir: boolean;
+}
+
+/** What became of one path a delete sent to the trash. */
+export interface TrashMoveOutcome {
+  readonly path: string;
+  readonly ok: boolean;
+  readonly trashPath?: string;
+  readonly error?: string;
+}
+
+/** Whether the trash was emptied, and what it held. */
+export interface TrashEmptyOutcome {
+  readonly removed: number;
+}
+
 /** What opening a file browser answered. */
 export type SftpOutcome =
   | { readonly kind: "hostKeyUnknown"; readonly key: PresentedHostKey }

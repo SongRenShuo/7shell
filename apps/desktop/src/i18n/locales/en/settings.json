@@ -201,7 +201,11 @@
     },
     "files": {
       "tree": "Tree and list",
-      "list": "List only"
+      "list": "List only",
+      "deleteMode": {
+        "trash": "Move to trash",
+        "direct": "Delete directly"
+      }
     },
     "language": {
       "english": "English",
@@ -511,6 +515,11 @@
         "title": "File browser",
         "summary": "A tree beside the list, or the list alone.",
         "help": "The tree opens to the current directory, so both panes always show the same place."
+      },
+      "filesDeleteMode": {
+        "title": "Deleting files",
+        "summary": "Move deleted entries to the trash, or remove them outright.",
+        "help": "The trash keeps a deleted entry on the server, and the trash browser can put it back. Direct delete removes it for good, the way older versions did. The trash needs an SFTP browser; other connections always delete directly."
       },
       "packed": {
         "title": "Packed transfer",

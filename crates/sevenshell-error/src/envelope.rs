@@ -446,6 +446,31 @@ impl ShellError {
             .with_detail(detail)
     }
 
+    // -- The trash ---------------------------------------------------------
+
+    /// A trash operation failed on the far side, with what the server said kept as the detail.
+    ///
+    /// Its own code rather than `SFTP-OPERATION-FAILED` because the sentence the interface shows
+    /// names the surface the person was on: a restore that failed is "the trash did not answer",
+    /// not "an operation failed somewhere". The origin is still `Sftp` — the trash rides the file
+    /// browser's channel, and everything here is a remote file operation at bottom.
+    pub fn trash_operation_failed(entry: &str, detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::TrashOperationFailed, Origin::new(Subsystem::Sftp))
+            .with_param("path", entry)
+            .with_detail(detail)
+    }
+
+    /// The trash entry the caller named is gone — removed from another window, or the trash was
+    /// emptied underneath this one.
+    ///
+    /// Its own code because the answer to it is "refresh", not "retry": nothing is wrong with the
+    /// connection or the permission bits, and a generic failure would send somebody hunting for one.
+    pub fn trash_entry_not_found(entry: &str) -> Self {
+        Self::new(ErrorCode::TrashEntryNotFound, Origin::new(Subsystem::Sftp))
+            .with_param("path", entry)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
     // -- The text editor's refusals ----------------------------------------
 
     /// The file exists, but its bytes are not text this build can show.

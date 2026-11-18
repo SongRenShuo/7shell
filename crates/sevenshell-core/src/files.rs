@@ -69,7 +69,7 @@ enum FileBackend {
 }
 
 impl FileSession {
-    fn sftp(&self) -> Result<&Arc<SftpSession>, ShellError> {
+    pub(crate) fn sftp(&self) -> Result<&Arc<SftpSession>, ShellError> {
         match &self.backend {
             FileBackend::Sftp { sftp, .. } => Ok(sftp),
             FileBackend::WebDav(_) | FileBackend::Ftp(_) | FileBackend::Scp { .. } | FileBackend::Container(_) => {
@@ -90,7 +90,7 @@ impl FileSession {
         }
     }
 
-    fn session_id(&self) -> String {
+    pub(crate) fn session_id(&self) -> String {
         self.session_id.clone()
     }
 
@@ -1811,7 +1811,7 @@ impl Core {
         Ok(())
     }
 
-    async fn file_session(&self, handle: &str) -> Result<Arc<FileSession>, ShellError> {
+    pub(crate) async fn file_session(&self, handle: &str) -> Result<Arc<FileSession>, ShellError> {
         self.files
             .lock()
             .await

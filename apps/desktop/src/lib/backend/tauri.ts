@@ -97,6 +97,10 @@ import type {
   SftpListing,
   SftpOutcome,
   SftpPasteOutcome,
+  TrashEmptyOutcome,
+  TrashEntry,
+  TrashMoveOutcome,
+  TrashMoveRequest,
   TerminalClosed,
   TerminalData,
   TransferInfo,
@@ -1051,6 +1055,26 @@ export function filesPaste(
 
 export function filesDelete(handle: string, path: string, kind: string): Promise<void> {
   return invoke<void>("files_delete", { handle, path, kind });
+}
+
+export function trashList(handle: string): Promise<TrashEntry[]> {
+  return invoke<TrashEntry[]>("trash_list", { handle });
+}
+
+export function trashRestore(handle: string, id: string): Promise<string> {
+  return invoke<string>("trash_restore", { handle, id });
+}
+
+export function trashRemove(handle: string, sessionId: string, id: string, acknowledged: boolean): Promise<void> {
+  return invoke<void>("trash_remove", { handle, sessionId, id, acknowledged });
+}
+
+export function trashEmpty(handle: string, sessionId: string, acknowledged: boolean): Promise<TrashEmptyOutcome> {
+  return invoke<TrashEmptyOutcome>("trash_empty", { handle, sessionId, acknowledged });
+}
+
+export function trashMove(handle: string, entries: readonly TrashMoveRequest[]): Promise<TrashMoveOutcome[]> {
+  return invoke<TrashMoveOutcome[]>("trash_move", { handle, entries });
 }
 
 export function filesReadText(handle: string, path: string): Promise<string> {

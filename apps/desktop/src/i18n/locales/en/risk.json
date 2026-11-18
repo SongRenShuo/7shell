@@ -45,6 +45,11 @@
       "reboot": "Restarts the machine",
       "shutdown": "Powers the machine off",
       "unknown": "A workbench action this version does not recognise"
+    },
+    "trash": {
+      "empty": "Empties the trash, deleting every entry in it permanently",
+      "remove": "Deletes one trash entry permanently",
+      "unknown": "A trash action this version does not recognise"
     }
   }
 }
