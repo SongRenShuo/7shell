@@ -22,7 +22,11 @@
         "properties": "属性",
         "refresh": "刷新",
         "newShortcut": "新建快捷方式",
+        "resetLayout": "重置图标布局",
         "settings": "桌面设置"
+      },
+      "clock": {
+        "title": "时钟——打开系统面板"
       },
       "shortcut": {
         "title": "新建快捷方式",
