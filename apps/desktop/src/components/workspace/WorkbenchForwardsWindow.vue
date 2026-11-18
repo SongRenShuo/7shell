@@ -17,10 +17,10 @@
  *   machine. The open answer is the runtime entry — which carries the id, and the port that was
  *   actually bound when `0` asked for a free one — and it joins the list as what is up.
  *
- * One honesty note about opening: the desktop's open path runs unattended, so where a stricter
- * policy matrix raises a question about a forward, the answer is a refusal naming the rule —
- * shown in the add form's failure sentence — not a question this window could put to anybody.
- * Loosening the matrix is how a refused forward is allowed.
+ * One honesty note about opening: the open runs through the shell's gate first, and where the
+ * policy matrix raises a question — a remote forward always, any bind other machines could reach
+ * where a layer says so — the window puts that question and the answer travels with the resend.
+ * A matrix set to deny still refuses, and loosening it is the only way past a denial.
  *
  * The window is hosted by a session that has a connection forwards can ride on — SSH, or the
  * desktop's own session. Anything else is refused in a sentence, not drawn as an empty room.
@@ -199,18 +199,55 @@ async function add(): Promise<void> {
     targetHost: dynamic ? "" : targetHost.value.trim(),
     targetPort: dynamic ? 0 : (portOf(targetPort.value) ?? 0),
   };
+  await send(request, false);
+}
+
+/**
+ * One open attempt. The first runs unacknowledged — under the default matrix a loopback local or
+ * dynamic forward simply opens — and where the gate comes back wanting a person, the window asks
+ * and this runs again with the answer. A denial is never answered; it comes back as the failure
+ * sentence, because loosening the matrix is the only way past it.
+ */
+async function send(request: ForwardRequest, acknowledged: boolean): Promise<void> {
   adding.value = true;
   addFailure.value = null;
   try {
-    const opened = await backend.forwards.open(props.sessionId, request);
+    const opened = await backend.forwards.open(props.sessionId, request, acknowledged);
     // The answer joins the list as what is up — including the port that was actually bound,
     // which is the whole point of asking for `0`.
     tunnels.value = [...tunnels.value, opened];
+    askingOpen.value = false;
   } catch (error) {
-    addFailure.value = asShellError(error, "tunnel_open");
+    const shell = asShellError(error, "tunnel_open");
+    if (shell.code === "POLICY-APPROVAL-REQUIRED" && !acknowledged) {
+      // The gate wants a person, not a retry loop: hold the request and ask, naming the rule
+      // that fired (a remote forward, a bind the other machines could reach).
+      pendingOpen.value = request;
+      askingOpen.value = true;
+    } else {
+      addFailure.value = shell;
+    }
   } finally {
     adding.value = false;
   }
+}
+
+/** The open the gate stopped for, held until somebody answers the question about it. */
+const pendingOpen = ref<ForwardRequest | null>(null);
+const askingOpen = ref(false);
+
+async function confirmOpen(): Promise<void> {
+  const request = pendingOpen.value;
+  pendingOpen.value = null;
+  askingOpen.value = false;
+  if (request) {
+    await send(request, true);
+  }
+}
+
+function dropOpen(): void {
+  pendingOpen.value = null;
+  askingOpen.value = false;
 }
 </script>
 
@@ -413,10 +450,23 @@ async function add(): Promise<void> {
     </template>
 
     <!--
-      One question, plainly, about the one write this window has: stopping a forward somebody may
-      have been using. Opening has no question of its own — the desktop's open path runs unattended,
-      and a stricter matrix answers with a refusal naming the rule, which the add form says below.
+      The questions this window asks, plainly: about the open the gate stopped for — a remote
+      forward, a bind other machines could reach — and about the one write of stopping a forward
+      somebody may have been using.
     -->
+    <ConfirmDialog
+      :open="askingOpen"
+      :title="t('workbench.desktop.forwards.openAskTitle')"
+      :message="t('workbench.desktop.forwards.openAskMessage')"
+      :confirm-label="t('workbench.desktop.forwards.open')"
+      danger
+      @confirm="confirmOpen()"
+      @update:open="
+        (value: boolean) => {
+          if (!value) dropOpen();
+        }
+      "
+    />
     <ConfirmDialog
       :open="stopQuestion"
       :title="t('workbench.desktop.forwards.stopTitle')"

@@ -51,9 +51,7 @@ async function mount(): Promise<void> {
 
 beforeEach(() => {
   overviewMock.mockReset();
-  overviewMock.mockResolvedValue({
-    services: [{ name: "nginx.service", active: "active", enabled: "enabled" }],
-  });
+  overviewMock.mockResolvedValue(fixture("active", "enabled") as unknown as Awaited<ReturnType<typeof systemOverview>>);
   actionMock.mockReset();
   actionMock.mockResolvedValue(undefined);
 });
@@ -75,7 +73,9 @@ function body(): HTMLElement {
 
 /** The unit a row draws its buttons from: an inactive unit can start, an active one cannot. */
 function fixture(active: string, enabled?: string): unknown {
-  return { services: [{ name: "nginx.service", active, sub: "running", enabled, description: "" }] };
+  return {
+    services: [{ name: "nginx.service", active, load: "loaded", sub: "running", enabled, description: "" }],
+  };
 }
 
 /** The buttons in the unit's row, found by their tooltip ("Start"…"Disable at boot"). */
