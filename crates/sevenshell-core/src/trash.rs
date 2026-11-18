@@ -128,7 +128,13 @@ impl Core {
     ///
     /// The gate runs before the handle is looked up, on the session the caller named: a `Deny` is
     /// an answer about the machine, not about whether a channel happens to be open.
-    pub async fn trash_remove(&self, session_id: &str, handle: &str, id: &str, acknowledged: bool) -> Result<(), ShellError> {
+    pub async fn trash_remove(
+        &self,
+        session_id: &str,
+        handle: &str,
+        id: &str,
+        acknowledged: bool,
+    ) -> Result<(), ShellError> {
         check_entry_id(id)?;
         trash_gate(self, session_id, "remove", acknowledged)?;
 
@@ -241,10 +247,7 @@ fn trash_gate(core: &Core, session_id: &str, verb: &str, acknowledged: bool) -> 
 async fn trash_dirs(files: &Arc<SftpSession>) -> (String, String) {
     let home = files.resolve(".").await;
     let trash = remote_join(&home, TRASH_DIR);
-    (
-        remote_join(&trash, FILES_SUBDIR),
-        remote_join(&trash, INFO_SUBDIR),
-    )
+    (remote_join(&trash, FILES_SUBDIR), remote_join(&trash, INFO_SUBDIR))
 }
 
 /// Creates `files` and `info` when neither is there. A trash that has never been used has neither;
@@ -259,7 +262,12 @@ async fn ensure_trash_dirs(files: &Arc<SftpSession>, files_dir: &str, info_dir: 
 }
 
 /// Moves one path into the trash and writes its sidecar, answering what became of it.
-async fn trash_one(files: &Arc<SftpSession>, files_dir: &str, info_dir: &str, request: &TrashMoveRequest) -> TrashMoveOutcome {
+async fn trash_one(
+    files: &Arc<SftpSession>,
+    files_dir: &str,
+    info_dir: &str,
+    request: &TrashMoveRequest,
+) -> TrashMoveOutcome {
     let name = match trash_entry_name(&request.path) {
         Ok(name) => name,
         Err(error) => return refused(request, error),
@@ -489,17 +497,27 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_shift = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_shift + 2) / 5 + 1;
-    let month = if month_shift < 10 { month_shift + 3 } else { month_shift - 9 };
+    let month = if month_shift < 10 {
+        month_shift + 3
+    } else {
+        month_shift - 9
+    };
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
 /// A name inside `Trash/files`: one component, no traversal, nothing a filesystem would choke on.
 fn check_entry_id(id: &str) -> Result<(), ShellError> {
     if id.is_empty() || id == "." || id == ".." || id.contains('/') || id.contains('\\') {
-        return Err(ShellError::trash_operation_failed(id, "that name is not one a trash entry can carry"));
+        return Err(ShellError::trash_operation_failed(
+            id,
+            "that name is not one a trash entry can carry",
+        ));
     }
     if id.chars().count() > ENTRY_ID_MAX_CHARS || id.chars().any(char::is_control) {
-        return Err(ShellError::trash_operation_failed(id, "that name is not one a trash entry can carry"));
+        return Err(ShellError::trash_operation_failed(
+            id,
+            "that name is not one a trash entry can carry",
+        ));
     }
     Ok(())
 }
@@ -518,13 +536,11 @@ async fn free_trash_name(files: &Arc<SftpSession>, directory: &str, name: &str) 
     let mut candidate = name.to_owned();
     let mut bump = 1u64;
     loop {
-        let taken = match files.exists(&remote_join(directory, &candidate)).await {
-            Ok(taken) => taken,
-            // An existence check that failed is answered the optimistic way: the rename that
-            // follows carries the real verdict, and refusing a delete over a failed probe would
-            // leave the file un-deletable exactly when something is already wrong.
-            Err(_) => false,
-        };
+        // A probe that failed is answered the optimistic way: the rename that follows carries the
+        // real verdict, and refusing a delete over a failed probe would leave the file un-deletable
+        // exactly when something is already wrong. That is what `unwrap_or_default` says here — the
+        // default for "is this name taken" is "no" — spelled the way the linter can read.
+        let taken = files.exists(&remote_join(directory, &candidate)).await.unwrap_or_default();
         if !taken {
             return candidate;
         }
@@ -535,16 +551,28 @@ async fn free_trash_name(files: &Arc<SftpSession>, directory: &str, name: &str) 
 
 /// `free_trash_name` for a restore, where the base is the original path and a taken name means the
 /// entry lands beside what replaced it rather than on top of it.
-async fn free_target_name(files: &Arc<SftpSession>, original: &str, deleted_at: Option<u64>) -> Result<String, ShellError> {
+async fn free_target_name(
+    files: &Arc<SftpSession>,
+    original: &str,
+    deleted_at: Option<u64>,
+) -> Result<String, ShellError> {
     if !files.exists(original).await? {
         return Ok(original.to_owned());
     }
     let (directory, name) = match original.rsplit_once('/') {
         Some((_, "")) => {
-            return Err(ShellError::trash_operation_failed(original, "the original path ends in a slash"));
+            return Err(ShellError::trash_operation_failed(
+                original,
+                "the original path ends in a slash",
+            ));
         }
         Some((directory, name)) => (directory, name),
-        None => return Err(ShellError::trash_operation_failed(original, "the original path has no name to restore")),
+        None => {
+            return Err(ShellError::trash_operation_failed(
+                original,
+                "the original path has no name to restore",
+            ));
+        }
     };
     let stamp = format_compact_stamp(deleted_at.unwrap_or_else(now_seconds));
     let mut candidate = format!("{name}.{stamp}");
@@ -722,7 +750,10 @@ mod tests {
     fn a_gio_written_trashinfo_parses() {
         let parsed = parse_trashinfo("[Trash Info]\nPath=/root/trash-probe.txt\nDeletionDate=2026-11-18T08:18:07\n");
         assert_eq!(parsed.path.as_deref(), Some("/root/trash-probe.txt"));
-        assert!(parsed.deleted_at.is_some(), "the deletion date is on the wire gio writes");
+        assert!(
+            parsed.deleted_at.is_some(),
+            "the deletion date is on the wire gio writes"
+        );
     }
 
     #[test]
@@ -738,7 +769,11 @@ mod tests {
     fn a_file_that_is_not_a_trashinfo_names_nothing() {
         assert_eq!(parse_trashinfo("").path, None);
         assert_eq!(parse_trashinfo("[Trash Info]\n").deleted_at, None);
-        assert_eq!(parse_trashinfo("Path=/etc/passwd\n").path, None, "the header line is required");
+        assert_eq!(
+            parse_trashinfo("Path=/etc/passwd\n").path,
+            None,
+            "the header line is required"
+        );
     }
 
     #[test]
@@ -767,8 +802,14 @@ mod tests {
 
     #[test]
     fn an_ordinary_absolute_path_passes_unchanged() {
-        assert_eq!(sanitize_original_path("/root/trash-probe.txt").as_deref(), Some("/root/trash-probe.txt"));
-        assert_eq!(sanitize_original_path("/var/log/my file.log").as_deref(), Some("/var/log/my file.log"));
+        assert_eq!(
+            sanitize_original_path("/root/trash-probe.txt").as_deref(),
+            Some("/root/trash-probe.txt")
+        );
+        assert_eq!(
+            sanitize_original_path("/var/log/my file.log").as_deref(),
+            Some("/var/log/my file.log")
+        );
     }
 
     // -- the stamp and its inverse ------------------------------------------

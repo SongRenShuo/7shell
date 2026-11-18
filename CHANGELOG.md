@@ -23,6 +23,25 @@ All notable changes to 7Shell are documented in this file. The format is
 - A file browser can be opened onto the path an entry named, from the workbench's recent list
   (44373bd).
 
+#### A desktop that behaves like one
+
+- The workbench tab is now a desktop rather than a card page: the wallpaper covers the whole tab,
+  an icon grid starts at the top left (home, terminal, monitor, system information, trash), icons
+  open on a double-click or Enter and answer a right-click, a thin taskbar mirrors this session's
+  open tabs and carries the power actions, and the readings moved to the monitor's system page
+  (9d3178e).
+- Shortcuts: a right-click on the desktop adds a path shortcut, the icons can be removed from their
+  own menu, and the layout is remembered per session in the window's own storage (9d3178e).
+- A trash, over the freedesktop layout the machine already keeps (`~/.local/share/Trash`) and
+  entirely through the session's own file channel — nothing is installed and nothing runs. Deleting
+  in the file browser now lands in the trash by default, with a direct-delete choice beside it in
+  the settings (0472f31, 823defa, 98a716e, 80fc692). An entry can be put back where it came from,
+  deleted for good, or the whole trash emptied behind a confirmation and the policy matrix; an
+  entry whose sidecar cannot be paired is listed and deletable but not restorable, because putting
+  it back would be a guess that writes somewhere.
+- The process page gains its one write: "End process" on a row's menu, behind a confirmation, the
+  policy matrix and an audit line (790e371, 5d355bd).
+
 ## [0.2.0] - 2026-11-17
 
 The browser-host release. The interface now runs in a normal browser from a loopback host, so
