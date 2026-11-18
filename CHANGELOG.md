@@ -41,6 +41,12 @@ All notable changes to 7Shell are documented in this file. The format is
   it back would be a guess that writes somewhere.
 - The process page gains its one write: "End process" on a row's menu, behind a confirmation, the
   policy matrix and an audit line (790e371, 5d355bd).
+- A **system panel** over the desktop reads what the machine says about itself — services with
+  their systemd state, the block-device tree, the accounts that can log in, interfaces with
+  addresses and counters, routes and resolvers, and the journal's tail — and can start, restart or
+  stop a service, with stopping behind a question and the policy matrix (8bdbdfd, a7310b4).
+- Icon chrome on a wallpaper no longer follows the interface theme: white with a soft shadow, so
+  a light theme's dark labels are never drawn on a dark picture (a7310b4).
 
 ## [0.2.0] - 2026-11-17
 

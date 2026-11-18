@@ -323,7 +323,7 @@ pub(crate) fn parse_overview_sections(stdout: &str) -> SystemOverview {
 /// than rounded up — a machine that has been up for 59.9 seconds has not been up for a minute.
 fn uptime_seconds(line: &str) -> Option<u64> {
     let seconds: f64 = line.split_whitespace().next()?.parse().ok()?;
-    (seconds.is_finite() && seconds >= 0.0).then(|| seconds as u64)
+    (seconds.is_finite() && seconds >= 0.0).then_some(seconds as u64)
 }
 
 /// The services `systemctl list-units` listed.

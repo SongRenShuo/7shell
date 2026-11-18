@@ -30,6 +30,23 @@
         "placeholder": "/home/user/projects",
         "invalid": "请输入目录路径。不能为空，也不能包含控制字符。",
         "create": "创建快捷方式"
+      },
+      "settings": {
+        "title": "桌面设置",
+        "wallpaper": "背景",
+        "wallpaperDefault": "界面默认",
+        "wallpapers": {
+          "aurora": "极光",
+          "dawn": "晨曦",
+          "forest": "森林",
+          "plain": "素色"
+        },
+        "density": "图标密度",
+        "densities": {
+          "comfortable": "舒适",
+          "compact": "紧凑"
+        },
+        "saved": "背景已保存。"
       }
     },
     "power": {

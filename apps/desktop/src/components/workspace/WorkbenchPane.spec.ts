@@ -218,6 +218,48 @@ describe("the workbench desktop", () => {
     expect(systemOverviewMock).toHaveBeenCalledWith("w1");
   });
 
+  it("keeps the system panel open while its sections are switched", async () => {
+    systemOverviewMock.mockResolvedValue({
+      services: [{ name: "sshd.service", load: "loaded", active: "active", sub: "running", description: "OpenSSH" }],
+      disks: [
+        {
+          name: "sda",
+          size: "20G",
+          kind: "disk",
+          children: [{ name: "sda1", size: "20G", kind: "part", mount: "/", children: [] }],
+        },
+      ],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      uptimeSeconds: 60,
+    });
+    await render();
+
+    iconByLabel("System panel").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const panel = () => host.querySelector("[data-workbench-system]");
+    expect(panel(), "the panel opened").not.toBeNull();
+
+    // Switching a section is a click on a tab, and it must leave the panel standing: it used to be
+    // reported as closing the whole panel, which is the difference between a tab strip and a door.
+    const disk = [...host.querySelectorAll("[data-workbench-system-tabs] button")].find((button) =>
+      button.textContent?.includes("Disks"),
+    );
+    disk?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(panel(), "the panel is still standing").not.toBeNull();
+    const cells = [...host.querySelectorAll("[data-workbench-system] tbody tr")].map((row) => row.textContent ?? "");
+    expect(
+      cells.some((text) => text.includes("sda1")),
+      "the disk tree is drawn",
+    ).toBe(true);
+  });
+
   it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {
     await render(deskWithWallpaper);
     expect(host.firstElementChild?.getAttribute("style")).toContain("linear-gradient");
@@ -345,11 +387,17 @@ describe("the workbench desktop", () => {
     const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
     expect(ids).toContain("desktop-refresh");
     expect(ids).toContain("desktop-new-shortcut");
+    expect(ids, "the desktop's settings entry is offered").toContain("desktop-settings");
     const settings = menu.entries.value.find((entry) => entry.kind === "action" && entry.id === "desktop-settings");
-    expect(settings && settings.kind === "action" ? settings.disabled : undefined, "settings is a placeholder").toBe(
-      true,
-    );
-
+    expect(
+      settings && settings.kind === "action" ? (settings.disabled ?? false) : false,
+      "settings is a door now",
+    ).toBe(false);
+    if (settings && settings.kind === "action") {
+      settings.run();
+      await nextTick();
+      expect(document.body.querySelector("[data-workbench-settings]"), "the settings dialog is drawn").not.toBeNull();
+    }
     await runMenuEntry(menu, "desktop-refresh");
     expect(iconByLabel("b"), "the shortcut added elsewhere is now on the desktop").toBeDefined();
   });
