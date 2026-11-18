@@ -1820,6 +1820,43 @@ impl Core {
             .ok_or_else(|| ShellError::app_internal(format!("the file browser {handle} is no longer open")))
     }
 
+    /// An SFTP channel for a handle that may be a browser's or a terminal's.
+    ///
+    /// The surfaces that ask for this are the ones a *session* owns rather than a browser — the
+    /// trash a desktop opens, most of all — and they are handed whichever handle the caller has:
+    /// a file browser's when one is open, a terminal's otherwise. A browser's channel is used
+    /// directly (it is already open and counted in the budget); a terminal's handle means the
+    /// session is open, so a carrier is taken the way a browser's open would take one — shared
+    /// with the terminal when it has room, a connection of its own when it does not.
+    pub(crate) async fn sftp_for_handle(&self, handle: &str) -> Result<Arc<SftpSession>, ShellError> {
+        if let Ok(browser) = self.file_session(handle).await {
+            return Ok(Arc::clone(browser.sftp()?));
+        }
+
+        let session_id = self
+            .registry
+            .open_sessions()
+            .await
+            .into_iter()
+            .find(|entry| entry.handle == handle)
+            .map(|entry| entry.session_id)
+            .ok_or_else(|| ShellError::session_not_found(handle))?;
+        let session = self.session(&session_id)?;
+
+        let connection = match self.open_file_carrier(&session).await? {
+            ConnectionOutcome::Ready(carrier) => carrier.connection,
+            // A decision cannot arise from a session that is already authenticated; if the carrier
+            // was refused for any other reason, that reason is the answer.
+            ConnectionOutcome::Decision(_) => {
+                return Err(ShellError::app_internal(
+                    "the session's file channel could not be opened",
+                ));
+            }
+        };
+        let stream = connection.open_subsystem_stream("sftp").await?;
+        Ok(Arc::new(SftpSession::new(stream).await?))
+    }
+
     /// The next transfer's id, taken now rather than when the task starts.
     ///
     /// A packed transfer needs it before its task exists: the archive it makes on the far side is

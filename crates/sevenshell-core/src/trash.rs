@@ -216,8 +216,10 @@ impl Core {
     /// nor a rename that says what it refused. `sftp` answers `APP-UNSUPPORTED` for every other
     /// backend, and that refusal travels as it is.
     async fn trash_channel(&self, handle: &str) -> Result<Arc<SftpSession>, ShellError> {
-        let browser = self.file_session(handle).await?;
-        Ok(browser.sftp()?.clone())
+        // The caller holds whichever handle it has: a browser's when one is open, a terminal's
+        // otherwise — a desktop's trash icon opens the panel on the session, with no browser in
+        // sight. The resolution between the two lives beside the file channels it uses.
+        self.sftp_for_handle(handle).await
     }
 }
 
