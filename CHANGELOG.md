@@ -110,6 +110,9 @@ All notable changes to 7Shell are documented in this file. The format is
 
 - The starter sheet's tiles are drawn at the same plate opacity as the icon grid and the taskbar,
   which is what the "same tone everywhere" contract always said and the sheet quietly rounded off.
+- A system panel or trash window left open when the connection drops no longer hangs there as an
+  empty frame: it says the machine is not connected and offers the reconnect, the same sentence the
+  terminal window has always answered with.
 
 - Deleting one trash entry for good no longer runs straight from its icon: the question emptying
   already asks is there for this verb too, naming the entry, and only the answer carries the
