@@ -23,6 +23,9 @@
     "workbench": {
       "powerFailed": "The machine did not accept the power action. {detail}"
     },
+    "process": {
+      "killFailed": "The machine did not end the process. {detail}"
+    },
     "terminal": {
       "unreachable": "Could not reach {host}:{port}. Nothing answered there, or it is not a Telnet service.",
       "serialFailed": "Could not open serial port {port}. Check that the device is connected and no other program holds it.",

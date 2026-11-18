@@ -50,6 +50,9 @@
       "empty": "Empties the trash, deleting every entry in it permanently",
       "remove": "Deletes one trash entry permanently",
       "unknown": "A trash action this version does not recognise"
+    },
+    "process": {
+      "kill": "Ends a running process"
     }
   }
 }

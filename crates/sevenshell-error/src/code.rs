@@ -73,6 +73,10 @@ error_catalog! {
     #[doc = "The machine refused a power action, or reported that it failed."]
     WorkbenchPowerFailed => "WORKBENCH-POWER-FAILED", "errors.workbench.powerFailed";
 
+    // -- Process -----------------------------------------------------------
+    #[doc = "The machine refused to end a process, or reported that it failed."]
+    ProcessKillFailed => "PROCESS-KILL-FAILED", "errors.process.killFailed";
+
     // -- SFTP --------------------------------------------------------------
     #[doc = "The remote path does not exist."]
     SftpNotFound => "SFTP-NOT-FOUND", "errors.sftp.notFound";

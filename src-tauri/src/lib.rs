@@ -238,6 +238,7 @@ pub fn run() {
             commands::terminal::tunnel_close,
             commands::desktop::desktop_open,
             commands::workbench::workbench_power,
+            commands::process::process_kill,
             commands::trash::trash_list,
             commands::trash::trash_restore,
             commands::trash::trash_remove,
