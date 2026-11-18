@@ -10,8 +10,8 @@
 import { Folder, Terminal } from "@lucide/vue";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { type App, createApp, defineComponent, h } from "vue";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type App, createApp, defineComponent, h, nextTick, ref } from "vue";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
 
@@ -24,18 +24,25 @@ let launches: string[] = [];
 let closes = 0;
 let app: App | undefined;
 let root: HTMLDivElement | undefined;
+let open = ref(false);
 
 /** Mounts the sheet already open or already closed, and records what it says. */
-function mount(open: boolean): void {
+function mount(shown: boolean): void {
   launches = [];
   closes = 0;
+  open = ref(shown);
   const Host = defineComponent({
     setup() {
       return () =>
         h(WorkbenchStarter, {
-          open,
+          open: open.value,
           apps: APPS,
-          labels: { title: "Applications", close: "Close" },
+          labels: {
+            title: "Applications",
+            close: "Close",
+            search: "Search applications",
+            noResults: "Nothing matches",
+          },
           onClose: () => {
             closes += 1;
           },
@@ -57,6 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   app?.unmount();
   app = undefined;
   root?.remove();
@@ -158,5 +166,56 @@ describe("the starter sheet", () => {
     expect(source).toContain("var(--workbench-surface-2)");
     expect(source).toContain("var(--workbench-on-picture-muted)");
     expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  it("filters the grid after the query settles, and keeps every tile before it does", async () => {
+    vi.useFakeTimers();
+    const field = document.querySelector<HTMLInputElement>("[data-workbench-starter-search]");
+    expect(field, "an open sheet carries its search field").not.toBeNull();
+
+    field!.value = "term";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Before the debounce settles, the whole grid is still there: a filter that moved on every
+    // keystroke would thrash the grid while a word is being typed.
+    expect(tiles(), "the filter waits for the query to settle").toHaveLength(2);
+
+    vi.advanceTimersByTime(300);
+    await nextTick();
+    expect(tiles(), "only the application the query names").toHaveLength(1);
+    expect(tiles()[0]?.dataset.appId).toBe("terminal");
+  });
+
+  it("says when nothing matches, instead of drawing an empty grid", async () => {
+    vi.useFakeTimers();
+    const field = document.querySelector<HTMLInputElement>("[data-workbench-starter-search]");
+    field!.value = "printer";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.advanceTimersByTime(300);
+    await nextTick();
+
+    expect(document.querySelector("[data-workbench-starter-empty]"), "the nothing-matches line").not.toBeNull();
+    expect(tiles()).toHaveLength(0);
+  });
+
+  it("forgets the query when the sheet closes, so reopening shows every application", async () => {
+    vi.useFakeTimers();
+    const field = document.querySelector<HTMLInputElement>("[data-workbench-starter-search]");
+    field!.value = "term";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.advanceTimersByTime(300);
+    await nextTick();
+    expect(tiles()).toHaveLength(1);
+
+    open.value = false;
+    await nextTick();
+    open.value = true;
+    await nextTick();
+
+    expect(tiles(), "a reopened sheet filters nothing").toHaveLength(2);
+    // The field was rebuilt with the sheet (it exists only while the sheet is open), so the fresh
+    // element is what carries the emptied query.
+    const reopened = document.querySelector<HTMLInputElement>("[data-workbench-starter-search]");
+    expect(reopened?.value, "and the field itself is empty again").toBe("");
   });
 });

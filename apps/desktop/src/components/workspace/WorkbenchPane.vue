@@ -110,6 +110,7 @@ import {
 } from "@/lib/workbench/windows";
 import type { MenuEntry } from "@/lib/menu/types";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
+import { memorableRect, rememberedRect, writeWindowMemory } from "@/lib/workbench/windowMemory";
 import { useTerminalsStore, type ContainerTab, type TerminalTab, type WorkbenchTab } from "@/stores/terminals";
 
 const props = defineProps<{
@@ -423,11 +424,39 @@ watch(bounds, (next) => {
  */
 function openRecord(id: string, title: string, kind: string, payload: WindowPayload = {}): void {
   measure();
-  windows.value = openWindow(windows.value, { id, title, kind, bounds: bounds.value });
+  // A window comes back to where its kind was last left on this machine, clamped into the desk as
+  // it is now; a kind never opened here opens centred at the default.
+  const remembered = rememberedRect(session.value.id, kind, bounds.value);
+  windows.value = openWindow(windows.value, { id, title, kind, bounds: bounds.value, remembered });
   if (payload.tabId !== undefined || payload.path !== undefined || payload.fileHandle !== undefined) {
     payloads.value = { ...payloads.value, [id]: payload };
   }
 }
+
+/**
+ * Writes each visible window's geometry down, 100ms after the last change settles.
+ *
+ * A drag produces a move per pointer step; without the debounce that is a storage write per frame.
+ * A maximised window writes where it restores to, not the desk it covers, so reopening the kind
+ * lands where the person actually kept it. Kinds share one memory slot — a desktop holding two file
+ * windows writes the same slot twice, and the last writer wins, which is the memory's own rule.
+ */
+let memoryFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+watch(windows, () => {
+  if (memoryFlushTimer !== undefined) {
+    clearTimeout(memoryFlushTimer);
+  }
+  memoryFlushTimer = setTimeout(() => {
+    memoryFlushTimer = undefined;
+    for (const window of windows.value) {
+      const rect = memorableRect(window);
+      if (rect !== undefined) {
+        writeWindowMemory(session.value.id, window.kind, rect);
+      }
+    }
+  }, 100);
+});
 
 function focus(id: string): void {
   windows.value = focusWindow(windows.value, id);
@@ -875,6 +904,10 @@ onUnmounted(() => {
   if (clockTicker !== undefined) {
     clearInterval(clockTicker);
     clockTicker = undefined;
+  }
+  if (memoryFlushTimer !== undefined) {
+    clearTimeout(memoryFlushTimer);
+    memoryFlushTimer = undefined;
   }
   areaObserver?.disconnect();
   areaObserver = undefined;
