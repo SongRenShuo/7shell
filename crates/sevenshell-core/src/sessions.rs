@@ -104,6 +104,10 @@ pub struct Core {
     /// Stops for the line streams a container tab is following. Keyed by the id the host emitted,
     /// so a stop button and a closing window use the same path.
     pub(crate) container_streams: Arc<Mutex<ContainerStreamStops>>,
+    /// The desktop engine each Linux desktop session opened, session id to connection id. The
+    /// desktop's Docker manager asks for its engine by session; opening again answers the
+    /// connection the first open made.
+    pub(crate) desktop_engines: Mutex<HashMap<String, String>>,
     pub(crate) next_file: std::sync::atomic::AtomicU64,
     pub(crate) next_transfer: std::sync::atomic::AtomicU64,
     /// The matrix and the audit trail behind every unattended action. Replaced together, read
@@ -132,6 +136,7 @@ impl Core {
                 containers: Arc::new(sevenshell_container::ContainerManager::new()),
                 clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
                 container_streams: Arc::new(Mutex::new(HashMap::new())),
+                desktop_engines: Mutex::new(HashMap::new()),
                 next_file: std::sync::atomic::AtomicU64::new(1),
                 next_transfer: std::sync::atomic::AtomicU64::new(1),
                 // The default rule until a host replaces it: safe and caution run, the destructive

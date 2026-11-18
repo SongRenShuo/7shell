@@ -22,6 +22,13 @@ pub async fn container_connect(state: State<'_, ShellState>, session_id: String)
     state.core().container_connect(&session_id).await
 }
 
+/// Opens the Docker engine of a Linux desktop session on the session's own connection, for the
+/// desktop's Docker manager. Idempotent per session; everything else is the container surface above.
+#[tauri::command]
+pub async fn desktop_engine_open(state: State<'_, ShellState>, session_id: String) -> Result<String, ShellError> {
+    state.core().desktop_engine_open(&session_id).await
+}
+
 #[tauri::command]
 pub async fn container_disconnect(state: State<'_, ShellState>, connection_id: String) -> Result<(), ShellError> {
     state.core().container_disconnect(&connection_id).await;

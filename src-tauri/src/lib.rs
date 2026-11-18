@@ -286,6 +286,7 @@ pub fn run() {
             commands::files::clipboard_files,
             commands::clipboard::clipboard_text,
             commands::container::container_connect,
+            commands::container::desktop_engine_open,
             commands::container::container_disconnect,
             commands::container::container_list,
             commands::container::container_inspect,
