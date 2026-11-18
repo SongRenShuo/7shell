@@ -15,20 +15,26 @@ import {
   MIN_HEIGHT,
   MIN_WIDTH,
   MIN_VISIBLE_PX,
+  SNAP_EDGE_PX,
   STATUS_BAR_HEIGHT,
   TASKBAR_HEIGHT,
   clampToWorkArea,
   closeWindow,
+  cycleWindow,
   focusWindow,
   minimizeAll,
   minimizeWindow,
   moveWindow,
   openWindow,
   resizeWindow,
+  resizeWindowFrom,
   restoreAll,
   restoreWindow,
   setMaximized,
   showWindow,
+  snapRect,
+  snapZoneAt,
+  snapZoneRect,
   type WorkbenchBounds,
   type WorkbenchWindowState,
 } from "./windows";
@@ -581,5 +587,244 @@ describe("restoreAll", () => {
     const snapshot = JSON.stringify(desk);
     restoreAll(desk);
     expect(JSON.stringify(desk)).toBe(snapshot);
+  });
+});
+
+describe("resizeWindowFrom", () => {
+  it("resizes from the south edge and keeps the top-left corner where it was", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "s", { left: 100, top: 100, width: 666, height: 500 }, DESK);
+
+    expect(resized).toMatchObject({ left: 100, top: 100, width: 666, height: 500 });
+  });
+
+  it("resizes from the east edge, stopped by the desk's right edge", () => {
+    const [resized] = resizeWindowFrom(
+      [windowAt()],
+      "w1",
+      "e",
+      { left: 100, top: 100, width: 9999, height: 422 },
+      DESK,
+    );
+
+    expect(resized).toMatchObject({ left: 100, width: DESK.width - 100 });
+  });
+
+  it("resizes from the west edge: the right edge stays put while the left follows the pointer", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "w", { left: 40, top: 100, width: 726, height: 422 }, DESK);
+
+    // right = 100 + 666 = 766, unchanged; width grew by the 60 the left moved.
+    expect(resized).toMatchObject({ left: 40, width: 726 });
+  });
+
+  it("pulls the left edge back when the west drag asks for less than the minimum", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "w", { left: 600, top: 100, width: 166, height: 422 }, DESK);
+
+    // right = 766 is anchored; the minimum is what the width keeps, so the left yields to it.
+    expect(resized).toMatchObject({ left: 766 - MIN_WIDTH, width: MIN_WIDTH });
+  });
+
+  it("never lets a west drag push the left past the desk's left edge", () => {
+    const [resized] = resizeWindowFrom(
+      [windowAt()],
+      "w1",
+      "w",
+      { left: -500, top: 100, width: 1266, height: 422 },
+      DESK,
+    );
+
+    expect(resized).toMatchObject({ left: 0, width: 766 });
+  });
+
+  it("resizes from the north edge: the bottom edge stays put while the top follows the pointer", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "n", { left: 100, top: 40, width: 666, height: 482 }, DESK);
+
+    // bottom = 100 + 422 = 522, unchanged.
+    expect(resized).toMatchObject({ top: 40, height: 482 });
+  });
+
+  it("pulls the top edge back when the north drag asks for less than the minimum", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "n", { left: 100, top: 450, width: 666, height: 72 }, DESK);
+
+    expect(resized).toMatchObject({ top: 522 - MIN_HEIGHT, height: MIN_HEIGHT });
+  });
+
+  it("never lets a north drag push the top above the work area", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "n", { left: 100, top: -80, width: 666, height: 602 }, DESK);
+
+    expect(resized).toMatchObject({ top: 0, height: 522 });
+  });
+
+  it("resizes from a corner as both of its edges at once", () => {
+    const [resized] = resizeWindowFrom([windowAt()], "w1", "nw", { left: 20, top: 20, width: 746, height: 502 }, DESK);
+
+    expect(resized).toMatchObject({ left: 20, top: 20, width: 746, height: 502 });
+  });
+
+  it("stops a south drag at the desk's bottom edge", () => {
+    const [resized] = resizeWindowFrom(
+      [windowAt()],
+      "w1",
+      "se",
+      { left: 100, top: 100, width: 900, height: 9999 },
+      DESK,
+    );
+
+    expect(resized).toMatchObject({ width: 700, height: 500 });
+  });
+
+  it("leaves a maximised or minimised window where it is", () => {
+    const maximised = windowAt({ mode: "max" });
+    const before = JSON.stringify([maximised]);
+    const [resized] = resizeWindowFrom([maximised], "w1", "e", { left: 0, top: 0, width: 40, height: 40 }, DESK);
+
+    expect(JSON.stringify([resized])).toBe(before);
+  });
+
+  it("does not write through its arguments", () => {
+    const desk = [windowAt()];
+    const before = JSON.stringify(desk);
+    resizeWindowFrom(desk, "w1", "w", { left: 0, top: 0, width: 500, height: 500 }, DESK);
+    expect(JSON.stringify(desk)).toBe(before);
+  });
+});
+
+describe("snapZoneAt", () => {
+  it("answers left and right for the edge middles", () => {
+    expect(snapZoneAt({ left: SNAP_EDGE_PX, top: 300 }, DESK)).toBe("left");
+    expect(snapZoneAt({ left: DESK.width - SNAP_EDGE_PX, top: 300 }, DESK)).toBe("right");
+  });
+
+  it("answers the four corners as quarters", () => {
+    expect(snapZoneAt({ left: 0, top: 0 }, DESK)).toBe("top-left");
+    expect(snapZoneAt({ left: DESK.width - 1, top: SNAP_EDGE_PX }, DESK)).toBe("top-right");
+    expect(snapZoneAt({ left: SNAP_EDGE_PX, top: DESK.height - 1 }, DESK)).toBe("bottom-left");
+    expect(snapZoneAt({ left: DESK.width - 1, top: DESK.height - 1 }, DESK)).toBe("bottom-right");
+  });
+
+  it("answers nothing in the middle of the desk", () => {
+    expect(snapZoneAt({ left: 400, top: 300 }, DESK)).toBeNull();
+  });
+
+  it("answers nothing for the top edge's middle, which is the maximise gesture", () => {
+    expect(snapZoneAt({ left: 400, top: 0 }, DESK)).toBeNull();
+  });
+
+  it("answers nothing on a desk with no room", () => {
+    expect(snapZoneAt({ left: 0, top: 0 }, { width: 0, height: 0 })).toBeNull();
+  });
+});
+
+describe("snapZoneRect", () => {
+  it("fills half the desk for the edge zones, quarter for the corners", () => {
+    expect(snapZoneRect("left", DESK)).toEqual({ left: 0, top: 0, width: 400, height: 600 });
+    expect(snapZoneRect("right", DESK)).toEqual({ left: 400, top: 0, width: 400, height: 600 });
+    expect(snapZoneRect("top-left", DESK)).toEqual({ left: 0, top: 0, width: 400, height: 300 });
+    expect(snapZoneRect("top-right", DESK)).toEqual({ left: 400, top: 0, width: 400, height: 300 });
+    expect(snapZoneRect("bottom-left", DESK)).toEqual({ left: 0, top: 300, width: 400, height: 300 });
+    expect(snapZoneRect("bottom-right", DESK)).toEqual({ left: 400, top: 300, width: 400, height: 300 });
+  });
+});
+
+describe("snapRect", () => {
+  it("puts the window exactly into the zone rectangle", () => {
+    const [snapped] = snapRect([windowAt()], "w1", "left", DESK);
+
+    expect(snapped).toMatchObject({ left: 0, top: 0, width: 400, height: 600, mode: "normal" });
+  });
+
+  it("remembers where the hand had put it, the way maximising remembers", () => {
+    const [snapped] = snapRect([windowAt()], "w1", "right", DESK);
+
+    expect(snapped?.restore).toEqual({ left: 100, top: 100, width: 666, height: 422 });
+  });
+
+  it("does not overwrite a memory somebody else already wrote", () => {
+    const remembered = windowAt({ restore: { left: 5, top: 5, width: 100, height: 100 } });
+    const [snapped] = snapRect([remembered], "w1", "left", DESK);
+
+    expect(snapped?.restore).toEqual({ left: 5, top: 5, width: 100, height: 100 });
+  });
+
+  it("brings the snapped window forward and focuses it", () => {
+    const desk = [windowAt({ id: "a", z: 1, focused: true }), windowAt({ id: "b", z: 2, focused: false, left: 200 })];
+    const snapped = snapRect(desk, "b", "bottom-right", DESK);
+
+    expect(snapped.find((window) => window.id === "b")?.focused).toBe(true);
+    expect(snapped.find((window) => window.id === "a")?.focused).toBe(false);
+    expect(snapped.find((window) => window.id === "b")?.z).toBe(3);
+  });
+
+  it("does not snap a maximised or minimised window", () => {
+    const maximised = windowAt({ mode: "max" });
+    const before = JSON.stringify([maximised]);
+    const [snapped] = snapRect([maximised], "w1", "left", DESK);
+
+    expect(JSON.stringify([snapped])).toBe(before);
+  });
+
+  it("does not write through its arguments", () => {
+    const desk = [windowAt()];
+    const before = JSON.stringify(desk);
+    snapRect(desk, "w1", "left", DESK);
+    expect(JSON.stringify(desk)).toBe(before);
+  });
+});
+
+describe("cycleWindow", () => {
+  it("hands the focus down the stack, from the front to the window focused just before it", () => {
+    const desk = [
+      windowAt({ id: "low", z: 1, focused: false }),
+      windowAt({ id: "mid", z: 2, focused: false, left: 200 }),
+      windowAt({ id: "top", z: 3, focused: true, left: 300 }),
+    ];
+
+    const cycled = cycleWindow(desk);
+
+    expect(cycled.find((window) => window.id === "mid")?.focused).toBe(true);
+    expect(cycled.find((window) => window.id === "top")?.focused).toBe(false);
+  });
+
+  it("wraps from the bottom of the pile back to the front", () => {
+    const desk = [
+      windowAt({ id: "low", z: 1, focused: true }),
+      windowAt({ id: "mid", z: 2, focused: false, left: 200 }),
+    ];
+
+    const cycled = cycleWindow(desk);
+
+    expect(cycled.find((window) => window.id === "mid")?.focused).toBe(true);
+  });
+
+  it("walks the other way with Shift, and starts at the bottom when nothing is focused", () => {
+    const desk = [
+      windowAt({ id: "low", z: 1, focused: false }),
+      windowAt({ id: "mid", z: 2, focused: false, left: 200 }),
+      windowAt({ id: "top", z: 3, focused: false, left: 300 }),
+    ];
+
+    const cycled = cycleWindow(desk, true);
+
+    expect(cycled.find((window) => window.id === "low")?.focused).toBe(true);
+  });
+
+  it("does not raise a minimised window", () => {
+    const desk = [
+      windowAt({ id: "hidden", mode: "min", focused: false, z: 2 }),
+      windowAt({ id: "top", focused: true, z: 3 }),
+    ];
+
+    const cycled = cycleWindow(desk);
+
+    expect(cycled.find((window) => window.id === "hidden")?.focused).toBe(false);
+    expect(cycled.find((window) => window.id === "hidden")?.mode).toBe("min");
+    expect(cycled.find((window) => window.id === "top")?.focused).toBe(true);
+  });
+
+  it("changes nothing on a desk with nothing visible", () => {
+    const desk = [windowAt({ mode: "min", focused: false })];
+    const before = JSON.stringify(desk);
+    const cycled = cycleWindow(desk);
+
+    expect(JSON.stringify(cycled)).toBe(before);
   });
 });

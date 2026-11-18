@@ -19,6 +19,7 @@ import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import WbButton from "@/components/ui/WbButton.vue";
+import WbEmpty from "@/components/ui/WbEmpty.vue";
 import WbTag from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import type { MenuEntry } from "@/lib/menu/types";
@@ -208,7 +209,7 @@ async function removeImage(): Promise<void> {
           </tr>
           <tr v-if="rows.length === 0">
             <td :colspan="5" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
-              {{ t("container.images.none") }}
+              <WbEmpty scenario="noData" size="sm" :description="t('container.images.none')" class="mx-auto" />
             </td>
           </tr>
         </tbody>

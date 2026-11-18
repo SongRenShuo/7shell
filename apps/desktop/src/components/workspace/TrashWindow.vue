@@ -24,6 +24,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
+import WbEmpty from "@/components/ui/WbEmpty.vue";
 import { describeShellError } from "@/i18n/errors";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
@@ -57,7 +58,6 @@ const askingEmpty = ref(false);
 
 const readable = computed(() => describe(failure.value));
 const count = computed(() => entries.value.length);
-const empty = computed(() => !reading.value && count.value === 0);
 
 function describe(error: ReturnType<typeof asShellError> | null): string | null {
   return error ? describeShellError(t as unknown as Parameters<typeof describeShellError>[0], error).message : null;
@@ -229,11 +229,19 @@ watch(
 
       <div v-else class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
         <LoaderCircle v-if="reading" :size="16" class="animate-spin text-muted-foreground" />
-        <Trash2 v-else :size="18" class="text-muted-foreground" />
-        <p class="text-xs text-muted-foreground">
-          {{ reading ? t("workbench.trash.reading") : t("workbench.trash.emptyState") }}
-        </p>
-        <p v-if="empty" class="text-[11px] text-muted-foreground">{{ t("workbench.trash.emptyHint") }}</p>
+        <p v-if="reading" class="text-xs text-muted-foreground">{{ t("workbench.trash.reading") }}</p>
+        <!--
+          The empty state is the shared one: the same drawing every empty list in the desktop and the
+          panels draws, saying what this panel says an empty trash means.
+        -->
+        <WbEmpty
+          v-else
+          scenario="noData"
+          size="sm"
+          :title="t('workbench.trash.emptyState')"
+          :description="t('workbench.trash.emptyHint')"
+          class="text-muted-foreground"
+        />
       </div>
     </div>
 

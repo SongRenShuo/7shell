@@ -56,7 +56,7 @@ const emit = defineEmits<{
         :disabled="!connected"
         :title="labels.disconnect"
         :aria-label="labels.disconnect"
-        class="-mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        class="-mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] transition-colors hover:bg-[var(--workbench-wash-hover)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         @click="emit('disconnect')"
       >
         <Power :size="14" />

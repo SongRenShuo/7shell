@@ -6,15 +6,16 @@
  *
  * The look is the reference desktop's, measured rather than invented, and named in the workbench
  * token block of `globals.css` rather than written here: the pane is `--workbench-glass` (a
- * translucent black under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
+ * translucent face under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
  * app tier of the `--wb-shadow-*` scale, and its roundness `--wb-radius-window` — the window step
  * of the desktop's own radius scale, still derived from the corner style the rest of the
- * interface obeys. A title bar at least 45px tall with a 17px white title and a hairline under
+ * interface obeys. A title bar at least 45px tall with a 17px title and a hairline under
  * it; three round icon buttons at the far end, the last of which turns `--workbench-danger` under
- * the pointer. Everything here stays white on dark, like the rest of the desktop chrome — a
- * window is a thing on a picture, and it does not follow the interface's light theme: the tokens
- * resolve to the same dark-face values in both theme blocks, and a light desktop plugs in at that
- * seam, not here.
+ * the pointer. The face follows the host's theme — dark glass and white text on a dark host, white
+ * glass and dark text on a light one — except where it must not: on a wallpaper the pane re-points
+ * the whole chrome at the fixed white pair and the dark glass (`data-workbench-on-picture` in
+ * `globals.css`), because text standing on a picture is always white. Nothing here names a colour
+ * of its own.
  *
  * The gestures are pointer-based rather than HTML5 drag-and-drop, because a drag is not a data
  * transfer: it starts on the title bar, moves the window by the distance the pointer travelled
@@ -26,7 +27,12 @@
  *
  * The resize grip in the bottom-right corner is a second, separate gesture: it resizes from the
  * size the drag began with and never starts a title-bar move. It is hidden while maximised, where
- * there is no size to change.
+ * there is no size to change. Beside it, the eight edge and corner zones every desktop manager
+ * draws do the same work from any edge: each starts the same directional gesture, which measures
+ * from the geometry the drag began with and hands the pane a proposed rectangle tagged with the
+ * edge it was measured from — the arithmetic that keeps the far edge anchored lives in
+ * `resizeWindowFrom`, not here. The grip stays, because a corner grip is also the affordance that
+ * says "this can be resized" without anybody having to hunt for an edge.
  *
  * Closing is the parent's job. The `closing` prop draws the 200ms collapse; whoever owns the list
  * removes the record once the animation has had its time. Likewise `z`: the parent orders the
@@ -37,7 +43,13 @@ import { Copy, Minus, Square, X } from "@lucide/vue";
 import type { Component } from "vue";
 import { computed, ref } from "vue";
 
-import { MIN_HEIGHT, MIN_WIDTH, type WindowMode } from "@/lib/workbench/windows";
+import {
+  MIN_HEIGHT,
+  MIN_WIDTH,
+  type ResizeDirection,
+  type WindowMode,
+  type WorkbenchWindowRect,
+} from "@/lib/workbench/windows";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{
@@ -70,12 +82,28 @@ const emit = defineEmits<{
   restore: [];
   /** A pointer move during a title-bar drag, in desktop coordinates. */
   move: [{ left: number; top: number }];
+  /**
+   * Where the pointer itself is, in desktop coordinates, while a drag is under way. The window's
+   * own rectangle says where the window is; the snap zones are judged by the hand, which may be
+   * holding the title bar anywhere along it.
+   */
+  moveAt: [{ left: number; top: number }];
   /** A pointer move during a resize, with the minimum already applied. */
   resize: [{ width: number; height: number }];
+  /**
+   * A pointer move during a directional resize: the rectangle the pointer has travelled to,
+   * measured from the geometry the drag began with, tagged with the edge it was measured from.
+   * The minimum and the desk's edges are the arithmetic's business (`resizeWindowFrom`), not this
+   * gesture's.
+   */
+  resizeDir: [{ dir: ResizeDirection; rect: WorkbenchWindowRect }];
+  /** The title-bar drag ended with the pointer let go: the moment a snap, if one was pending, lands. */
+  moveEnd: [];
 }>();
 
 const titleBar = ref<HTMLElement | null>(null);
 const grip = ref<HTMLElement | null>(null);
+const windowEl = ref<HTMLElement | null>(null);
 
 /**
  * The drag in progress, or null.
@@ -85,11 +113,47 @@ const grip = ref<HTMLElement | null>(null);
  * pointer so each emission is an absolute position — the parent may clamp, and a delta accumulated
  * from the previous *emitted* position would then fight the clamp and walk the window away.
  */
-let drag: { pointerId: number; startX: number; startY: number; left: number; top: number; maximized: boolean } | null =
-  null;
+let drag: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  left: number;
+  top: number;
+  maximized: boolean;
+  /** Where the hand holds the window, so the pointer's desktop position travels with the moves. */
+  grabX: number;
+  grabY: number;
+} | null = null;
 
 /** The resize in progress, or null; same reasoning as the drag. */
-let resize: { pointerId: number; startX: number; startY: number; width: number; height: number } | null = null;
+let resize: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  /** The geometry the drag began with — every emission measures from it, never from the last one. */
+  anchor: WorkbenchWindowRect;
+  /** The edge the drag started from; the bottom-right grip is the "se" of this same gesture. */
+  dir: ResizeDirection;
+  /** The zone the pointer was captured on, so the capture is released where it was taken. */
+  element: HTMLElement | null;
+} | null = null;
+
+/**
+ * The eight edge and corner zones, drawn as thin strips along the window's edges. Each carries the
+ * cursor the direction is named by; the corners are 8px squares where two strips would overlap.
+ * They are hidden while maximised along with the grip, and they sit under the grip in the corner
+ * it shares, so the grip keeps the corner it has always had.
+ */
+const RESIZE_ZONES: ReadonlyArray<{ dir: ResizeDirection; class: string }> = [
+  { dir: "n", class: "top-0 right-2 left-2 h-2 cursor-n-resize" },
+  { dir: "s", class: "bottom-0 right-2 left-2 h-2 cursor-s-resize" },
+  { dir: "e", class: "top-2 right-0 bottom-2 w-2 cursor-e-resize" },
+  { dir: "w", class: "top-2 left-0 bottom-2 w-2 cursor-w-resize" },
+  { dir: "ne", class: "top-0 right-0 h-2 w-2 cursor-ne-resize" },
+  { dir: "nw", class: "top-0 left-0 h-2 w-2 cursor-nw-resize" },
+  { dir: "se", class: "bottom-0 right-0 h-2 w-2 cursor-se-resize" },
+  { dir: "sw", class: "bottom-0 left-0 h-2 w-2 cursor-sw-resize" },
+];
 
 const windowStyle = computed(() => ({
   left: `${props.left}px`,
@@ -100,7 +164,7 @@ const windowStyle = computed(() => ({
 
 const rootClass = computed(() =>
   cn(
-    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-white shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
+    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
     props.state === "max" ? "workbench-window--max rounded-none" : undefined,
     props.state === "min" ? "workbench-window--min" : undefined,
     props.closing ? "workbench-window--closing" : undefined,
@@ -121,6 +185,10 @@ function onTitlePointerDown(event: PointerEvent): void {
     return;
   }
   event.preventDefault();
+  // The hand's own offset inside the window, measured off the window's on-screen rectangle: the
+  // pointer's desktop position is the window's position plus this, which is what the pane judges
+  // its snap zones by.
+  const rect = windowEl.value?.getBoundingClientRect?.();
   drag = {
     pointerId: event.pointerId,
     startX: event.clientX,
@@ -128,6 +196,8 @@ function onTitlePointerDown(event: PointerEvent): void {
     left: props.left,
     top: props.top,
     maximized: false,
+    grabX: rect === undefined ? 0 : event.clientX - rect.left,
+    grabY: rect === undefined ? 0 : event.clientY - rect.top,
   };
   titleBar.value?.setPointerCapture?.(event.pointerId);
 }
@@ -165,12 +235,20 @@ function onTitlePointerMove(event: PointerEvent): void {
     left: drag.left + (event.clientX - drag.startX),
     top: nextTop,
   });
+  emit("moveAt", {
+    left: drag.left + (event.clientX - drag.startX) + drag.grabX,
+    top: nextTop + drag.grabY,
+  });
 }
 
 function onTitlePointerUp(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
     return;
   }
+  // The drag ended with the pointer let go — the moment a pending snap, if the pane saw one, is
+  // meant to land. A drag that ended in the maximise gesture has already cleared itself, and this
+  // line never runs for it.
+  emit("moveEnd");
   endDrag(event.pointerId);
 }
 
@@ -179,11 +257,17 @@ function endDrag(pointerId: number): void {
   drag = null;
 }
 
-function onGripPointerDown(event: PointerEvent): void {
+/**
+ * Starts a resize from one of the eight edge zones, or from the grip.
+ *
+ * `element` is the zone the press landed on — the pointer is captured on it, so the moves that
+ * follow arrive there no matter where the hand goes, exactly as the title bar captures its drag.
+ */
+function beginResize(event: PointerEvent, dir: ResizeDirection, element: HTMLElement | null): void {
   if (event.button !== 0 || props.state !== "normal" || props.closing) {
     return;
   }
-  // The grip is not inside the title bar, so it cannot start a move; stopping the event keeps it
+  // A resize is not inside the title bar, so it cannot start a move; stopping the event keeps it
   // that way if the layout ever puts one inside the other.
   event.preventDefault();
   event.stopPropagation();
@@ -191,27 +275,64 @@ function onGripPointerDown(event: PointerEvent): void {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
-    width: props.width,
-    height: props.height,
+    anchor: { left: props.left, top: props.top, width: props.width, height: props.height },
+    dir,
+    element,
   };
-  grip.value?.setPointerCapture?.(event.pointerId);
+  element?.setPointerCapture?.(event.pointerId);
 }
 
-function onGripPointerMove(event: PointerEvent): void {
+/**
+ * The rectangle the pointer has travelled to, measured from the drag's own starting geometry.
+ *
+ * The anchored edge moves with the pointer; the far edge is the anchor's. What the minimum and the
+ * desk then do to this rectangle is `resizeWindowFrom`'s answer, not this gesture's.
+ */
+function proposedRect(dir: ResizeDirection, dx: number, dy: number): WorkbenchWindowRect {
+  const anchor = resize!.anchor;
+  const rect: WorkbenchWindowRect = { left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height };
+  if (dir.includes("e")) {
+    rect.width = anchor.width + dx;
+  }
+  if (dir.includes("s")) {
+    rect.height = anchor.height + dy;
+  }
+  if (dir.includes("w")) {
+    rect.width = anchor.width - dx;
+    rect.left = anchor.left + dx;
+  }
+  if (dir.includes("n")) {
+    rect.height = anchor.height - dy;
+    rect.top = anchor.top + dy;
+  }
+  return rect;
+}
+
+function onResizePointerMove(event: PointerEvent): void {
   if (resize === null || event.pointerId !== resize.pointerId) {
     return;
   }
-  emit("resize", {
-    width: Math.max(MIN_WIDTH, resize.width + (event.clientX - resize.startX)),
-    height: Math.max(MIN_HEIGHT, resize.height + (event.clientY - resize.startY)),
-  });
+  const dx = event.clientX - resize.startX;
+  const dy = event.clientY - resize.startY;
+  if (resize.dir === "se") {
+    // The grip's own contract, kept as it has always been: the minimum is applied here, and the
+    // pane's `resizeWindow` does the rest.
+    emit("resize", {
+      width: Math.max(MIN_WIDTH, resize.anchor.width + dx),
+      height: Math.max(MIN_HEIGHT, resize.anchor.height + dy),
+    });
+    return;
+  }
+  emit("resizeDir", { dir: resize.dir, rect: proposedRect(resize.dir, dx, dy) });
 }
 
-function onGripPointerUp(event: PointerEvent): void {
+function onResizePointerUp(event: PointerEvent): void {
   if (resize === null || event.pointerId !== resize.pointerId) {
     return;
   }
-  grip.value?.releasePointerCapture?.(event.pointerId);
+  if (resize.element !== null) {
+    resize.element.releasePointerCapture?.(event.pointerId);
+  }
   resize = null;
 }
 </script>
@@ -224,6 +345,7 @@ function onGripPointerUp(event: PointerEvent): void {
     is no drag at all.
   -->
   <section
+    ref="windowEl"
     :class="rootClass"
     :style="windowStyle"
     data-workbench-window
@@ -242,8 +364,17 @@ function onGripPointerUp(event: PointerEvent): void {
       @pointercancel="onTitlePointerUp"
       @dblclick="onTitleDoubleClick"
     >
-      <component :is="icon" v-if="icon" :size="16" class="shrink-0 text-white/80" aria-hidden="true" />
-      <h2 data-workbench-window-caption class="min-w-0 flex-1 truncate text-[17px] leading-none text-white">
+      <component
+        :is="icon"
+        v-if="icon"
+        :size="16"
+        class="shrink-0 text-[color-mix(in_srgb,var(--workbench-on-picture)_80%,transparent)]"
+        aria-hidden="true"
+      />
+      <h2
+        data-workbench-window-caption
+        class="min-w-0 flex-1 truncate text-[17px] leading-none text-[var(--workbench-on-picture)]"
+      >
         {{ title }}
       </h2>
 
@@ -253,7 +384,7 @@ function onGripPointerUp(event: PointerEvent): void {
           data-workbench-window-min
           :aria-label="labels.minimize"
           :title="labels.minimize"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-wash-hover)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="emit('minimize')"
         >
           <Minus :size="19" aria-hidden="true" />
@@ -263,7 +394,7 @@ function onGripPointerUp(event: PointerEvent): void {
           data-workbench-window-max
           :aria-label="canRestore ? labels.restore : labels.maximize"
           :title="canRestore ? labels.restore : labels.maximize"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-wash-hover)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="canRestore ? emit('restore') : emit('maximize')"
         >
           <Copy v-if="canRestore" :size="19" aria-hidden="true" />
@@ -274,7 +405,7 @@ function onGripPointerUp(event: PointerEvent): void {
           data-workbench-window-close
           :aria-label="labels.close"
           :title="labels.close"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-[var(--workbench-danger)] hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-danger)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="emit('close')"
         >
           <X :size="19" aria-hidden="true" />
@@ -292,8 +423,30 @@ function onGripPointerUp(event: PointerEvent): void {
     </div>
 
     <!--
+      The eight edge and corner zones: thin strips along every edge, each starting the same
+      directional resize gesture with the edge it names. They are drawn only while the window is in
+      its normal mode, with the grip — a maximised window has no size of its own to change. The
+      strips are 8px, wide enough to catch, narrow enough not to eat the content's edge clicks.
+    -->
+    <template v-if="state === 'normal'">
+      <span
+        v-for="zone in RESIZE_ZONES"
+        :key="zone.dir"
+        :data-workbench-resize="zone.dir"
+        aria-hidden="true"
+        class="absolute z-10 touch-none"
+        :class="zone.class"
+        @pointerdown="beginResize($event, zone.dir, $event.currentTarget as HTMLElement)"
+        @pointermove="onResizePointerMove"
+        @pointerup="onResizePointerUp"
+        @pointercancel="onResizePointerUp"
+      ></span>
+    </template>
+
+    <!--
       The resize grip: the bottom-right corner, where every desktop has one. Hidden while
-      maximised, because a maximised window has no size of its own to change.
+      maximised, because a maximised window has no size of its own to change. The corner zone sits
+      under it, so the grip keeps the corner it has always had.
     -->
     <span
       v-if="state === 'normal'"
@@ -301,12 +454,17 @@ function onGripPointerUp(event: PointerEvent): void {
       data-workbench-window-grip
       aria-hidden="true"
       class="absolute right-0 bottom-0 z-10 grid h-4 w-4 cursor-nwse-resize touch-none place-items-center"
-      @pointerdown="onGripPointerDown"
-      @pointermove="onGripPointerMove"
-      @pointerup="onGripPointerUp"
-      @pointercancel="onGripPointerUp"
+      @pointerdown="beginResize($event, 'se', grip)"
+      @pointermove="onResizePointerMove"
+      @pointerup="onResizePointerUp"
+      @pointercancel="onResizePointerUp"
     >
-      <svg width="10" height="10" viewBox="0 0 10 10" class="pointer-events-none text-white/40">
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        class="pointer-events-none text-[color-mix(in_srgb,var(--workbench-on-picture)_40%,transparent)]"
+      >
         <path d="M9 1 1 9M9 5 5 9" stroke="currentColor" stroke-width="1" fill="none" />
       </svg>
     </span>

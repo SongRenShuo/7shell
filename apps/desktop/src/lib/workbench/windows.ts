@@ -25,6 +25,23 @@
 /** The mode a window is drawn in. "min" keeps the record and its geometry; "max" fills the work area. */
 export type WindowMode = "normal" | "min" | "max";
 
+/**
+ * Which edge or corner a resize gesture is dragging from, in compass initials.
+ *
+ * `n` and `w` (and every corner carrying one) are the directions that move the window as well as
+ * resize it: the opposite edge stays put, so the position has to follow the size.
+ */
+export type ResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+/**
+ * The screen edge a dragged window was let go beside.
+ *
+ * "left" and "right" fill half the desk; the four corners fill a quarter. The top edge's middle
+ * is deliberately absent — the title-bar drag that reaches it is the maximise gesture
+ * `WorkbenchWindow.vue` already owns, and two answers to one gesture would be a race.
+ */
+export type SnapZone = "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
 /** A rectangle in desktop coordinates: pixels from the desktop's top-left corner. */
 export interface WorkbenchWindowRect {
   left: number;
@@ -527,4 +544,220 @@ export function restoreAll(list: readonly WorkbenchWindowState[]): WorkbenchWind
     (current, window) => (window.mode === "min" ? showWindow(current, window.id) : current),
     copyList(list),
   );
+}
+
+// -- directional resizing ----------------------------------------------------
+
+/** How far from an edge the pointer has to come before the desk starts talking about snapping. */
+export const SNAP_EDGE_PX = 12;
+
+/**
+ * Resizes a window from one of its edges or corners.
+ *
+ * The gesture layer (`WorkbenchWindow.vue`) computes the rectangle the pointer has travelled to,
+ * measuring from the geometry the drag began with; this function is the arithmetic that keeps the
+ * gesture honest. Two rules the bottom-right grip never had to face:
+ *
+ * - **The anchored edge stays put.** Dragging the west edge changes the width *and* the left, but
+ *   the right edge is where the window was; when the minimum pulls the size back up, it is the
+ *   left that yields, because the pointer's edge is the one the hand is on and the far edge is the
+ *   one the window keeps.
+ * - **The desk's edges stop the pointer's edge.** A west drag cannot push the left past the work
+ *   area's left; an east drag cannot push the right past its right — the same "room from the fixed
+ *   corner" cap `resizeWindow` applies, said per direction.
+ *
+ * Everything else is the grip's own rules, unchanged: a window only resizes in its normal mode,
+ * and the minimum loses only when the desk itself is smaller than it.
+ */
+export function resizeWindowFrom(
+  list: readonly WorkbenchWindowState[],
+  id: string,
+  dir: ResizeDirection,
+  proposed: WorkbenchWindowRect,
+  bounds: WorkbenchBounds,
+): WorkbenchWindowState[] {
+  const area = workAreaOf(bounds);
+  return list.map((window) => {
+    if (window.id !== id || window.mode !== "normal") {
+      return copyWindow(window);
+    }
+    const left = finite(proposed.left, window.left);
+    const top = finite(proposed.top, window.top);
+    const width = finite(proposed.width, window.width);
+    const height = finite(proposed.height, window.height);
+
+    // Where the anchored edges sit, trusting the gesture layer's measurements: the far edge is the
+    // one this function must never move except to obey the desk.
+    const right = left + width;
+    const bottom = top + height;
+
+    let nextLeft = left;
+    let nextTop = top;
+    let nextWidth = width;
+    let nextHeight = height;
+
+    if (dir.includes("e")) {
+      // East: the left edge is anchored; the right edge follows the pointer, stopped by the desk.
+      nextWidth = Math.max(MIN_WIDTH, Math.min(width, area.right - left));
+    }
+    if (dir.includes("s")) {
+      nextHeight = Math.max(MIN_HEIGHT, Math.min(height, area.bottom - top));
+    }
+    if (dir.includes("w")) {
+      // West: the right edge is anchored; the left follows the pointer, stopped by the desk and by
+      // the minimum — when the minimum binds, the left comes back toward the right edge.
+      nextLeft = clamp(left, area.left, Math.max(area.left, right - MIN_WIDTH));
+      nextWidth = right - nextLeft;
+    }
+    if (dir.includes("n")) {
+      nextTop = clamp(top, area.top, Math.max(area.top, bottom - MIN_HEIGHT));
+      nextHeight = bottom - nextTop;
+    }
+
+    return {
+      ...copyWindow(window),
+      left: nextLeft,
+      top: nextTop,
+      width: nextWidth,
+      height: nextHeight,
+    };
+  });
+}
+
+// -- snapping ----------------------------------------------------------------
+
+/**
+ * Which snap zone a point on the desk is in, or none.
+ *
+ * The point the caller hands in is where the dragged window's own top-left corner has got to — the
+ * frame the pane holds, in the same desktop coordinates this file speaks. The four edge middles
+ * answer "left" and "right"; the four corners answer quarters. The top edge's middle answers
+ * nothing: the drag that reaches it is the maximise gesture the window's title bar already owns.
+ */
+export function snapZoneAt(point: { left: number; top: number }, bounds: WorkbenchBounds): SnapZone | null {
+  const area = workAreaOf(bounds);
+  if (area.width === 0 || area.height === 0) {
+    return null;
+  }
+  const left = finite(point.left, area.left);
+  const top = finite(point.top, area.top);
+  const nearLeft = left <= area.left + SNAP_EDGE_PX;
+  const nearRight = left >= area.right - SNAP_EDGE_PX;
+  const nearTop = top <= area.top + SNAP_EDGE_PX;
+  const nearBottom = top >= area.bottom - SNAP_EDGE_PX;
+
+  if (nearLeft && nearTop) {
+    return "top-left";
+  }
+  if (nearRight && nearTop) {
+    return "top-right";
+  }
+  if (nearLeft && nearBottom) {
+    return "bottom-left";
+  }
+  if (nearRight && nearBottom) {
+    return "bottom-right";
+  }
+  if (nearLeft) {
+    return "left";
+  }
+  if (nearRight) {
+    return "right";
+  }
+  return null;
+}
+
+/** The rectangle a zone fills: half the desk for an edge, a quarter for a corner. */
+export function snapZoneRect(zone: SnapZone, bounds: WorkbenchBounds): WorkbenchWindowRect {
+  const area = workAreaOf(bounds);
+  const halfWidth = area.width / 2;
+  const halfHeight = area.height / 2;
+  switch (zone) {
+    case "left":
+      return { left: area.left, top: area.top, width: halfWidth, height: area.height };
+    case "right":
+      return { left: area.left + halfWidth, top: area.top, width: area.width - halfWidth, height: area.height };
+    case "top-left":
+      return { left: area.left, top: area.top, width: halfWidth, height: halfHeight };
+    case "top-right":
+      return { left: area.left + halfWidth, top: area.top, width: area.width - halfWidth, height: halfHeight };
+    case "bottom-left":
+      return { left: area.left, top: area.top + halfHeight, width: halfWidth, height: area.height - halfHeight };
+    case "bottom-right":
+      return {
+        left: area.left + halfWidth,
+        top: area.top + halfHeight,
+        width: area.width - halfWidth,
+        height: area.height - halfHeight,
+      };
+  }
+}
+
+/**
+ * Snaps a window into a zone, remembering where it was the way maximising does.
+ *
+ * The geometry becomes the zone rectangle exactly — a snapped window fills its zone, it does not
+ * keep its aspect — and the rectangle the person had arranged is written into `restore`, the same
+ * one-memory-slot the maximise path keeps, so what the hand arranged is never overwritten by what
+ * the edge offered. Snapping is a normal-mode act: the window stays movable and resizable
+ * afterwards, which is why the mode does not change even though the memory does. The window comes
+ * forward and takes the focus, because a window the desk just moved is the window being looked at.
+ */
+export function snapRect(
+  list: readonly WorkbenchWindowState[],
+  id: string,
+  zone: SnapZone,
+  bounds: WorkbenchBounds,
+): WorkbenchWindowState[] {
+  const target = list.find((window) => window.id === id);
+  if (target === undefined || target.mode !== "normal") {
+    return copyList(list);
+  }
+  const rect = snapZoneRect(zone, bounds);
+  const z = topZ(list) + 1;
+  return list.map((window) => {
+    if (window.id !== id) {
+      return { ...copyWindow(window), focused: false };
+    }
+    return {
+      ...copyWindow(window),
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      restore: window.restore ?? { left: window.left, top: window.top, width: window.width, height: window.height },
+      focused: true,
+      z,
+    };
+  });
+}
+
+// -- window cycling ----------------------------------------------------------
+
+/**
+ * Raises the next visible window in stacking order, the Alt+Tab walk.
+ *
+ * "Next" follows the stack from the top down — the most recently focused window is the one before
+ * the focused one, which is the order every task switcher walks. A window that is not focused (or
+ * nothing at all being focused) starts the walk at the top; backwards walks the other way. A
+ * minimised window is not on screen and is not raised: cycling is a walk over what can be seen.
+ * A desk with no visible window changes nothing.
+ */
+export function cycleWindow(list: readonly WorkbenchWindowState[], backwards = false): WorkbenchWindowState[] {
+  const visible = list.filter((window) => window.mode !== "min").sort((a, b) => finite(a.z, 0) - finite(b.z, 0));
+  if (visible.length === 0) {
+    return copyList(list);
+  }
+  const current = visible.findIndex((window) => window.focused);
+  // The walk goes down the stack — from the focused window to the one focused just before it — so
+  // forward steps toward the bottom of the pile and Shift walks back up. Nothing focused starts
+  // from the top, which is the position a task switcher treats as "where you are" anyway: forward
+  // then offers the window focused just before it, and Shift wraps to the bottom of the pile.
+  const step = backwards ? 1 : -1;
+  const start = current === -1 ? visible.length - 1 : current;
+  const next = visible[(start + step + visible.length) % visible.length];
+  if (next === undefined) {
+    return copyList(list);
+  }
+  return focusWindow(list, next.id);
 }
