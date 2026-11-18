@@ -623,6 +623,7 @@ export const useMonitorStore = defineStore("monitor", () => {
     selectInterface,
     startProcesses,
     stopProcesses,
+    readProcesses,
     sortProcesses,
     startSockets,
     stopSockets,

@@ -23,10 +23,13 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ColumnResizeHandle from "@/components/ui/ColumnResizeHandle.vue";
+import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import SortHeader from "@/components/ui/SortHeader.vue";
 import { useColumnWidths } from "@/composables/useColumnWidths";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
+import { backend } from "@/lib/backend/api";
+import { asShellError } from "@/lib/backend/errors";
 import { NO_CHROME, type ColumnWidth } from "@/lib/columns";
 import { formatSize } from "@/lib/files/format";
 import { environmentMenu, processDetailMenu, processRowMenu } from "@/lib/menu/inspect";
@@ -37,6 +40,7 @@ import { type SortDirection, startsDescending } from "@/lib/sort";
 import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
 import { useMonitorStore } from "@/stores/monitor";
+import { useToast } from "@/composables/useToast";
 import type { EnvironmentEntry, ProcessSample } from "@/types/monitor";
 
 const props = defineProps<{ active: boolean }>();
@@ -71,6 +75,7 @@ const TABLE_LINE = NO_CHROME;
 const { t } = useI18n();
 const monitor = useMonitorStore();
 const { openMenu } = useContextMenu();
+const { toast } = useToast();
 
 /** The table itself, whose width is the room the columns have. */
 const columnsLine = ref<HTMLTableElement | null>(null);
@@ -141,7 +146,39 @@ function cpu(row: (typeof rows.value)[number]): string {
  * `PATH=` would be answering a question nobody asked.
  */
 function openRowMenu(event: MouseEvent, process: ProcessSample): void {
-  openMenu(event, { key: MENU_TITLES.process }, processRowMenu(process, { open }));
+  openMenu(event, { key: MENU_TITLES.process }, processRowMenu(process, { open, kill: askKill }));
+}
+
+/**
+ * The process page's one write, and the question in front of it.
+ *
+ * Ending a process is `Destructive` in the policy matrix, so the shell would refuse an
+ * unacknowledged attempt anyway; asking here is what turns that refusal into a conversation. The
+ * confirmation names the process rather than its number, because the number is what somebody
+ * copied from a table a minute ago and the name is what they meant.
+ */
+const askingKill = ref<{ pid: number; name: string } | null>(null);
+
+function askKill(pid: number, name: string): void {
+  askingKill.value = { pid, name };
+}
+
+async function confirmKill(): Promise<void> {
+  const target = askingKill.value;
+  const connection = monitor.target;
+  askingKill.value = null;
+  if (!target || !connection) {
+    return;
+  }
+  try {
+    await backend.processKill(connection.sessionId, connection.handle, target.pid, true);
+    toast(t("inspect.process.killIssued", { name: target.name }), "receipt");
+    // The table is a poll, not an event stream: ask for the next reading now rather than waiting
+    // for the clock, so the row that was ended stops being drawn as if it were still running.
+    void monitor.readProcesses();
+  } catch (error) {
+    toast(describeShellError(translate, asShellError(error, "process_kill")).message, "failure");
+  }
 }
 
 function openDetailMenu(event: MouseEvent): void {
@@ -450,4 +487,14 @@ watch(rows, (current) => {
       </div>
     </section>
   </div>
+
+  <ConfirmDialog
+    :open="askingKill !== null"
+    :title="t('inspect.process.killTitle', { name: askingKill?.name ?? '' })"
+    :message="t('inspect.process.killMessage')"
+    :confirm-label="t('inspect.process.killConfirm')"
+    danger
+    @confirm="confirmKill()"
+    @update:open="askingKill = null"
+  />
 </template>

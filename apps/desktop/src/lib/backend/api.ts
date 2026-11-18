@@ -983,6 +983,14 @@ export const backend = {
     forward("workbench_power", () => desktop.workbenchPower(sessionId, handle, action, acknowledged)),
 
   /**
+   * Ends one process, which is the process page's single write. The acknowledgement is a person's
+   * answer to the question the policy gate asked; a deny or a question comes back as the envelope
+   * every other gated action returns.
+   */
+  processKill: (sessionId: string, handle: string, pid: number, acknowledged: boolean): Promise<void> =>
+    forward("process_kill", () => desktop.processKill(sessionId, handle, pid, acknowledged)),
+
+  /**
    * What the host behind a terminal is doing. Asked for by handle, because a sample rides the
    * connection the terminal already has: there is nothing to sample without one.
    */

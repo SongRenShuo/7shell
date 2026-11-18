@@ -87,7 +87,11 @@
       "refresh": "重新读取",
       "cpuSinceRead": "上次读取以来占用的 CPU 时间",
       "sortBy": "按{column}排序",
-      "empty": "该主机没有返回进程列表。"
+      "empty": "该主机没有返回进程列表。",
+      "killTitle": "结束 {name}？",
+      "killMessage": "该进程会收到终止信号，它正在处理的内容会一并中止；本次操作按这台机器的策略裁决执行。",
+      "killConfirm": "结束进程",
+      "killIssued": "已请求机器结束 {name}。"
     }
   }
 }

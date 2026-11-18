@@ -87,7 +87,11 @@
       "refresh": "Read again",
       "cpuSinceRead": "Processor time used since the last read",
       "sortBy": "Sort by {column}",
-      "empty": "This host did not report its processes."
+      "empty": "This host did not report its processes.",
+      "killTitle": "End {name}?",
+      "killMessage": "The process is sent a termination signal. Anything it was working on stops with it, and the policy decision for this machine applies.",
+      "killConfirm": "End process",
+      "killIssued": "Asked the machine to end {name}."
     }
   }
 }

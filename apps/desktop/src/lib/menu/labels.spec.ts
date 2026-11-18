@@ -244,7 +244,7 @@ function menus(): readonly { readonly title: string; readonly entries: readonly 
     { title: MENU_TITLES.tunnel, entries: tunnelMenu(tunnel, { stop: nothing }) },
     { title: MENU_TITLES.process, entries: monitorProcessMenu(process, { openPage: nothing }) },
     { title: MENU_TITLES.disk, entries: diskMenu(disk, { openPage: nothing }) },
-    { title: MENU_TITLES.process, entries: processRowMenu(process, { open: nothing }) },
+    { title: MENU_TITLES.process, entries: processRowMenu(process, { open: nothing, kill: nothing }) },
     { title: MENU_TITLES.detail, entries: processDetailMenu(detail, { refresh: nothing }) },
     { title: MENU_TITLES.environment, entries: environmentMenu(variable) },
     { title: MENU_TITLES.socket, entries: listenerMenu(socket, { showConnections: nothing }) },

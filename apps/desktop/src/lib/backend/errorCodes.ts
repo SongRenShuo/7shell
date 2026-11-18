@@ -25,6 +25,8 @@ export const ERROR_CATALOG = {
   "RDP-LAUNCH-FAILED": "errors.rdp.launchFailed",
   // The desktop workbench
   "WORKBENCH-POWER-FAILED": "errors.workbench.powerFailed",
+  // The process page's one write
+  "PROCESS-KILL-FAILED": "errors.process.killFailed",
   // Terminal transports that are not SSH
   "TERMINAL-UNREACHABLE": "errors.terminal.unreachable",
   "TERMINAL-SERIAL-FAILED": "errors.terminal.serialFailed",
