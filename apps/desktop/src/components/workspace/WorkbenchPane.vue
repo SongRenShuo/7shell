@@ -33,6 +33,7 @@ import {
   Cpu,
   ExternalLink,
   Folder,
+  Boxes,
   FolderPlus,
   House,
   Info,
@@ -53,6 +54,7 @@ import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRo
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
+import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
@@ -130,6 +132,18 @@ const wallpaperStyle = computed(() => {
   return { background: WALLPAPER_BACKDROPS[id] };
 });
 
+/**
+ * Whether the desktop is drawn on a picture rather than on the interface's own surface.
+ *
+ * It decides one thing, and it decides it for every icon: on a wallpaper the chrome stops
+ * following the theme. A wallpaper is a picture — the four this build ships are all dark washes —
+ * and a light theme's near-black labels on one of them are the "nothing is legible" state the
+ * first release actually shipped. White with a soft shadow reads on all four and needs no
+ * per-wallpaper bookkeeping; on the plain surface the theme's own foreground is right, so that
+ * path is unchanged.
+ */
+const onPicture = computed(() => wallpaper.value !== undefined);
+
 // -- the desktop icons -------------------------------------------------------
 
 /**
@@ -140,7 +154,7 @@ const wallpaperStyle = computed(() => {
  */
 interface DesktopIcon {
   readonly id: string;
-  readonly kind: "home" | "terminal" | "monitor" | "systemInfo" | "trash" | "shortcut";
+  readonly kind: "home" | "terminal" | "monitor" | "systemInfo" | "system" | "trash" | "shortcut";
   readonly label: string;
   readonly icon: Component;
   /** Drawn, but not openable: the placeholder is the whole of what it says. */
@@ -164,6 +178,12 @@ const systemIcons = computed<DesktopIcon[]>(() => [
   { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
   { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
   { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
+  {
+    id: "system-panel",
+    kind: "system",
+    label: t("workbench.desktop.icons.system"),
+    icon: Boxes,
+  },
   {
     id: "system-trash",
     kind: "trash",
@@ -204,6 +224,13 @@ const selectedId = ref<string | null>(null);
  */
 const trashOpen = ref(false);
 
+/**
+ * Whether the system panel is open over the desktop. Like the trash, it is a place inside this
+ * machine's desktop rather than a tab of its own — and the two share the floor: a desktop with
+ * two panels stacked would be a window manager, which this is not.
+ */
+const systemOpen = ref(false);
+
 function select(icon: DesktopIcon): void {
   selectedId.value = icon.id;
 }
@@ -238,8 +265,13 @@ function openIcon(icon: DesktopIcon): void {
     case "systemInfo":
       terminals.openInspect("system", session.value);
       return;
+    case "system":
+      systemOpen.value = !systemOpen.value;
+      trashOpen.value = false;
+      return;
     case "trash":
       trashOpen.value = !trashOpen.value;
+      systemOpen.value = false;
       return;
     case "shortcut":
       void terminals.openFiles(session.value, icon.path);
@@ -505,17 +537,31 @@ async function issuePower(): Promise<void> {
           :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
           class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors"
           :class="
-            selectedId === icon.id
-              ? 'border-border/60 bg-accent text-foreground'
-              : 'border-transparent text-foreground hover:bg-accent/50'
+            onPicture
+              ? selectedId === icon.id
+                ? 'border-white/35 bg-white/15 text-white'
+                : 'border-transparent text-white/95 hover:bg-white/10'
+              : selectedId === icon.id
+                ? 'border-border/60 bg-accent text-foreground'
+                : 'border-transparent text-foreground hover:bg-accent/50'
           "
           @click.stop="select(icon)"
           @dblclick.stop="openIcon(icon)"
           @keydown.enter.prevent="openIcon(icon)"
           @contextmenu.stop="openIconMenu($event, icon)"
         >
-          <component :is="icon.icon" :size="28" class="shrink-0" :stroke-width="1.5" />
-          <span class="w-full truncate text-center leading-tight">{{ icon.label }}</span>
+          <component
+            :is="icon.icon"
+            :size="28"
+            class="shrink-0"
+            :class="onPicture ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]' : undefined"
+            :stroke-width="1.5"
+          />
+          <span
+            class="w-full truncate text-center leading-tight"
+            :class="onPicture ? '[text-shadow:0_1px_2px_rgba(0,0,0,0.6)]' : undefined"
+            >{{ icon.label }}</span
+          >
         </button>
       </div>
     </div>
@@ -525,6 +571,15 @@ async function issuePower(): Promise<void> {
       it is a place inside this machine's desktop and a tab would be a second window onto one
       session. A session with no connection has nothing to read, so the icon does nothing there.
     -->
+    <SystemPanel
+      v-if="systemOpen && tab.handle !== null"
+      :session-id="session.id"
+      :handle="tab.handle"
+      :active="active"
+      class="border-t border-border bg-card"
+      @close="systemOpen = false"
+    />
+
     <TrashWindow
       v-if="trashOpen && tab.handle !== null"
       :session-id="session.id"

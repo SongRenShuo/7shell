@@ -24,6 +24,8 @@ vi.mock("@/lib/backend/tauri", () => ({
   tunnelsOpen: vi.fn(async () => []),
   workbenchPower: vi.fn(),
   trashList: vi.fn(async () => []),
+  systemOverview: vi.fn(),
+  systemJournal: vi.fn(),
   trashRestore: vi.fn(),
   trashRemove: vi.fn(),
   trashEmpty: vi.fn(),
@@ -38,7 +40,7 @@ import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import { useToast } from "@/composables/useToast";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
-import { filesOpen, sessionOpen, trashList, workbenchPower } from "@/lib/backend/tauri";
+import { filesOpen, sessionOpen, systemOverview, trashList, workbenchPower } from "@/lib/backend/tauri";
 import {
   readDesktopShortcuts,
   writeDesktopShortcuts,
@@ -49,6 +51,7 @@ import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
 const trashListMock = vi.mocked(trashList);
+const systemOverviewMock = vi.mocked(systemOverview);
 
 const sessionOpenMock = vi.mocked(sessionOpen);
 const filesOpenMock = vi.mocked(filesOpen);
@@ -165,7 +168,7 @@ describe("the workbench desktop", () => {
     await render();
 
     const labels = icons().map((entry) => entry.textContent?.trim());
-    expect(labels).toEqual(["Home", "Terminal", "Monitor", "System information", "Trash"]);
+    expect(labels).toEqual(["Home", "Terminal", "Monitor", "System information", "System panel", "Trash"]);
 
     const trash = iconByLabel("Trash");
     expect((trash as HTMLButtonElement).disabled, "the trash is a door now, not a placeholder").toBe(false);
@@ -185,6 +188,34 @@ describe("the workbench desktop", () => {
 
     expect(trashListMock).toHaveBeenCalledWith("w1");
     expect(host.querySelector("[data-workbench-trash]"), "the panel is drawn over the desktop").not.toBeNull();
+  });
+
+  it("opens the system panel from its icon, and only one panel stands at a time", async () => {
+    systemOverviewMock.mockResolvedValue({
+      services: [],
+      disks: [],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      uptimeSeconds: 60,
+    });
+    await render();
+
+    const panel = () => host.querySelector("[data-workbench-system]");
+    const trash = () => host.querySelector("[data-workbench-trash]");
+
+    iconByLabel("Trash").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(trash(), "the trash opened first").not.toBeNull();
+
+    iconByLabel("System panel").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(panel(), "the system panel is drawn").not.toBeNull();
+    expect(trash(), "the two panels share the floor, so opening one closes the other").toBeNull();
+    expect(systemOverviewMock).toHaveBeenCalledWith("w1");
   });
 
   it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {

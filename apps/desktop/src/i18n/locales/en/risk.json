@@ -53,6 +53,12 @@
     },
     "process": {
       "kill": "Ends a running process"
+    },
+    "service": {
+      "change": "Changes a service's run or boot state",
+      "restart": "Restarts a service",
+      "stop": "Stops a running service",
+      "unknown": "A service action this version does not recognise"
     }
   }
 }

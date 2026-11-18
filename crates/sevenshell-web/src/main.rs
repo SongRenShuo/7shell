@@ -902,6 +902,28 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             to_value(state.core.run_across(request, progress).await?)
         }
 
+        "system_overview" => {
+            let handle: String = from_args(&args, "handle")?;
+            to_value(state.core.system_overview(&handle).await?)
+        }
+        "system_service_action" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let handle: String = from_args(&args, "handle")?;
+            let unit: String = from_args(&args, "unit")?;
+            let verb: String = from_args(&args, "verb")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(
+                state
+                    .core
+                    .service_action(&session_id, &handle, &unit, &verb, acknowledged)
+                    .await?,
+            )
+        }
+        "system_journal" => {
+            let handle: String = from_args(&args, "handle")?;
+            let lines: u32 = from_args(&args, "lines")?;
+            to_value(state.core.journal_tail(&handle, lines as usize).await?)
+        }
         "monitor_sample" => {
             let handle: String = from_args(&args, "handle")?;
             to_value(state.core.sample_host(&handle).await?)

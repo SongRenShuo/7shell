@@ -155,6 +155,9 @@
       "noTransport": "{operation} 需要在桌面应用中使用。",
       "unsupported": "{what} 在当前版本中还没有实现。",
       "internal": "应用内部出现了错误。"
+    },
+    "service": {
+      "actionFailed": "机器未接受本次服务操作。{detail}"
     }
   }
 }

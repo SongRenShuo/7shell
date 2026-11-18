@@ -12,7 +12,8 @@
         "terminal": "终端",
         "monitor": "监控",
         "systemInfo": "系统信息",
-        "trash": "回收站"
+        "trash": "回收站",
+        "system": "系统面板"
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
       "menu": {
@@ -64,6 +65,88 @@
       "emptyHint": "删除到回收站的文件会列在这里，直到被放回或永久删除。",
       "emptyTitle": "清空回收站？",
       "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。"
+    },
+    "system": {
+      "title": "系统面板",
+      "refresh": "重新读取这台机器",
+      "reading": "正在读取这台机器…",
+      "sections": {
+        "services": "服务",
+        "disks": "磁盘",
+        "accounts": "账户",
+        "network": "网络",
+        "journal": "日志"
+      },
+      "facts": {
+        "distribution": "发行版",
+        "kernel": "内核",
+        "uptime": "运行时长",
+        "timezone": "时区"
+      },
+      "uptime": {
+        "days": "{days} 天 {hours} 小时",
+        "hours": "{hours} 小时 {minutes} 分",
+        "minutes": "{minutes} 分"
+      },
+      "services": {
+        "name": "单元",
+        "load": "加载",
+        "active": "活动",
+        "sub": "细分",
+        "description": "描述",
+        "empty": "该主机没有返回任何服务——没有 systemd 的容器在这里什么都不会回答。",
+        "actions": "操作"
+      },
+      "disks": {
+        "name": "设备",
+        "size": "大小",
+        "kind": "类型",
+        "filesystem": "文件系统",
+        "mount": "挂载点",
+        "model": "型号",
+        "empty": "该主机没有返回块设备。"
+      },
+      "accounts": {
+        "user": "账户",
+        "uid": "UID",
+        "gid": "GID",
+        "home": "主目录",
+        "shell": "Shell",
+        "loggedIn": "登录状态",
+        "online": "在线",
+        "empty": "该主机没有返回账户。"
+      },
+      "network": {
+        "interfaces": "网卡",
+        "name": "网卡",
+        "state": "状态",
+        "addresses": "地址",
+        "traffic": "发送 / 接收",
+        "routes": "路由",
+        "direct": "直连",
+        "dns": "DNS 解析器",
+        "noDns": "没有返回解析器。",
+        "empty": "该主机没有返回网卡。",
+        "noRoutes": "该主机没有返回路由。"
+      },
+      "journal": {
+        "tail": "最近 {count} 行",
+        "more": "再读一些",
+        "empty": "日志里没有内容。",
+        "unavailable": "该主机没有可读的日志——没有 systemd 的容器在这里什么都不会回答。"
+      },
+      "serviceActions": {
+        "start": "启动",
+        "restart": "重启",
+        "stop": "停止",
+        "enable": "设为开机启动",
+        "disable": "取消开机启动",
+        "issued": "已请求机器对 {unit} 执行「{verb}」。",
+        "stopTitle": "停止 {unit}？",
+        "stopMessage": "该服务会立即停止，它正在提供的内容也会随之中断；本次操作按这台机器的策略裁决执行。",
+        "stopConfirm": "停止服务",
+        "actionFailed": "机器没有接受这次操作。"
+      }
     }
   }
 }

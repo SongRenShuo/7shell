@@ -29,8 +29,8 @@
 use serde_json::Value;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, RouteEntry, ServiceEntry,
-    SystemOverview,
+    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, PolicyAction, Protocol,
+    RouteEntry, ServiceEntry, SystemOverview,
 };
 
 use crate::Core;
@@ -169,7 +169,99 @@ impl Core {
 
         Ok(parse_journal(&outcome.stdout))
     }
+
+    /// Starts, restarts or stops one service, after the policy verdict for it.
+    ///
+    /// The unit name is the only value a person can put into this command, so it is the one thing
+    /// judged before anything runs: a name is accepted only when it is shaped exactly like a
+    /// systemd unit — letters, digits, and the `@ . : _ -` a real unit uses — which leaves no room
+    /// for a shell metacharacter to hide in. The verb comes from a closed set; asking for one this
+    /// build has no command for is refused before the session is even read.
+    ///
+    /// The order is the container gate's: verb, protocol, policy decision (so a `Deny` is answered
+    /// before any socket), then the connection.
+    pub async fn service_action(
+        &self,
+        session_id: &str,
+        handle: &str,
+        unit: &str,
+        verb: &str,
+        acknowledged: bool,
+    ) -> Result<(), ShellError> {
+        let verb = verb.trim().to_ascii_lowercase();
+        let allowed = ["start", "stop", "restart", "reload", "enable", "disable"];
+        if !allowed.contains(&verb.as_str()) {
+            return Err(ShellError::app_unsupported("that service action does not exist"));
+        }
+        if !is_unit_name(unit) {
+            return Err(ShellError::app_unsupported("that is not a unit name"));
+        }
+
+        let session = self.session(session_id)?;
+        if !matches!(session.protocol, Protocol::Ssh | Protocol::LinuxDesk) {
+            return Err(ShellError::app_unsupported("service actions belong to an SSH session"));
+        }
+
+        let verdict = sevenshell_policy::service_action(&verb);
+        let saved = self.session_policy_target(session_id);
+        let target = saved.as_ref().map(|saved| saved.as_target()).unwrap_or_default();
+        let decision = self.policy_decision(
+            &format!("service.{verb}"),
+            &verdict,
+            target,
+            Some(session_id),
+            Some(unit),
+        );
+        match decision.action {
+            PolicyAction::Deny => return Err(ShellError::policy_denied(&format!("service.{verb}"))),
+            PolicyAction::Ask if !acknowledged => {
+                let rule = verdict
+                    .reasons
+                    .first()
+                    .map(|reason| reason.rule_id.as_str())
+                    .unwrap_or("service.unknown");
+                return Err(ShellError::policy_approval_required(rule));
+            }
+            _ => {}
+        }
+
+        let remote = self.registry.session_of(handle).await?;
+        // `--no-pager` keeps the answer to one line; the verb and the unit are both from closed
+        // sets by the time they reach here, so nothing typed becomes syntax.
+        let command = format!("systemctl {verb} --no-pager {unit}");
+        let outcome = remote.exec(&command, SERVICE_TIMEOUT).await?;
+        match outcome.exit_code {
+            Some(0) => Ok(()),
+            _ => {
+                let detail = if outcome.stderr.trim().is_empty() {
+                    format!("exit code {:?}", outcome.exit_code)
+                } else {
+                    outcome.stderr.trim().to_owned()
+                };
+                Err(ShellError::service_action_failed(detail))
+            }
+        }
+    }
 }
+
+/// Whether a string is shaped like a systemd unit name and nothing else.
+///
+/// The whitelist is the point: every character a shell treats specially is absent from it, so a
+/// name that passes cannot change what the command means — it can only name a unit.
+pub(crate) fn is_unit_name(unit: &str) -> bool {
+    if unit.is_empty() || unit.chars().count() > UNIT_NAME_MAX {
+        return false;
+    }
+    unit.chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '@' | '.' | ':' | '_' | '-'))
+}
+
+/// The longest unit name systemd itself allows, which is what this accepts.
+const UNIT_NAME_MAX: usize = 256;
+
+/// How long a service verb gets. Restarting a database can take a while; the command is expected
+/// to come back, and one that does not is the failure this bounds.
+const SERVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The overview an answer describes, section by section.
 ///
@@ -962,5 +1054,46 @@ Etc/UTC
         assert_eq!(clamp_journal_lines(20), 20);
         assert_eq!(clamp_journal_lines(200), 200);
         assert_eq!(clamp_journal_lines(usize::MAX), JOURNAL_LINES_MAX);
+    }
+
+    // -- unit names, which are the one thing a person puts into a service command ----------
+
+    #[test]
+    fn a_unit_name_is_accepted_when_it_is_shaped_like_one() {
+        for unit in [
+            "sshd.service",
+            "nginx",
+            "getty@tty1.service",
+            "nginx.service.d",
+            "db-2_x:1.service",
+        ] {
+            assert!(is_unit_name(unit), "{unit} is a unit name");
+        }
+    }
+
+    #[test]
+    fn a_name_that_could_change_the_command_is_refused() {
+        // Every one of these is a way to end up running something nobody asked for.
+        for unit in [
+            "nginx; rm -rf /",
+            "nginx && reboot",
+            "$(reboot)",
+            "`reboot`",
+            "nginx | tee /etc/passwd",
+            "../etc/passwd",
+            "nginx
+reboot",
+            "nginx reboot",
+            "",
+        ] {
+            assert!(!is_unit_name(unit), "{unit:?} must not reach a command");
+        }
+    }
+
+    #[test]
+    fn a_name_longer_than_systemd_allows_is_refused() {
+        let long = "a".repeat(UNIT_NAME_MAX + 1);
+        assert!(!is_unit_name(&long));
+        assert!(is_unit_name(&"a".repeat(UNIT_NAME_MAX)));
     }
 }

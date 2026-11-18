@@ -155,6 +155,9 @@
       "noTransport": "{operation} needs the desktop application.",
       "unsupported": "{what} is not implemented in this version yet.",
       "internal": "Something went wrong inside the application."
+    },
+    "service": {
+      "actionFailed": "The machine did not accept the service action. {detail}"
     }
   }
 }

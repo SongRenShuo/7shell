@@ -77,6 +77,10 @@ error_catalog! {
     #[doc = "The machine refused to end a process, or reported that it failed."]
     ProcessKillFailed => "PROCESS-KILL-FAILED", "errors.process.killFailed";
 
+    // -- Services ----------------------------------------------------------
+    #[doc = "The machine refused a service action, or reported that it failed."]
+    ServiceActionFailed => "SERVICE-ACTION-FAILED", "errors.service.actionFailed";
+
     // -- SFTP --------------------------------------------------------------
     #[doc = "The remote path does not exist."]
     SftpNotFound => "SFTP-NOT-FOUND", "errors.sftp.notFound";

@@ -44,6 +44,7 @@ import type {
   SnippetGroup,
 } from "@/types/snippet";
 import type { HostMetrics, ProcessDetail, ProcessPage, SocketRow } from "@/types/monitor";
+import type { JournalTail, SystemOverview } from "@/types/sysinfo";
 import type {
   McpApprovalDecision,
   McpApprovalRequest,
@@ -1009,6 +1010,26 @@ export const backend = {
    * What the host behind a terminal is doing. Asked for by handle, because a sample rides the
    * connection the terminal already has: there is nothing to sample without one.
    */
+  /**
+   * The system panel: one read of everything the machine will say about itself, and the journal's
+   * tail on its own slower ask. Both ride the connection the panel was opened on.
+   */
+  system: {
+    overview: (handle: string): Promise<SystemOverview> =>
+      forward("system_overview", () => desktop.systemOverview(handle)),
+    journal: (handle: string, lines: number): Promise<JournalTail> =>
+      forward("system_journal", () => desktop.systemJournal(handle, lines)),
+    /** One service verb, with the acknowledgement a person's answer to the gate becomes. */
+    serviceAction: (
+      sessionId: string,
+      handle: string,
+      unit: string,
+      verb: string,
+      acknowledged: boolean,
+    ): Promise<void> =>
+      forward("system_service_action", () => desktop.systemServiceAction(sessionId, handle, unit, verb, acknowledged)),
+  },
+
   monitor: {
     sample: (handle: string): Promise<HostMetrics> => forward("monitor_sample", () => desktop.monitorSample(handle)),
     /** The process table, cut on the far side to what was asked for. The page orders what it gets. */
