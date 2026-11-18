@@ -70,7 +70,8 @@ beforeEach(() => {
 describe("a process row's menu", () => {
   it("opens the detail the same way clicking the row does, and copies every field", () => {
     const open = vi.fn();
-    const entries = processRowMenu(process(), { open });
+    const kill = vi.fn();
+    const entries = processRowMenu(process(), { open, kill });
 
     expect(entries.filter((entry) => entry.kind === "action").map((entry) => entry.id)).toEqual([
       "open-detail",
@@ -78,6 +79,7 @@ describe("a process row's menu", () => {
       "copy-name",
       "copy-command",
       "copy-executable",
+      "kill",
     ]);
 
     pick(entries, "open-detail").run();
@@ -87,13 +89,19 @@ describe("a process row's menu", () => {
     pick(entries, "copy-executable").run();
     expect(copyText).toHaveBeenCalledWith("nginx: worker process");
     expect(copyText).toHaveBeenCalledWith("/usr/sbin/nginx");
+
+    // The one entry that writes: it names the process the person pointed at and nothing else,
+    // and it wears the colour of something that cannot be undone.
+    expect(pick(entries, "kill").danger).toBe(true);
+    pick(entries, "kill").run();
+    expect(kill).toHaveBeenCalledWith(1, "nginx");
   });
 
   it("offers no path for a process the host would not name one for", () => {
     const kernelThread = process({ executable: null, command: "" });
 
-    expect(pick(processRowMenu(kernelThread, { open: vi.fn() }), "copy-executable").disabled).toBe(true);
-    expect(pick(processRowMenu(kernelThread, { open: vi.fn() }), "copy-command").disabled).toBe(true);
+    expect(pick(processRowMenu(kernelThread, { open: vi.fn(), kill: vi.fn() }), "copy-executable").disabled).toBe(true);
+    expect(pick(processRowMenu(kernelThread, { open: vi.fn(), kill: vi.fn() }), "copy-command").disabled).toBe(true);
   });
 });
 

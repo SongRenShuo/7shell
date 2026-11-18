@@ -52,6 +52,7 @@
     "copyProcess": "复制进程名",
     "copyCommand": "复制命令行",
     "copyExecutable": "复制可执行文件路径",
+    "killProcess": "结束进程",
     "copyWorkingDirectory": "复制工作目录",
     "copyValue": "复制值",
     "copyVariable": "复制“名称=值”",

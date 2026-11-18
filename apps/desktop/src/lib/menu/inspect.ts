@@ -1,16 +1,17 @@
 /**
  * What can be done on the two host pages: the process table and the socket tables.
  *
- * Both are read-only views of a host, and their menus stay that way. What a row can do is be read
- * more closely — a process opened under the table, a port's connections shown below it — or have one
- * of its fields copied out, which is the reason these pages exist at all: somebody has found the
- * process that is eating the machine and wants its command line somewhere they can use it.
+ * The socket tables are read-only views, and their menu stays that way. The process table has one
+ * write: ending a process. It sits at the bottom of the row's menu, behind a separator and the
+ * destructive styling every other gate-ending action wears — because the menu is where a person
+ * looks for what they can do to a row, and a verb that ends a process belongs there with the
+ * warning visible rather than hidden behind a different word.
  *
  * An entry that copies a field the host did not report is greyed out rather than offered and then
  * refused. A kernel thread has no executable path, and copying an empty string would be a lie told
  * quietly.
  */
-import { Copy, Eye, RefreshCw } from "@lucide/vue";
+import { Copy, Eye, RefreshCw, Skull } from "@lucide/vue";
 
 import type { EnvironmentEntry, ProcessDetail, ProcessSample, SocketRow } from "@/types/monitor";
 
@@ -19,6 +20,11 @@ import type { MenuEntry } from "./types";
 
 export interface ProcessRowActions {
   readonly open: (pid: number, name: string) => void;
+  /**
+   * Asks to end the process. The gate, the confirmation and the audit are the caller's: this menu
+   * only says which process the person pointed at.
+   */
+  readonly kill: (pid: number, name: string) => void;
 }
 
 export function processRowMenu(process: ProcessSample, actions: ProcessRowActions): MenuEntry[] {
@@ -61,6 +67,15 @@ export function processRowMenu(process: ProcessSample, actions: ProcessRowAction
       icon: Copy,
       disabled: executable === "",
       run: () => void copyText(executable),
+    },
+    { kind: "separator", id: "sep-kill" },
+    {
+      kind: "action",
+      id: "kill",
+      labelKey: "menu.killProcess",
+      icon: Skull,
+      danger: true,
+      run: () => actions.kill(process.pid, process.name),
     },
   ];
 }

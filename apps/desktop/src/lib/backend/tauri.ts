@@ -951,6 +951,16 @@ export function workbenchPower(
   return invoke<WorkbenchPowerOutcome>("workbench_power", { sessionId, handle, action, acknowledged });
 }
 
+/**
+ * Ends one process on the far side, after a person answered the question.
+ *
+ * The pid crosses as a number, which is also what the shell formats into its command: nothing a
+ * caller can type reaches a shell here.
+ */
+export function processKill(sessionId: string, handle: string, pid: number, acknowledged: boolean): Promise<void> {
+  return invoke<void>("process_kill", { sessionId, handle, pid, acknowledged });
+}
+
 export function tunnelsOpen(): Promise<OpenTunnel[]> {
   return invoke<OpenTunnel[]>("tunnels_open");
 }

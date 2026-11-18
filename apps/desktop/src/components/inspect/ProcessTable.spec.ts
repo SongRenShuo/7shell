@@ -174,6 +174,8 @@ describe("the process table", () => {
       "copy-name",
       "copy-command",
       "copy-executable",
+      "sep-kill",
+      "kill",
     ]);
   });
 });

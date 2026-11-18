@@ -52,6 +52,7 @@
     "copyProcess": "Copy process name",
     "copyCommand": "Copy command line",
     "copyExecutable": "Copy executable path",
+    "killProcess": "End process",
     "copyWorkingDirectory": "Copy working directory",
     "copyValue": "Copy value",
     "copyVariable": "Copy name and value",
