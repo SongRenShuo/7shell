@@ -147,11 +147,16 @@ const wallpaper = computed(() => {
  */
 const chosenWallpaper = ref<string | null>(null);
 
+/**
+ * The backdrops, named in the workbench token block of `globals.css` rather than painted here: a
+ * gradient is a colour decision, and the desktop's colour decisions live in one place now, where a
+ * reskin finds all of them.
+ */
 const WALLPAPER_BACKDROPS: Readonly<Record<string, string>> = {
-  aurora: "linear-gradient(165deg, #1e1b4b 0%, #312e81 45%, #155e75 100%)",
-  dawn: "linear-gradient(165deg, #431407 0%, #9a3412 55%, #b45309 100%)",
-  forest: "linear-gradient(165deg, #052e16 0%, #14532d 55%, #3f6212 100%)",
-  plain: "",
+  aurora: "var(--workbench-wallpaper-aurora)",
+  dawn: "var(--workbench-wallpaper-dawn)",
+  forest: "var(--workbench-wallpaper-forest)",
+  plain: "var(--workbench-wallpaper-plain)",
 };
 
 const wallpaperStyle = computed(() => {
@@ -1187,7 +1192,7 @@ function disconnect(): void {
             </span>
             <span
               class="w-full truncate text-[13px] leading-tight"
-              :class="onPicture ? '[text-shadow:0_1px_2px_rgba(0,0,0,0.6)]' : undefined"
+              :class="onPicture ? '[text-shadow:var(--wb-shadow-text-picture)]' : undefined"
               >{{ icon.label }}</span
             >
           </button>

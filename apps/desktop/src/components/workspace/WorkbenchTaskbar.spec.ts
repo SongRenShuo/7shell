@@ -7,6 +7,8 @@
  * asserted verbatim: the bar is handed a formatted time and must not reformat it.
  */
 import { Folder, Terminal } from "@lucide/vue";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type App, createApp, defineComponent, h } from "vue";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -153,5 +155,15 @@ describe("the taskbar", () => {
     click(power);
 
     expect(powers).toBe(1);
+  });
+
+  it("dresses its glass, its hover and its running mark from the workbench tokens", () => {
+    // The bar is styled in scoped CSS, which no DOM assertion reaches in this environment; the
+    // probe is the source itself: the tokens are named and no literal colour is left behind.
+    const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchTaskbar.vue"), "utf8");
+    expect(source).toContain("var(--workbench-surface-1)");
+    expect(source).toContain("var(--workbench-surface-3)");
+    expect(source).toContain("var(--workbench-danger)");
+    expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

@@ -9,9 +9,12 @@
  * open the clock, ask about power. Whoever assembled the desktop decides what those mean.
  *
  * The metrics are the reference's, not the theme's: a 57px pill inset 73px from either side and 15px
- * off the floor, a 12px radius, a 5px blur under a black wash, and 49px cells. The blur and the wash
- * are what let the wallpaper show through without making the labels unreadable, which is the whole
- * reason the bar is glass rather than a solid strip.
+ * off the floor, a 12px radius, a 5px blur under a black wash, and 49px cells. The wash and the
+ * colours are the desktop's own tokens — `--workbench-surface-1` behind, `--workbench-surface-3`
+ * under the pointer, `--workbench-danger` for the running mark — named in `globals.css`, so the
+ * bar draws no literal colour of its own. The blur and the wash are what let the wallpaper show
+ * through without making the labels unreadable, which is the whole reason the bar is glass rather
+ * than a solid strip.
  */
 import { LayoutGrid, Power } from "@lucide/vue";
 import type { Component } from "vue";
@@ -134,14 +137,14 @@ const emit = defineEmits<{
   margin: 0 clamp(0.5rem, 6vw, 73px) 15px;
   overflow: hidden;
   border-radius: 12px;
-  box-shadow: 0 2px 10px #00000069;
+  box-shadow: var(--wb-shadow-app);
   user-select: none;
 }
 
 .taskbar-mask {
   position: absolute;
   inset: 0;
-  background: #00000082;
+  background: var(--workbench-surface-1);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
 }
@@ -154,7 +157,7 @@ const emit = defineEmits<{
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  color: #ffffff;
+  color: var(--workbench-on-picture);
 }
 
 .taskbar-cell {
@@ -165,20 +168,20 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: 3px;
-  transition: background-color 0.3s;
+  transition: background-color var(--wb-dur-base);
   cursor: pointer;
 }
 
 .taskbar-cell:hover,
 .taskbar-clock:hover,
 .taskbar-power:hover {
-  background: #484646bd;
+  background: var(--workbench-surface-3);
 }
 
 .taskbar-cell:focus-visible,
 .taskbar-clock:focus-visible,
 .taskbar-power:focus-visible {
-  outline: 1px solid #ffffffa0;
+  outline: 1px solid var(--workbench-focus-outline);
   outline-offset: -1px;
 }
 
@@ -195,7 +198,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  color: #ffffff;
+  color: var(--workbench-on-picture);
 }
 
 /*
@@ -210,9 +213,9 @@ const emit = defineEmits<{
   height: 5px;
   margin-left: -2.5px;
   border-radius: 50%;
-  background: #d11010f5;
+  background: var(--workbench-danger);
   transform: scale(0);
-  transition: transform 0.5s;
+  transition: transform var(--wb-dur-slow);
 }
 
 .taskbar-dot.is-active {
@@ -232,7 +235,7 @@ const emit = defineEmits<{
   border-radius: 3px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  transition: background-color 0.3s;
+  transition: background-color var(--wb-dur-base);
   cursor: pointer;
 }
 
@@ -245,7 +248,7 @@ const emit = defineEmits<{
   padding: 0 12px;
   border-radius: 3px;
   font-size: 13px;
-  transition: background-color 0.3s;
+  transition: background-color var(--wb-dur-base);
   cursor: pointer;
 }
 </style>

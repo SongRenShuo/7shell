@@ -9,6 +9,9 @@
  * live, that the taskbar mirrors the session's tabs, and that the power action travels with the
  * acknowledgement the confirmation is.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -409,13 +412,22 @@ describe("the workbench desktop", () => {
 
   it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {
     await render(deskWithWallpaper);
-    expect(host.firstElementChild?.getAttribute("style")).toContain("linear-gradient");
+    expect(host.firstElementChild?.getAttribute("style")).toContain("var(--workbench-wallpaper-");
 
     app?.unmount();
     host.remove();
     const unknown: Session = { ...desk, workbench: { wallpaper: "something-else" } };
     await render(unknown);
-    expect(host.firstElementChild?.getAttribute("style") ?? "").not.toContain("linear-gradient");
+    expect(host.firstElementChild?.getAttribute("style") ?? "").not.toContain("var(--workbench-wallpaper-");
+  });
+
+  it("dresses its chrome from the workbench tokens, with no literal colour left in the pane", () => {
+    // The pane is the assembler of the desktop's chrome; the wallpaper gradients, the icon labels'
+    // shadow and every surface colour are named in globals.css. The probe is the source itself.
+    const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchPane.vue"), "utf8");
+    expect(source, "wallpapers come from the workbench tokens").toContain("var(--workbench-wallpaper-");
+    expect(source, "icon labels carry the the reference two-layer shadow").toContain("var(--wb-shadow-text-picture)");
+    expect(source, "no literal colour is left in the pane").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
   it("opens the session's own file browser in a window on a double-click of Home, not on a single click", async () => {
