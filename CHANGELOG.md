@@ -62,7 +62,9 @@ All notable changes to 7Shell are documented in this file. The format is
   the desk, and a floating taskbar with one cell per open window and a running dot under the one in
   front. A terminal opened from the desktop lives in a window on it rather than in the tab strip,
   a file browser window opens a browser of its own and closes it with the window, and the monitor,
-  system panel and trash are drawn inside windows (fdb5dd8, 00f9d80, f1f4a25).
+  system panel and trash are drawn inside windows (fdb5dd8, 00f9d80, f1f4a25). The desktop's own
+  right-click menus take the reference's teal sheet with white rows; every menu opened elsewhere
+  keeps the application's card (ddd1146).
 - The system panel reads further: each service's boot state with a switch to enable or disable it
   (the states a unit file refuses are shown rather than offered), the account's crontab, the last
   twenty logins including the machine's own reboots, the firewall's state from ufw or firewalld,
