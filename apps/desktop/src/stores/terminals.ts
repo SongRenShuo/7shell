@@ -280,6 +280,15 @@ export interface ContainerTab {
   id: string;
   readonly session: Session;
   connectionId: string | null;
+  /**
+   * Whether this engine lives in a window on the desktop rather than in the tab strip.
+   *
+   * The same flag a windowed terminal carries, and for the same reason: a desktop's Docker door
+   * opens the container workspace as a floating window, and a window drawn on the desktop must not
+   * take the application's active tab with it. The tab underneath is an ordinary container tab —
+   * the same connection, the same close — so this is a flag rather than a second kind.
+   */
+  readonly windowed?: boolean;
 }
 
 /** A Kubernetes cluster, as a tab. Same lifecycle as the container tab. */
@@ -309,6 +318,17 @@ export type WorkspaceTab =
  */
 export function sessionOf(tab: WorkspaceTab): Session | null {
   return tab.kind === "settings" || tab.kind === "batch" ? null : tab.session;
+}
+
+/**
+ * Whether a tab is drawn on a desktop as a window rather than in the tab strip.
+ *
+ * Two shapes carry the flag — a windowed terminal and a windowed container — and one predicate is
+ * what lets the strip leave both out with a single line. Anything else is drawn in the strip: the
+ * pages, the workbench and the batch panel have no window on any desktop.
+ */
+export function isWindowedTab(tab: WorkspaceTab): boolean {
+  return (tab.kind === "terminal" || tab.kind === "container") && tab.windowed === true;
 }
 
 /** A host key the backend is waiting on before it will send anything at all. */
@@ -1129,6 +1149,37 @@ export const useTerminalsStore = defineStore("terminals", () => {
     }
 
     addTab({ kind: "container", id: crypto.randomUUID(), session, connectionId: null });
+  }
+
+  /**
+   * Opens the container engine a session reaches, in the shape the caller asked for.
+   *
+   * The desktop's Docker door asks for this with `windowed: true`, and gets a tab the strip leaves
+   * out and the desktop draws as a window — the same mechanism a windowed terminal follows, down to
+   * `addTab` being the one place that decides whether a tab takes the application's active tab with
+   * it. The connection itself is not made here: the pane the window hosts opens the engine on mount,
+   * exactly as a container tab in the strip does, so there is one lifecycle and it lives with the
+   * thing on screen.
+   *
+   * An engine that is already open is answered with the tab that shows it rather than a second one —
+   * one connection per engine, wherever it is drawn — but a windowed ask does not move the active
+   * tab: the desktop raising its window is the focus, and jumping the strip under it would be a
+   * second opinion about what the person is looking at.
+   */
+  async function openContainerTab(session: Session, options: { windowed?: boolean } = {}): Promise<string | null> {
+    const showing = tabs.value.find(
+      (entry): entry is ContainerTab => entry.kind === "container" && entry.session.id === session.id,
+    );
+    if (showing) {
+      if (!options.windowed) {
+        activeTabId.value = showing.id;
+      }
+      return showing.id;
+    }
+
+    const id = crypto.randomUUID();
+    addTab({ kind: "container", id, session, connectionId: null, windowed: options.windowed });
+    return id;
   }
 
   /** Opens a cluster for a session, or goes to the tab already showing it. */
@@ -2073,6 +2124,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
     closeSettings,
     openBatch,
     openContainer,
+    openContainerTab,
     openKubernetes,
     openHandle,
     writableHandles,

@@ -14,6 +14,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/runtime", () => ({ isDesktopRuntime: vi.fn(() => true) }));
 vi.mock("@/lib/backend/tauri", () => ({
   containerConnect: vi.fn(),
+  desktopEngineOpen: vi.fn(),
   containerDisconnect: vi.fn(async () => {}),
   containerList: vi.fn(async () => []),
   containerImages: vi.fn(async () => []),
@@ -52,6 +53,7 @@ import {
   containerRuntimeInfo,
   containerSetNamespace,
   containerStreamStop,
+  desktopEngineOpen,
   onContainerStreamEnd,
   onContainerStreamLine,
 } from "@/lib/backend/tauri";
@@ -90,6 +92,7 @@ import type {
 } from "@/types/container";
 
 const connectMock = vi.mocked(containerConnect);
+const desktopEngineOpenMock = vi.mocked(desktopEngineOpen);
 const disconnectMock = vi.mocked(containerDisconnect);
 const listMock = vi.mocked(containerList);
 const imagesMock = vi.mocked(containerImages);
@@ -162,6 +165,26 @@ function tab(runtime: "docker" | "podman" | "nerdctl" | "wslc" = "docker"): Cont
   };
 }
 
+/** A desktop session's engine tab: no container settings of its own, so the runtime is Docker. */
+function desktopTab(): ContainerTab {
+  return {
+    kind: "container",
+    id: "tab-1",
+    session: {
+      id: "session-1",
+      name: "lab desktop",
+      protocol: "linuxDesk",
+      host: "desk.test",
+      port: 22,
+      user: "root",
+      auth: { method: "password", hasSecret: true },
+      terminal: { terminalType: "xterm-256color", keepaliveSeconds: 0, forwardAgent: false, record: false },
+      updatedAt: 0,
+    },
+    connectionId: null,
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void } {
   let resolve: (value: T) => void = () => {};
   let reject: (reason: unknown) => void = () => {};
@@ -182,6 +205,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   connectMock.mockResolvedValue("conn-1");
+  desktopEngineOpenMock.mockResolvedValue("conn-1");
   listMock.mockResolvedValue([container()]);
   imagesMock.mockResolvedValue([image()]);
   infoMock.mockResolvedValue(runtimeInfo());
@@ -245,6 +269,34 @@ describe("container store connection", () => {
     await engine.connect(opened);
 
     expect(connectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a desktop session's engine on the connection the session already holds", async () => {
+    const engine = useContainerStore();
+    const opened = desktopTab();
+
+    await engine.connect(opened);
+
+    // A desktop session is already connected — the workbench holds that connection — so the engine
+    // rides it rather than the session being asked to connect again as a container session is.
+    expect(desktopEngineOpenMock).toHaveBeenCalledWith("session-1");
+    expect(connectMock).not.toHaveBeenCalled();
+    expect(opened.connectionId).toBe("conn-1");
+    expect(engine.sessionFor("tab-1")?.connectionId).toBe("conn-1");
+    expect(engine.sessionFor("tab-1")?.runtime).toBe("docker");
+    expect(engine.sessionFor("tab-1")?.containers).toHaveLength(1);
+  });
+
+  it("a desktop session's refusal lands on the session like a container session's does", async () => {
+    const engine = useContainerStore();
+    const opened = desktopTab();
+    desktopEngineOpenMock.mockRejectedValueOnce(new Error("no engine"));
+
+    await engine.connect(opened);
+
+    expect(engine.sessionFor("tab-1")?.connectionId).toBeNull();
+    expect(engine.sessionFor("tab-1")?.error?.code).toBe("APP-INTERNAL");
+    expect(opened.connectionId).toBeNull();
   });
 
   it("lets go of a connection that answered after its tab had gone", async () => {
