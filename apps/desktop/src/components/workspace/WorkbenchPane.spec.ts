@@ -1018,6 +1018,39 @@ describe("the workbench desktop", () => {
     expect(raised?.dataset.active, "the bar raises the window it names").toBe("true");
   });
 
+  it("empties the desk on the desktop button, and brings everything back on the next press", async () => {
+    sessionOpenMock.mockResolvedValue({
+      kind: "opened",
+      handle: "t1",
+      sessionId: desk.id,
+      tunnels: [],
+      tunnelFailures: [],
+    });
+
+    await render();
+
+    fire(iconByLabel("Terminal"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    fire(iconByLabel("Home"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const desktop = host.querySelector<HTMLElement>("[data-workbench-taskbar-desktop]");
+    expect(desktop, "the bar carries a desktop cell").not.toBeNull();
+
+    desktop!.click();
+    await nextTick();
+    expect(
+      taskbarEntries().every((entry) => entry.dataset.active === undefined),
+      "an emptied desk has no front",
+    ).toBe(true);
+
+    desktop!.click();
+    await nextTick();
+    expect(taskbarEntries(), "the second press brings the windows back").toHaveLength(2);
+  });
+
   it("draws a clock at the far end of the taskbar, and clicking it opens the system panel", async () => {
     systemOverviewMock.mockResolvedValue({
       services: [],

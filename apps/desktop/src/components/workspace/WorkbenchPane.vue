@@ -96,10 +96,12 @@ import {
 import {
   closeWindow as closeWindowRecord,
   focusWindow,
+  minimizeAll,
   minimizeWindow,
   moveWindow,
   openWindow,
   resizeWindow,
+  restoreAll,
   restoreWindow,
   setMaximized,
   showWindow,
@@ -832,6 +834,20 @@ function pressTaskbar(id: string): void {
   raise(id);
 }
 
+/**
+ * The desktop button: empty the desk, or bring everything back.
+ *
+ * The button is a toggle between two desk-wide states, decided by what is on screen now — a desk
+ * with a visible window empties itself; an empty desk (every window put away) brings the windows
+ * back. That is the whole behaviour the launch docks teach, and it needs no state of its own: the
+ * windows are the state.
+ */
+function pressDesktop(): void {
+  windows.value = windows.value.some((window) => window.mode !== "min")
+    ? minimizeAll(windows.value)
+    : restoreAll(windows.value);
+}
+
 // -- the clock ---------------------------------------------------------------
 
 /**
@@ -1476,9 +1492,11 @@ function disconnect(): void {
       :power="t('workbench.power.title')"
       :labels="{
         starter: t('workbench.desktop.shell.starter'),
+        desktop: t('workbench.desktop.shell.desktop'),
         clock: t('workbench.desktop.clock.title'),
       }"
       @starter="starterOpen = !starterOpen"
+      @desktop="pressDesktop()"
       @launch="pressTaskbar($event)"
       @clock="openRecord('system', t('workbench.desktop.icons.system'), 'system')"
       @power="openPowerMenu()"
