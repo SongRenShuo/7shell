@@ -147,7 +147,26 @@
         "taskbarAlign": "Taskbar alignment",
         "taskbarAlignLeft": "Left",
         "taskbarAlignCenter": "Center",
+        "widgets": "Desktop widgets",
         "saved": "Backdrop saved."
+      },
+      "widgets": {
+        "title": "Desktop widgets",
+        "system": "System",
+        "cpu": "CPU",
+        "net": "Network",
+        "storage": "Storage",
+        "host": "Host",
+        "uptime": "Uptime",
+        "uptimeDays": "{days}d {hours}h",
+        "uptimeHours": "{hours}h {minutes}m",
+        "load": "Load (5m)",
+        "busy": "Busy",
+        "cores": "Cores",
+        "down": "Down",
+        "up": "Up",
+        "used": "Used",
+        "free": "Free"
       }
     },
     "power": {

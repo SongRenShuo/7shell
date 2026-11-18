@@ -202,6 +202,8 @@
   --workbench-accent: oklch(0.6841 0.1308 170.6);
   /* The one red the chrome itself draws: the close button under the pointer (#c50f1f). */
   --workbench-danger: oklch(0.5227 0.2063 25.85);
+  /* The threshold amber the widgets wear at 90-95% usage (#f59e0b at desktop legibility). */
+  --workbench-warning: oklch(0.7949 0.1614 70.68);
 
   /* The teal menu skin, collected from ContextMenu's desktop tone. */
   --workbench-menu-bg: var(--workbench-accent);
