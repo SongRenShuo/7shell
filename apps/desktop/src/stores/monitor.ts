@@ -38,7 +38,7 @@ import {
   interfaceRates,
   isLoopback,
 } from "@/lib/monitor/rates";
-import { type TerminalTab, sessionOf, useTerminalsStore } from "@/stores/terminals";
+import { type TerminalTab, type WorkbenchTab, sessionOf, useTerminalsStore } from "@/stores/terminals";
 import {
   type ProcessRow,
   type ProcessSortKey,
@@ -214,7 +214,27 @@ export const useMonitorStore = defineStore("monitor", () => {
     );
     const handle = open?.handle;
     if (!open || handle === null || handle === undefined) {
-      return null;
+      // A Linux desktop session may have no terminal tab at all: its desktop *is* the tab, and a
+      // page about the host is opened beside it. The workbench's own connection samples and runs
+      // commands the same way a terminal's does, so a page that is on screen falls back to it —
+      // otherwise the process and network pages would be blank on exactly the session whose front
+      // page is a desktop.
+      const desktop = terminals.tabs.find(
+        (entry): entry is WorkbenchTab =>
+          entry.kind === "workbench" && entry.session.id === activeSession.id && entry.handle !== null,
+      );
+      if (!desktop || desktop.handle === null) {
+        return null;
+      }
+      const { session } = desktop;
+      return {
+        handle: desktop.handle,
+        sessionId: session.id,
+        name: session.name,
+        host: session.host,
+        port: session.port,
+        user: session.user,
+      };
     }
 
     const { session } = open;

@@ -757,4 +757,18 @@ describe("following the workbench on screen", () => {
     expect(monitor.target).toBeNull();
     expect(monitor.available).toBe(false);
   });
+
+  it("keeps sampling through the workbench while a page about the host is on screen", () => {
+    workspaceWithWorkbench("w1");
+    const terminals = useTerminalsStore();
+    // A page opened beside the desktop: it holds no handle of its own, so the desktop's connection
+    // is the one that answers — otherwise the process page would be blank on the one session whose
+    // front page is a desktop and which has no terminal tab at all.
+    terminals.tabs.push({ kind: "inspect", view: "processes", id: "tab-processes", session: desk });
+    terminals.activate("tab-processes");
+
+    const monitor = useMonitorStore();
+    expect(monitor.target?.handle, "the desktop's own connection answers the page").toBe("w1");
+    expect(monitor.available).toBe(true);
+  });
 });
