@@ -416,7 +416,9 @@ describe("the workbench in the workspace", () => {
   it("draws the pane over the connection the tab holds", async () => {
     await renderWorkbench("w1");
 
-    expect(host.querySelector("[data-workbench-system]"), "the workbench's own face").not.toBeNull();
+    // The workbench is a desktop now: the icon grid and the taskbar are its face, not a page of cards.
+    expect(host.querySelector("[data-workbench-desktop]"), "the workbench's own face").not.toBeNull();
+    expect(host.querySelector("[data-workbench-taskbar]"), "the session's bar of tabs").not.toBeNull();
   });
 
   it("says why a workbench without a connection is standing there, and offers the way back", async () => {
