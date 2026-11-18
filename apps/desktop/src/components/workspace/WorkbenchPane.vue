@@ -1510,6 +1510,7 @@ function disconnect(): void {
     class="relative flex min-h-0 flex-1 flex-col overflow-hidden"
     :class="wallpaper === undefined ? 'bg-background' : undefined"
     :style="wallpaperStyle"
+    :data-workbench-on-picture="onPicture ? '' : undefined"
     data-workbench-shell
   >
     <WorkbenchStatusBar
@@ -1556,12 +1557,16 @@ function disconnect(): void {
             :class="[
               onPicture
                 ? selectedId === icon.id
-                  ? 'bg-white/20 text-white'
-                  : 'text-white/95 hover:bg-white/10'
+                  ? 'bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_20%,transparent)] text-[var(--workbench-on-wallpaper)]'
+                  : 'text-[color-mix(in_srgb,var(--workbench-on-wallpaper)_95%,transparent)] hover:bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_10%,transparent)]'
                 : selectedId === icon.id
                   ? 'bg-accent text-foreground'
                   : 'text-foreground hover:bg-accent/50',
-              dragOverId === icon.id ? (onPicture ? 'ring-2 ring-white/70' : 'ring-2 ring-primary/60') : undefined,
+              dragOverId === icon.id
+                ? onPicture
+                  ? 'ring-2 ring-[color-mix(in_srgb,var(--workbench-on-wallpaper)_70%,transparent)]'
+                  : 'ring-2 ring-primary/60'
+                : undefined,
             ]"
             @click.stop="select(icon)"
             @dblclick.stop="openIcon(icon)"
@@ -1741,7 +1746,7 @@ function disconnect(): void {
         :data-snap-zone="snapZone"
         :style="snapPreviewStyle"
         aria-hidden="true"
-        class="pointer-events-none absolute z-40 rounded-md border-2 border-dashed border-white/60 bg-white/10 transition-[left,top,width,height] duration-100"
+        class="pointer-events-none absolute z-40 rounded-md border-2 border-dashed border-[color-mix(in_srgb,var(--workbench-on-picture)_60%,transparent)] bg-[color-mix(in_srgb,var(--workbench-on-picture)_10%,transparent)] transition-[left,top,width,height] duration-100"
       ></div>
     </div>
 
