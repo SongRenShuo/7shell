@@ -542,7 +542,10 @@ async fn free_trash_name(files: &Arc<SftpSession>, directory: &str, name: &str) 
         // real verdict, and refusing a delete over a failed probe would leave the file un-deletable
         // exactly when something is already wrong. That is what `unwrap_or_default` says here — the
         // default for "is this name taken" is "no" — spelled the way the linter can read.
-        let taken = files.exists(&remote_join(directory, &candidate)).await.unwrap_or_default();
+        let taken = files
+            .exists(&remote_join(directory, &candidate))
+            .await
+            .unwrap_or_default();
         if !taken {
             return candidate;
         }
