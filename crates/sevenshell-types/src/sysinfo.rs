@@ -192,6 +192,24 @@ pub struct FirewallStatus {
     pub detail: String,
 }
 
+/// One TCP port the host is listening on, with the process that holds it.
+///
+/// From `ss -tlnp`, which names a process only when the reading account may see it — a service
+/// under another account arrives with the port and address and an empty name, which is a fact
+/// about the reading account, not a lost row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemListener {
+    /// The port the host listens on.
+    pub port: u16,
+    /// The address the listener binds, as the host printed it with the IPv6 brackets taken off:
+    /// `127.0.0.1`, `0.0.0.0`, `::`.
+    pub address: String,
+    /// The process behind the listener, as the host named it. Empty when the host did not name
+    /// one — the port belongs to another account's process, or `ss` runs without the sight.
+    pub process: String,
+}
+
 /// Everything the system panel's first page shows, in one read.
 ///
 /// One round trip rather than a dozen: they are a dozen cheap commands, and a panel that opens
@@ -239,6 +257,13 @@ pub struct SystemOverview {
     /// The host's timezone as it reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    /// The TCP ports the host is listening on, with the process behind each.
+    ///
+    /// Absent from the wire when empty — the mirror reads `overview.listeners ?? []`. An empty
+    /// list is the host saying "nothing I can see" (an `ss` without the answer, a host with no
+    /// listeners), which is a fact and not a hole.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listeners: Vec<SystemListener>,
 }
 
 #[cfg(test)]
@@ -278,6 +303,7 @@ mod tests {
             kernel: None,
             uptime_seconds: 0,
             timezone: None,
+            listeners: Vec::new(),
         }
     }
 
@@ -298,11 +324,30 @@ mod tests {
         assert_eq!(value["logins"][0]["stillLoggedIn"], json!(true));
         assert_eq!(value["crontab"][0], json!("0 3 * * * /usr/local/bin/backup.sh"));
         assert!(value.get("firewall").is_none(), "a read that never asked omits the key");
+        assert!(value.get("listeners").is_none(), "a host that named no listener omits the key");
         assert_eq!(
             value["mounts"],
             json!([]),
             "a list that is sent is sent even when empty"
         );
+    }
+
+    /// The listeners are the one list that is left off the wire when empty, and the one whose
+    /// absence a mirror has to read as a list — hence this test sitting next to the omission one
+    /// above.
+    #[test]
+    fn listeners_ride_the_wire_when_the_host_listed_any() {
+        let mut overview = overview();
+        overview.listeners = vec![SystemListener {
+            port: 22,
+            address: "0.0.0.0".to_owned(),
+            process: "sshd".to_owned(),
+        }];
+
+        let value = serde_json::to_value(overview).expect("an overview is JSON");
+        assert_eq!(value["listeners"][0]["port"], json!(22));
+        assert_eq!(value["listeners"][0]["address"], json!("0.0.0.0"));
+        assert_eq!(value["listeners"][0]["process"], json!("sshd"));
     }
 
     /// The two values that are a shape rather than a word: a firewall that answered, and a service

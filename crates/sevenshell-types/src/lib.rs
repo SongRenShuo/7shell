@@ -123,7 +123,7 @@ pub use sync::{
 };
 pub use sysinfo::{
     AccountEntry, DiskDevice, FirewallStatus, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, LoginRecord,
-    RouteEntry, ServiceEntry, SystemOverview,
+    RouteEntry, ServiceEntry, SystemListener, SystemOverview,
 };
 pub use system::HostSystem;
 pub use tail::{TailStreamEnd, TailStreamLine};
