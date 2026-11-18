@@ -55,8 +55,9 @@ const label = computed(() => t(title.value.key, title.value.params ?? {}));
  *
  * Two tones, and the difference is where the menu was opened rather than what it does: the
  * application's own card for its surfaces, and the desktop's teal for a menu opened on a wallpaper.
- * The teal is the reference desktop's, measured from its stylesheet: `#17b38e` with white rows, a
- * slight blur behind it, and a shadow soft enough to lift it off a picture.
+ * The teal is the reference desktop's, measured from its stylesheet, and named in the workbench
+ * token block of `globals.css` — `--workbench-menu-bg` with `--workbench-menu-text` rows, a slight
+ * blur behind it, and the dropdown tier of the `--wb-shadow-*` scale to lift it off a picture.
  *
  * A menu is chrome rather than a document: a drag across it is somebody leaving in a hurry, and a
  * selection smeared over a list of verbs is noise. `select-none` on the box is inherited by both
@@ -66,7 +67,7 @@ const boxClass = computed(() =>
   cn(
     "fixed z-[70] max-w-72 min-w-44 rounded-lg py-1 shadow-xl outline-none cursor-default select-none",
     tone.value === "desktop"
-      ? "border border-white/15 bg-[#17b38e] text-white shadow-[3px_7px_14px_#00000042] backdrop-blur-[7px]"
+      ? "border border-[var(--workbench-menu-border)] bg-[var(--workbench-menu-bg)] text-[var(--workbench-menu-text)] shadow-[var(--wb-shadow-dropdown)] backdrop-blur-[7px]"
       : "border border-border bg-card",
   ),
 );

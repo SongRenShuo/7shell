@@ -11,6 +11,13 @@
  * The row's low-frequency actions live under one menu, built from the shared context menu, so the
  * table keeps its width for the columns people read. What the menu offers depends on the runtime:
  * see the `supports*` predicates in the store.
+ *
+ * Two layouts share this list, and the prop picks between them. `flat` — the default — is the
+ * application tab's table exactly as it has always been drawn. `desktop` is the desktop window's:
+ * the state column draws as a light-wash tag carrying the state's colour, every row action gathers
+ * under the one menu, a write in flight names itself on the row it is working on, and the removal
+ * confirmation carries the consequence the reference Docker manager states plainly — the
+ * container's data goes with it. The rows, the filters and the dialogs are the same in both.
  */
 import {
   Camera,
@@ -28,8 +35,14 @@ import {
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import {
+  CONTAINER_LOADING_KEYS,
+  containerStateLabel,
+  containerStateStyle,
+} from "@/components/container/containerStates";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
+import WbTag from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
@@ -38,6 +51,7 @@ import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
 import {
   CONTAINER_ACTIONS,
+  type ContainerActionName,
   type ContainerSession,
   filterContainers,
   shortId,
@@ -54,12 +68,18 @@ import ContainerCreateDialog from "./ContainerCreateDialog.vue";
 import ContainerDetailDrawer from "./ContainerDetailDrawer.vue";
 import ContainerDialog from "./ContainerDialog.vue";
 
-const props = defineProps<{
-  tab: ContainerTab;
-  session: ContainerSession;
-  imageFilter: string | null;
-  stateFilter: string | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    tab: ContainerTab;
+    session: ContainerSession;
+    layout?: "desktop" | "flat";
+    imageFilter: string | null;
+    stateFilter: string | null;
+  }>(),
+  { layout: "flat" },
+);
+
+const desktop = computed(() => props.layout === "desktop");
 
 const emit = defineEmits<{
   "clear-image-filter": [];
@@ -129,6 +149,22 @@ const renameText = ref("");
 const renameProblem = ref<string | null>(null);
 const renameBusy = ref(false);
 const confirming = ref<{ kind: "stop" | "restart" | "remove"; container: ContainerSummary } | null>(null);
+/**
+ * The write in flight, named on the row it is working on. The desktop's row says what it is
+ * waiting for — starting, stopping, removing — instead of a spinner that could mean anything.
+ */
+const pendingAction = ref<{ containerId: string; key: (typeof CONTAINER_LOADING_KEYS)[ContainerActionName] } | null>(
+  null,
+);
+
+/** The loading words for a row's write in flight, in the desktop's own phrasing. */
+function loadingText(containerId: string): string | null {
+  const pending = pendingAction.value;
+  if (pending === null || pending.containerId !== containerId) {
+    return null;
+  }
+  return t(pending.key);
+}
 
 function openDetail(container: ContainerSummary): void {
   drawerTarget.value = container;
@@ -215,10 +251,13 @@ async function perform(
   container: ContainerSummary,
   acknowledged: boolean,
 ): Promise<void> {
+  pendingAction.value = { containerId: container.id, key: CONTAINER_LOADING_KEYS[name] };
   try {
     await containers.action(props.tab.id, container.id, name, acknowledged);
   } catch {
     // The store kept the envelope and the pane's banner is showing it; nothing more to say here.
+  } finally {
+    pendingAction.value = null;
   }
 }
 
@@ -248,7 +287,11 @@ const confirmMessage = computed(() => {
     case "restart":
       return t("container.confirm.restartMessage");
     case "remove":
-      return t("container.confirm.removeMessage");
+      // The desktop window states the consequence the reference Docker manager states plainly:
+      // the data inside goes with the container. The flat layout keeps its own sentence.
+      return desktop.value
+        ? `${t("container.confirm.removeMessage")} ${t("container.confirm.dataLoss")}`
+        : t("container.confirm.removeMessage");
   }
 });
 
@@ -322,6 +365,57 @@ async function submitRename(): Promise<void> {
 function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
   const runtime = props.session.runtime;
   const entries: MenuEntry[] = [];
+
+  // The desktop gathers the row's whole vocabulary under this menu — start or stop first, then the
+  // ways into the container. The flat layout keeps those on the row itself and the menu for the
+  // rest, exactly as it has always offered them.
+  if (desktop.value) {
+    entries.push(
+      container.state === "running"
+        ? {
+            kind: "action",
+            id: "stop",
+            labelKey: "container.action.stop",
+            params: { name: container.name },
+            icon: Square,
+            run: () => runAction(container, "stop"),
+          }
+        : {
+            kind: "action",
+            id: "start",
+            labelKey: "container.action.start",
+            params: { name: container.name },
+            icon: Play,
+            run: () => runAction(container, "start"),
+          },
+      {
+        kind: "action",
+        id: "exec",
+        labelKey: "container.action.exec",
+        params: { name: container.name },
+        icon: SquareTerminal,
+        disabled: container.state !== "running",
+        run: () => void openShell(container),
+      },
+      {
+        kind: "action",
+        id: "logs",
+        labelKey: "container.action.logs",
+        params: { name: container.name },
+        icon: ScrollText,
+        run: () => openLogs(container),
+      },
+      {
+        kind: "action",
+        id: "files",
+        labelKey: "container.action.files",
+        params: { name: container.name },
+        icon: FolderOpen,
+        disabled: container.state !== "running",
+        run: () => void openFiles(container),
+      },
+    );
+  }
 
   if (supportsRestart(runtime)) {
     entries.push({
@@ -479,7 +573,12 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
               }}</span>
             </td>
             <td :class="TABLE.page.cell">
-              <span class="flex items-center gap-1.5">
+              <!-- The desktop draws the state as the light-wash tag its colour names; the flat
+                   table keeps the dot and the engine's own word. -->
+              <WbTag v-if="desktop" :tone="containerStateStyle(container.state).tone">
+                {{ containerStateLabel(container.state, (key) => t(key)) }}
+              </WbTag>
+              <span v-else class="flex items-center gap-1.5">
                 <span class="size-1.5 shrink-0 rounded-full" :class="stateDotClass(container.state)"></span>
                 <span class="truncate">{{ container.state }}</span>
               </span>
@@ -493,7 +592,29 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
               </span>
             </td>
             <td :class="TABLE.page.cell" @click.stop>
-              <span class="flex items-center gap-0.5">
+              <!--
+                The desktop's row is waiting on a write: it says so, in the loading words, and the
+                menu button steps aside while the engine works.
+              -->
+              <span
+                v-if="desktop && loadingText(container.id) !== null"
+                class="flex items-center gap-1 text-[11px] text-muted-foreground"
+                data-container-row-loading
+              >
+                {{ loadingText(container.id) }}
+              </span>
+              <span v-else-if="desktop" class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('container.action.more', { name: container.name })"
+                  :aria-label="t('container.action.more', { name: container.name })"
+                  @click="openRowMenu($event, container)"
+                >
+                  <Ellipsis :size="12" />
+                </button>
+              </span>
+              <span v-else class="flex items-center gap-0.5">
                 <button
                   type="button"
                   class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"

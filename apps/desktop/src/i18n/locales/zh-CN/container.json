@@ -15,6 +15,49 @@
     "loading": "正在从引擎读取…",
     "retry": "重试",
     "namespace": "命名空间",
+    "state": {
+      "running": "运行中",
+      "exited": "已退出",
+      "created": "已创建",
+      "restarting": "重启中",
+      "paused": "已暂停",
+      "dead": "异常",
+      "updating": "更新中",
+      "starting": "容器启动中",
+      "stopping": "容器停止中"
+    },
+    "desktop": {
+      "summary": {
+        "containers": "容器：共 {total} 个，运行中 {running} 个",
+        "images": "镜像：共 {total} 个",
+        "abnormal": "运行异常：{count} 个"
+      },
+      "health": {
+        "healthy": "所有服务运行状态健康。",
+        "unhealthy": "部分服务运行状态异常。"
+      },
+      "chart": {
+        "cpu": "CPU",
+        "memory": "内存",
+        "network": "网络"
+      },
+      "images": {
+        "usedBy": "使用状态",
+        "used": "使用中",
+        "unused": "未使用",
+        "showRelated": "查看使用该镜像的容器",
+        "tagLabel": "标签",
+        "tagPlaceholder": "latest",
+        "tagInvalid": "标签格式不正确：以字母或数字开头，只能包含字母、数字、点、连字符和下划线。"
+      }
+    },
+    "loadingActions": {
+      "starting": "正在启动…",
+      "stopping": "正在停止…",
+      "restarting": "正在重启…",
+      "removing": "正在删除…",
+      "pulling": "正在拉取…"
+    },
     "refresh": "重新读取",
     "dismiss": "关闭这条消息",
     "filesTabName": "{name} 的文件",
@@ -82,7 +125,8 @@
       "restart": "重启容器“{name}”？",
       "restartMessage": "其中的进程会结束，然后用同一个镜像和配置重新启动。",
       "remove": "删除容器“{name}”？",
-      "removeMessage": "容器及其可写层会被删除。它用到的镜像和具名卷会保留。"
+      "removeMessage": "容器及其可写层会被删除。它用到的镜像和具名卷会保留。",
+      "dataLoss": "容器将被删除，容器中的所有数据将丢失。"
     },
     "rename": {
       "title": "重命名容器",
