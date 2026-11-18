@@ -13,8 +13,10 @@
  */
 import { Check, ChevronRight } from "@lucide/vue";
 import type { Component } from "vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import type { MenuTone } from "@/composables/useContextMenu";
 import type { MenuEntry } from "@/lib/menu/types";
 import { formatShortcutDisplay } from "@/lib/shortcuts/display";
 import { bindingFor } from "@/lib/shortcuts/registry";
@@ -28,7 +30,39 @@ const props = defineProps<{
   prefix: string;
   /** Which row the keyboard is on. -1 while the level has just opened and nothing is chosen. */
   active: number;
+  /** The sheet the rows sit on; the row colours follow it rather than the interface's palette. */
+  tone: MenuTone;
 }>();
+
+/** On the desktop's teal sheet every row is white; on the card it follows the tokens. */
+const onDesktop = computed(() => props.tone === "desktop");
+
+/** The hairline between groups: the border colour on the card, white at a fifth on the teal. */
+const separatorClass = computed(() => (onDesktop.value ? "bg-white/25" : "bg-border"));
+
+/** Where a row's icon (or its tick) sits, and the colour it is drawn in. */
+const slotClass = computed(() => (onDesktop.value ? "text-white/75" : "text-muted-foreground"));
+
+/** A key or a submenu arrow: quieter than the label, on either sheet. */
+const quietClass = computed(() => (onDesktop.value ? "text-white/60" : "text-muted-foreground"));
+
+/** One row's colours, keeping the one thing the tone does not change: danger reads as danger. */
+function rowClass(entry: MenuEntry, index: number): string {
+  const disabled = !usable(entry);
+  const dangerous = entry.kind === "action" && entry.danger === true;
+  const lit = props.active === index && !disabled;
+  if (disabled) {
+    return onDesktop.value ? "cursor-not-allowed text-white/45" : "cursor-not-allowed text-muted-foreground/50";
+  }
+  if (dangerous) {
+    return onDesktop.value
+      ? cn("text-white", lit ? "bg-red-900/60" : "hover:bg-red-900/60")
+      : cn("text-destructive", lit ? "bg-destructive/10" : "hover:bg-destructive/10");
+  }
+  return onDesktop.value
+    ? cn("text-white", lit ? "bg-white/20" : "hover:bg-white/15")
+    : cn("hover:bg-accent hover:text-accent-foreground", lit ? "bg-accent" : undefined);
+}
 
 const emit = defineEmits<{
   (event: "hover", index: number, entry: MenuEntry): void;
@@ -79,7 +113,7 @@ function iconFor(entry: MenuEntry): Component | undefined {
 
 <template>
   <template v-for="(entry, index) in entries" :key="entry.id">
-    <div v-if="entry.kind === 'separator'" role="separator" class="my-1 h-px bg-border"></div>
+    <div v-if="entry.kind === 'separator'" role="separator" class="my-1 h-px" :class="separatorClass"></div>
     <button
       v-else
       :id="rowId(entry)"
@@ -90,17 +124,7 @@ function iconFor(entry: MenuEntry): Component | undefined {
       :disabled="entry.kind === 'action' && entry.disabled === true"
       :aria-disabled="entry.kind === 'action' && entry.disabled === true ? 'true' : undefined"
       :class="
-        cn(
-          'flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors',
-          !usable(entry)
-            ? 'cursor-not-allowed text-muted-foreground/50'
-            : entry.kind === 'action' && entry.danger
-              ? 'text-destructive hover:bg-destructive/10'
-              : 'hover:bg-accent hover:text-accent-foreground',
-          active === index &&
-            usable(entry) &&
-            (entry.kind === 'action' && entry.danger ? 'bg-destructive/10' : 'bg-accent'),
-        )
+        cn('flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors', rowClass(entry, index))
       "
       @mousemove="emit('hover', index, entry)"
       @click="emit('activate', index, entry)"
@@ -110,17 +134,18 @@ function iconFor(entry: MenuEntry): Component | undefined {
         the tick in it instead of an icon, so what the switch is set to is readable at a glance and
         the labels stay in one column.
       -->
-      <span class="grid size-3 shrink-0 place-items-center text-muted-foreground">
+      <span class="grid size-3 shrink-0 place-items-center" :class="slotClass">
         <Check v-if="entry.kind === 'action' && entry.checked === true" :size="12" />
         <component v-else-if="iconFor(entry)" :is="iconFor(entry)" :size="12" />
       </span>
       <span class="min-w-0 flex-1 truncate">{{
         t(entry.labelKey, entry.kind === "action" ? (entry.params ?? {}) : {})
       }}</span>
-      <ChevronRight v-if="entry.kind === 'submenu'" :size="11" class="shrink-0 text-muted-foreground" />
+      <ChevronRight v-if="entry.kind === 'submenu'" :size="11" class="shrink-0" :class="quietClass" />
       <span
         v-else-if="entry.kind === 'action' && entry.shortcut"
-        class="shrink-0 font-mono text-[10px] text-muted-foreground"
+        class="shrink-0 font-mono text-[10px]"
+        :class="quietClass"
       >
         {{ accelFor(entry) }}
       </span>

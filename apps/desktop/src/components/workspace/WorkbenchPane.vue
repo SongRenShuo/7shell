@@ -723,38 +723,43 @@ function persistShortcuts(): void {
  * was left in. The settings entry opens the desktop's own two choices: a backdrop and a density.
  */
 function openDesktopMenu(event: MouseEvent): void {
-  openMenu(event, { key: "workbench.desktop.title" }, [
-    {
-      kind: "action",
-      id: "desktop-refresh",
-      labelKey: "workbench.desktop.menu.refresh",
-      icon: RotateCw,
-      run: refreshDesktop,
-    },
-    {
-      kind: "action",
-      id: "desktop-new-shortcut",
-      labelKey: "workbench.desktop.menu.newShortcut",
-      icon: FolderPlus,
-      run: beginCreateShortcut,
-    },
-    {
-      kind: "action",
-      id: "desktop-reset-layout",
-      labelKey: "workbench.desktop.menu.resetLayout",
-      icon: LayoutGrid,
-      run: resetIconOrder,
-    },
-    {
-      kind: "action",
-      id: "desktop-settings",
-      labelKey: "workbench.desktop.menu.settings",
-      icon: Settings,
-      run: () => {
-        settingsOpen.value = true;
+  openMenu(
+    event,
+    { key: "workbench.desktop.title" },
+    [
+      {
+        kind: "action",
+        id: "desktop-refresh",
+        labelKey: "workbench.desktop.menu.refresh",
+        icon: RotateCw,
+        run: refreshDesktop,
       },
-    },
-  ]);
+      {
+        kind: "action",
+        id: "desktop-new-shortcut",
+        labelKey: "workbench.desktop.menu.newShortcut",
+        icon: FolderPlus,
+        run: beginCreateShortcut,
+      },
+      {
+        kind: "action",
+        id: "desktop-reset-layout",
+        labelKey: "workbench.desktop.menu.resetLayout",
+        icon: LayoutGrid,
+        run: resetIconOrder,
+      },
+      {
+        kind: "action",
+        id: "desktop-settings",
+        labelKey: "workbench.desktop.menu.settings",
+        icon: Settings,
+        run: () => {
+          settingsOpen.value = true;
+        },
+      },
+    ],
+    { tone: "desktop" },
+  );
 }
 
 function refreshDesktop(): void {
@@ -793,7 +798,7 @@ function openIconMenu(event: MouseEvent, icon: DesktopIcon): void {
     disabled: true,
     run: () => {},
   });
-  openMenu(event, { key: "workbench.desktop.title" }, entries);
+  openMenu(event, { key: "workbench.desktop.title" }, entries, { tone: "desktop" });
 }
 
 function removeIcon(icon: DesktopIcon): void {
@@ -944,29 +949,34 @@ function openPowerMenu(): void {
     preventDefault: () => {},
     stopPropagation: () => {},
   } as unknown as MouseEvent;
-  openMenu(at, { key: "workbench.power.title" }, [
-    {
-      kind: "action",
-      id: "power-reboot",
-      labelKey: "workbench.power.reboot",
-      icon: RotateCw,
-      disabled: !connected.value,
-      run: () => {
-        confirming.value = "reboot";
+  openMenu(
+    at,
+    { key: "workbench.power.title" },
+    [
+      {
+        kind: "action",
+        id: "power-reboot",
+        labelKey: "workbench.power.reboot",
+        icon: RotateCw,
+        disabled: !connected.value,
+        run: () => {
+          confirming.value = "reboot";
+        },
       },
-    },
-    {
-      kind: "action",
-      id: "power-shutdown",
-      labelKey: "workbench.power.shutdown",
-      icon: Power,
-      danger: true,
-      disabled: !connected.value,
-      run: () => {
-        confirming.value = "shutdown";
+      {
+        kind: "action",
+        id: "power-shutdown",
+        labelKey: "workbench.power.shutdown",
+        icon: Power,
+        danger: true,
+        disabled: !connected.value,
+        run: () => {
+          confirming.value = "shutdown";
+        },
       },
-    },
-  ]);
+    ],
+    { tone: "desktop" },
+  );
 }
 
 /**
