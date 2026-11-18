@@ -29,11 +29,14 @@ let starters = 0;
 let app: App | undefined;
 let root: HTMLDivElement | undefined;
 
+let desks = 0;
+
 function mount(align?: "left" | "center"): void {
   launches = [];
   clocks = 0;
   powers = 0;
   starters = 0;
+  desks = 0;
   const Host = defineComponent({
     setup() {
       return () =>
@@ -42,7 +45,7 @@ function mount(align?: "left" | "center"): void {
           clock: CLOCK,
           align,
           power: "Shut down",
-          labels: { starter: "Applications", clock: "Clock" },
+          labels: { starter: "Applications", desktop: "Show the desktop", clock: "Clock" },
           onLaunch: (id: string) => {
             launches.push(id);
           },
@@ -54,6 +57,9 @@ function mount(align?: "left" | "center"): void {
           },
           onStarter: () => {
             starters += 1;
+          },
+          onDesktop: () => {
+            desks += 1;
           },
         });
     },
@@ -125,8 +131,16 @@ describe("the taskbar", () => {
 
     expect(front.dataset.active).toBe("true");
     expect(behind.dataset.active).toBeUndefined();
-    expect(front.querySelector(".taskbar-dot")?.classList.contains("is-active")).toBe(true);
-    expect(behind.querySelector(".taskbar-dot")?.classList.contains("is-active")).toBe(false);
+    // The front window carries the launch-dock mark: a bar at the cell's left edge, and the wash.
+    expect(front.classList.contains("is-active")).toBe(true);
+    expect(front.querySelector(".taskbar-mark")).not.toBeNull();
+    expect(behind.classList.contains("is-active")).toBe(false);
+  });
+
+  it("offers the desktop on its own cell, and says when it was pressed", () => {
+    click(part("desktop"));
+
+    expect(desks).toBe(1);
   });
 
   it("brings forward the window whose cell was clicked", () => {
@@ -164,13 +178,15 @@ describe("the taskbar", () => {
     const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchTaskbar.vue"), "utf8");
     expect(source).toContain("var(--workbench-surface-1)");
     expect(source).toContain("var(--workbench-surface-3)");
-    expect(source).toContain("var(--workbench-danger)");
+    expect(source).toContain("var(--workbench-accent)");
     expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
   it("names every button for a reader, and names no two of them the same", () => {
     const buttons = [...document.querySelectorAll<HTMLElement>("[data-workbench-taskbar] button")];
-    expect(buttons.length, "the starter, every entry, the clock and the power control").toBe(ENTRIES.length + 3);
+    expect(buttons.length, "the starter, the desktop, every entry, the clock and the power control").toBe(
+      ENTRIES.length + 4,
+    );
 
     const names = buttons.map((button) => button.getAttribute("aria-label"));
     for (const name of names) {

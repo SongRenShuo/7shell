@@ -1,22 +1,27 @@
 <script setup lang="ts">
 /**
- * The floating pill along the bottom of the desktop: the starter, the running applications, the
- * clock and the power control.
+ * The floating pill along the bottom of the desktop: the starter, the desktop, the running
+ * applications, the clock and the power control.
  *
  * Like the rest of the desktop's chrome it carries no state. The entries are handed in — one per
- * window the session has open, with the one in front already marked — and the four things a person
- * can do here are announced rather than performed: open the starter, bring an application forward,
- * open the clock, ask about power. Whoever assembled the desktop decides what those mean.
+ * window the session has open, with the one in front already marked — and the five things a person
+ * can do here are announced rather than performed: open the starter, show the desktop, bring an
+ * application forward, open the clock, ask about power. Whoever assembled the desktop decides what
+ * those mean.
+ *
+ * The bar reads in three segments — getting around, what is open, the system end — with a hairline
+ * between each, and the window in front is marked the way a launch dock marks it: a short bar at
+ * the cell's left edge, not a dot under it.
  *
  * The metrics are the reference's, not the theme's: a 57px pill inset 73px from either side and 15px
  * off the floor, a 12px radius, a 5px blur under a black wash, and 49px cells. The wash and the
  * colours are the desktop's own tokens — `--workbench-surface-1` behind, `--workbench-surface-3`
- * under the pointer, `--workbench-danger` for the running mark — named in `globals.css`, so the
+ * under the pointer, `--workbench-accent` for the running mark — named in `globals.css`, so the
  * bar draws no literal colour of its own. The blur and the wash are what let the wallpaper show
  * through without making the labels unreadable, which is the whole reason the bar is glass rather
  * than a solid strip.
  */
-import { LayoutGrid, Power } from "@lucide/vue";
+import { LayoutGrid, Monitor, Power } from "@lucide/vue";
 import type { Component } from "vue";
 
 defineProps<{
@@ -39,6 +44,8 @@ defineProps<{
   labels: {
     /** What the grid button is called. */
     starter: string;
+    /** What the desktop button is called: it empties the desk, or brings everything back. */
+    desktop: string;
     /** What the clock button is called, since the time alone does not say what it opens. */
     clock: string;
   };
@@ -53,6 +60,8 @@ const emit = defineEmits<{
   power: [];
   /** The starter cell was clicked. */
   starter: [];
+  /** The desktop cell was clicked: empty the desk, or bring everything back. */
+  desktop: [];
 }>();
 </script>
 
@@ -77,6 +86,19 @@ const emit = defineEmits<{
       </button>
 
       <button
+        type="button"
+        data-workbench-taskbar-desktop
+        class="taskbar-cell"
+        :title="labels.desktop"
+        :aria-label="labels.desktop"
+        @click="emit('desktop')"
+      >
+        <Monitor :size="26" />
+      </button>
+
+      <span class="taskbar-divider" aria-hidden="true"></span>
+
+      <button
         v-for="entry in entries"
         :key="entry.id"
         type="button"
@@ -84,18 +106,21 @@ const emit = defineEmits<{
         :data-entry-id="entry.id"
         :data-active="entry.active ? 'true' : undefined"
         class="taskbar-cell taskbar-entry"
+        :class="entry.active ? 'is-active' : undefined"
         :title="entry.label"
         :aria-label="entry.label"
         @click="emit('launch', entry.id)"
       >
+        <!-- The running mark: a bar at the cell's left edge, the way a launch dock marks the front. -->
+        <span class="taskbar-mark" aria-hidden="true"></span>
         <span class="taskbar-plate" :style="{ background: entry.tone }">
           <component :is="entry.icon" :size="20" />
         </span>
-        <!-- The running mark: a red dot that scales in under the window in front. -->
-        <span class="taskbar-dot" :class="{ 'is-active': entry.active }" aria-hidden="true"></span>
       </button>
 
       <span class="taskbar-spacer"></span>
+
+      <span class="taskbar-divider" aria-hidden="true"></span>
 
       <button
         type="button"
@@ -200,7 +225,6 @@ const emit = defineEmits<{
 
 .taskbar-entry {
   position: relative;
-  flex-direction: column;
 }
 
 /* The plate is the entry's 32px picture: the icon inside it is smaller so the colour still reads. */
@@ -215,24 +239,37 @@ const emit = defineEmits<{
 }
 
 /*
- * The reference puts the dot at 42px from the top of a 49px cell, which is just under the icon.
- * Scale rather than width/height, so the mark grows into place instead of reflowing the cell.
+ * The front window's mark: a 3px bar at the cell's left edge, the launch-dock convention. It grows
+ * vertically into place rather than reflowing the cell, and the front window's cell carries the
+ * wash the hover state uses, so the front reads by two cues — the bar and the brighter ground.
  */
-.taskbar-dot {
+.taskbar-mark {
   position: absolute;
-  top: 42px;
-  left: 50%;
-  width: 5px;
-  height: 5px;
-  margin-left: -2.5px;
-  border-radius: 50%;
-  background: var(--workbench-danger);
-  transform: scale(0);
+  top: 14px;
+  bottom: 14px;
+  left: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--workbench-accent);
+  transform: scaleY(0);
   transition: transform var(--wb-dur-slow);
 }
 
-.taskbar-dot.is-active {
-  transform: scale(1);
+.taskbar-entry.is-active {
+  background: var(--workbench-surface-3);
+}
+
+.taskbar-entry.is-active .taskbar-mark {
+  transform: scaleY(1);
+}
+
+/* The hairline between segments: the glass border the launch docks draw their sections with. */
+.taskbar-divider {
+  width: 1px;
+  height: 26px;
+  flex: none;
+  margin: 0 4px;
+  background: var(--workbench-glass-border);
 }
 
 .taskbar-spacer {
