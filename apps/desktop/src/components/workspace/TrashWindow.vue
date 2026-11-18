@@ -40,6 +40,8 @@ const props = defineProps<{
   handle: string;
   /** Whether the panel is the one on screen; a hidden panel does not keep a list fresh. */
   active: boolean;
+  /** Whether the panel is drawn inside a desktop window, which already carries its title and close. */
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -135,8 +137,10 @@ watch(
 <template>
   <section class="flex min-h-0 flex-1 flex-col" data-workbench-trash>
     <header class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
-      <Trash2 :size="13" class="text-muted-foreground" />
-      <span class="text-xs font-medium">{{ t("workbench.trash.title") }}</span>
+      <template v-if="!embedded">
+        <Trash2 :size="13" class="text-muted-foreground" />
+        <span class="text-xs font-medium">{{ t("workbench.trash.title") }}</span>
+      </template>
       <span v-if="count > 0" class="text-[11px] text-muted-foreground">{{ count }}</span>
       <span class="flex-1" />
       <button
@@ -157,6 +161,7 @@ watch(
         {{ t("workbench.trash.empty") }}
       </button>
       <button
+        v-if="!embedded"
         type="button"
         class="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         :title="t('common.action.close')"
