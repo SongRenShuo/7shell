@@ -196,7 +196,10 @@ async fn a_real_host_answers_the_whole_overview_in_one_round_trip() {
     eprintln!("overview: listeners={}", overview.listeners.len());
     for listener in &overview.listeners {
         assert!(listener.port > 0, "a listener names a port: {listener:?}");
-        assert!(!listener.address.is_empty(), "a listener names an address: {listener:?}");
+        assert!(
+            !listener.address.is_empty(),
+            "a listener names an address: {listener:?}"
+        );
     }
 
     // Cron and logins may legitimately be empty on a minimal host; when they are not, the shapes
