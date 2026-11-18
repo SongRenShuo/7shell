@@ -102,8 +102,14 @@ All notable changes to 7Shell are documented in this file. The format is
   of the icon grid (home and the trash stay — they are not anybody's to hide), a taskbar that sits
   at the bottom or the middle of the desk as chosen, and screen-reader labels on every taskbar
   control (a14acc7).
+- The desktop reads its doors from one table: the icon grid, the starter sheet and the taskbar now
+  name, glyph and colour each door from the same list, so the Docker door is one picture everywhere
+  and a door added to the table appears on every surface at once.
 
 ### Fixed
+
+- The starter sheet's tiles are drawn at the same plate opacity as the icon grid and the taskbar,
+  which is what the "same tone everywhere" contract always said and the sheet quietly rounded off.
 
 - Deleting one trash entry for good no longer runs straight from its icon: the question emptying
   already asks is there for this verb too, naming the entry, and only the answer carries the
