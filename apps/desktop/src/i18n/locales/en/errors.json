@@ -37,6 +37,10 @@
       "transferFailed": "The transfer of {path} failed.",
       "operationFailed": "The operation on {path} failed."
     },
+    "trash": {
+      "operationFailed": "The trash operation on {path} failed. {detail}",
+      "entryNotFound": "{path} is no longer in the trash. Refresh the list."
+    },
     "file": {
       "notText": "{path} is not a text file, so the editor cannot show it.",
       "tooLarge": "{path} is above the {limit} MB the text editor can open. Download it and use a local tool."

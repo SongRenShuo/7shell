@@ -29,7 +29,7 @@ use sevenshell_types::{
     CreatedKey, DownloadFolderView, EntryKind, K8sExecRequest, K8sLogRequest, K8sRequest, K8sStreamEnd, K8sStreamLine,
     K8sWatchEvent, KeyAlgorithm, KeyInfo, PresentedHostKey, Protocol, SecretInput, SendTarget, Session,
     SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup, SyncSelection, TransferState,
-    UpdateCheck, UploadAnswer, UploadOutcome, VaultState,
+    TrashMoveRequest, UpdateCheck, UploadAnswer, UploadOutcome, VaultState,
 };
 use sevenshell_vault::{ExportProtection, OpenedBundle, SessionSecret, Vault, VaultStatus};
 use std::collections::HashMap;
@@ -1053,6 +1053,43 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
                     .workbench_power(&session_id, &handle, &action, acknowledged)
                     .await?,
             )
+        }
+
+        "trash_list" => {
+            let handle: String = from_args(&args, "handle")?;
+            to_value(state.core.trash_list(&handle).await?)
+        }
+        "trash_restore" => {
+            let handle: String = from_args(&args, "handle")?;
+            let id: String = from_args(&args, "id")?;
+            to_value(state.core.trash_restore(&handle, &id).await?)
+        }
+        "trash_remove" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let handle: String = from_args(&args, "handle")?;
+            let id: String = from_args(&args, "id")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            state
+                .core
+                .trash_remove(&session_id, &handle, &id, acknowledged)
+                .await?;
+            Ok(Value::Null)
+        }
+        "trash_empty" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let handle: String = from_args(&args, "handle")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(
+                state
+                    .core
+                    .trash_empty(&session_id, &handle, acknowledged)
+                    .await?,
+            )
+        }
+        "trash_move" => {
+            let handle: String = from_args(&args, "handle")?;
+            let entries: Vec<TrashMoveRequest> = from_args(&args, "entries")?;
+            to_value(state.core.move_to_trash(&handle, &entries).await?)
         }
 
         "container_connect" => {
