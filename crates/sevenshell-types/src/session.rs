@@ -89,6 +89,10 @@ pub enum ForwardMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalForward {
+    /// The name a document gives this forward. A request that opens a forward at runtime carries
+    /// none, and the core names that one itself — hence the tolerance here rather than at the
+    /// call site.
+    #[serde(default)]
     pub id: String,
     /// The address to listen on. `127.0.0.1` unless somebody deliberately says otherwise.
     pub bind_host: String,

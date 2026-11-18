@@ -16,7 +16,9 @@ pub mod container_risk;
 pub mod matrix;
 pub mod process_risk;
 pub mod service_risk;
+pub mod tail_risk;
 pub mod trash_risk;
+pub mod tunnel_risk;
 pub mod workbench_risk;
 
 pub use command_risk::classify;
@@ -25,7 +27,9 @@ pub use matrix::{PolicyAuditEvent, PolicyDecision, PolicySource, PolicyTarget, d
 pub use process_risk::process_kill;
 pub use service_risk::service_action;
 pub use sevenshell_types::{RiskAssessment, RiskLevel, RiskReason};
+pub use tail_risk::tail_open;
 pub use trash_risk::trash_action;
+pub use tunnel_risk::{tunnel_open, tunnel_stop};
 pub use workbench_risk::workbench_action;
 
 /// Where a policy decision goes once it has been made.
