@@ -192,6 +192,12 @@
   --workbench-glass-border: rgba(255, 255, 255, 0.08);
   /* Text that stands on a picture: white, whatever the theme says. */
   --workbench-on-picture: #ffffff;
+  /* The step dimmer, for labels that yield to the tiles beside them (#e1e1e1). */
+  --workbench-on-picture-muted: #e1e1e1;
+  /* The white wash a hover lays over a glass surface (#ffffff2e). */
+  --workbench-wash-hover: rgba(255, 255, 255, 0.18);
+  /* The keyboard focus outline on a picture (#ffffffa0). */
+  --workbench-focus-outline: rgba(255, 255, 255, 0.627);
   /* The desktop's accent: the menu teal the reference ships, converted to oklch (#17b38e). */
   --workbench-accent: oklch(0.6841 0.1308 170.6);
   /* The one red the chrome itself draws: the close button under the pointer (#c50f1f). */
