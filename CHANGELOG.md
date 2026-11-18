@@ -79,6 +79,17 @@ All notable changes to 7Shell are documented in this file. The format is
   is removed (its tab and engine go with it), a double-click on a title bar is the maximize
   button's other face, icons press back, and a system-wide reduced-motion request turns the
   decoration off without touching any state (0ead797).
+- A **forwards manager** on the desktop: the forwards somebody opens while the desktop is up,
+  listed with their mode, binding, destination and connection count, an add form that teaches the
+  two shapes with scenario sentences, and a stop behind a question - with the policy gate answering
+  a bind address that is not loopback with the "this is reachable by other machines" question
+  (f8dab9e, ef4ea1e, ee5eb35).
+- A **log tracker** on the desktop: follow a file on the machine line by line (`tail -F` under the
+  hood, the path quoted and gated), a stream that sticks to the bottom until somebody scrolls up,
+  and a window nobody is watching stops reading - resuming may miss lines, and the copy says so
+  (f8dab9e, ef4ea1e, ee5eb35).
+- **Batch execution** as a desktop window: pick the hosts, write the command, read the risk verdict
+  before it runs (ef4ea1e, ee5eb35).
 - The system panel reads further: each service's boot state with a switch to enable or disable it
   (the states a unit file refuses are shown rather than offered), the account's crontab, the last
   twenty logins including the machine's own reboots, the firewall's state from ufw or firewalld,
