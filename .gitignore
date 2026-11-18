@@ -55,3 +55,6 @@ Thumbs.db
 
 # Lane worktrees for parallel sub-agent development
 .worktrees/
+
+# The agent CLI's per-repo local configuration.
+/.zcode/
