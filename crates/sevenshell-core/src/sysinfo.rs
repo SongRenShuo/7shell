@@ -547,9 +547,14 @@ fn journal_line(raw: &str) -> Option<JournalLine> {
     let rest = rest[host_end..].trim_start();
 
     // The identifier is everything before the first `: `; the message may contain more of them.
-    let (unit, message) = match rest.split_once(": ") {
-        Some((unit, message)) => (unit.trim().to_owned(), message.to_owned()),
-        None => (String::new(), rest.trim().to_owned()),
+    // An identifier is one word (`sshd[1787]`, `kernel`), while a record the journal kept without
+    // one puts its message where the identifier would be — and a message with a colon in it must
+    // not be cut in half and read as a unit called "Accepted publickey for alice".
+    let (unit, message) = match rest.split_once(": ").map(|(unit, message)| (unit.trim(), message)) {
+        Some((unit, message)) if !unit.is_empty() && !unit.contains(char::is_whitespace) => {
+            (unit.to_owned(), message.to_owned())
+        }
+        _ => (String::new(), rest.trim().to_owned()),
     };
 
     Some(JournalLine {
@@ -850,6 +855,17 @@ The fingerprint is SHA256:abcdef.
 
         assert_eq!(tail.lines[2].unit, "kernel");
         assert_eq!(tail.lines[2].message, "[UFW BLOCK] IN=eth0 OUT= SRC=1.2.3.4");
+    }
+
+    /// A record the journal kept without an identifier prints its message where the identifier
+    /// would be. The first `: ` is then part of the message, not the end of a unit name.
+    #[test]
+    fn a_journal_line_without_an_identifier_keeps_its_message_whole() {
+        let tail = parse_journal("2026-11-18T03:16:49+0800 web-1 connection from 10.0.0.9 closed: reset by peer\n");
+
+        assert_eq!(tail.lines.len(), 1);
+        assert_eq!(tail.lines[0].unit, "");
+        assert_eq!(tail.lines[0].message, "connection from 10.0.0.9 closed: reset by peer");
     }
 
     #[test]
