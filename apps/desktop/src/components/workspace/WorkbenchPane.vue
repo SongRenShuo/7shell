@@ -45,6 +45,7 @@ import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
 import WorkbenchDockerWindow from "@/components/workspace/WorkbenchDockerWindow.vue";
+import WorkbenchServicesWindow from "@/components/workspace/WorkbenchServicesWindow.vue";
 import WorkbenchTransfersWindow from "@/components/workspace/WorkbenchTransfersWindow.vue";
 import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWindow.vue";
 import WorkbenchTailWindow from "@/components/workspace/WorkbenchTailWindow.vue";
@@ -179,6 +180,7 @@ interface DesktopIcon {
     | "docker"
     | "transfers"
     | "forwards"
+    | "services"
     | "tail"
     | "batch"
     | "shortcut";
@@ -301,7 +303,7 @@ function endDrag(): void {
 
 /**
  * Measured budget (2026-11-19, `WorkbenchPane.perf.spec.ts`): on the fullest desktop the product
- * allows — 24 shortcuts over 11 doors — ten full drag sequences with hover stops run in ~70ms
+ * allows — 24 shortcuts over 12 doors — ten full drag sequences with hover stops run in ~70ms
  * total, and no icon element is remounted: the keyed list patches in place, so writing the whole
  * order array here and letting `icons` rebuild is comfortably inside budget. The spec stays in the
  * tree as the regression guard.
@@ -566,6 +568,9 @@ function openIcon(icon: DesktopIcon): void {
     case "forwards":
       openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
       return;
+    case "services":
+      openRecord("services", t("workbench.desktop.icons.services"), "services");
+      return;
     case "tail":
       openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
       return;
@@ -689,6 +694,9 @@ function launch(appId: string): void {
       return;
     case "forwards":
       openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
+      return;
+    case "services":
+      openRecord("services", t("workbench.desktop.icons.services"), "services");
       return;
     case "tail":
       openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
@@ -1024,6 +1032,7 @@ const HIDEABLE_DOOR_LABEL_KEYS: Readonly<Record<string, string>> = {
   "system-panel": "system",
   "system-transfers": "transfers",
   "system-forwards": "forwards",
+  "system-services": "services",
   "system-tail": "tail",
   "system-batch": "batch",
 };
@@ -1316,6 +1325,18 @@ function disconnect(): void {
           tail's `active` prop is the long-stream rule: a window nobody is watching stops reading.
         -->
         <WorkbenchForwardsWindow v-else-if="window.kind === 'forwards'" :session-id="session.id" class="h-full" />
+        <!--
+          The ports the host is listening on, each with its way in — a tunnel or a browser at the
+          local end of one. It reads through this desktop's own connection, so it draws only while
+          there is one, and a drop answers with the disconnected sentence below.
+        -->
+        <WorkbenchServicesWindow
+          v-else-if="window.kind === 'services' && tab.handle !== null"
+          :session-id="session.id"
+          :handle="tab.handle"
+          :active="window.focused"
+          class="h-full"
+        />
         <WorkbenchTailWindow
           v-else-if="window.kind === 'tail'"
           :session-id="session.id"
@@ -1353,7 +1374,7 @@ function disconnect(): void {
           to do, which is the one answer a desktop may never leave blank.
         -->
         <div
-          v-else-if="window.kind === 'system' || window.kind === 'trash'"
+          v-else-if="window.kind === 'system' || window.kind === 'trash' || window.kind === 'services'"
           class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"
           data-workbench-window-disconnected
         >

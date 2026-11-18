@@ -114,6 +114,11 @@ All notable changes to 7Shell are documented in this file. The format is
 - The forwards list keeps itself current: a forward a terminal brought up, or one stopped from
   another surface, arrives and leaves the reading on its own, with the refresh button still there
   for the asking.
+- A **services window** on the desktop: the TCP ports the host is listening on, each with the
+  process behind it, and a way in from every row — a tunnel opened to a free port here (the same
+  gated `forwards.open` the forwards manager sends), or this machine's browser pointed at the local
+  end of that tunnel. A host that names no listeners — or answers the older shape without the list
+  at all — says so instead of drawing rows.
 
 ### Fixed
 

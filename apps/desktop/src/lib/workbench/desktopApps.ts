@@ -25,6 +25,7 @@ import {
   ListChecks,
   ListTree,
   Network,
+  Radar,
   Terminal,
   Trash2,
 } from "@lucide/vue";
@@ -109,6 +110,13 @@ export const WORKBENCH_DOORS: readonly WorkbenchDoor[] = [
     labelKey: "workbench.desktop.icons.forwards",
     icon: Network,
     tone: "bg-indigo-600/90",
+  },
+  {
+    id: "system-services",
+    kind: "services",
+    labelKey: "workbench.desktop.icons.services",
+    icon: Radar,
+    tone: "bg-fuchsia-600/90",
   },
   { id: "system-tail", kind: "tail", labelKey: "workbench.desktop.icons.tail", icon: FileText, tone: "bg-teal-600/90" },
   {

@@ -71,6 +71,7 @@ describe("the desktop's doors", () => {
       "system",
       "transfers",
       "forwards",
+      "services",
       "tail",
       "batch",
       "trash",
