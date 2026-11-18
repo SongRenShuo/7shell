@@ -220,6 +220,48 @@ describe("the desktop's tail window", () => {
     });
   });
 
+  it("lines written while the window is hidden never reach the buffer", async () => {
+    openMock.mockResolvedValue("tail-1");
+    // Reactive, so the watcher in the window sees the flip.
+    const props = reactive({ ...windowProps() });
+    await mount(props);
+    pathInput().value = "/var/log/app.log";
+    pathInput().dispatchEvent(new Event("input"));
+    await nextTick();
+    followButton().click();
+    await vi.waitFor(() => {
+      expect(windowBody().querySelector("[data-workbench-tail-lines]")).not.toBeNull();
+    });
+
+    for (const line of ["read in front", "also read in front"]) {
+      emitLine("tail-1", line);
+    }
+    await nextTick();
+
+    const { useTailStore } = await import("@/stores/tail");
+    const tailStore = useTailStore();
+    expect(tailStore.tails["w1"]?.lines, "what was read while the window was watched").toEqual([
+      "read in front",
+      "also read in front",
+    ]);
+
+    props.active = false;
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(closeMock).toHaveBeenCalledWith("tail-1");
+    });
+
+    for (let index = 0; index < 3; index += 1) {
+      emitLine("tail-1", `written while hidden ${index}`);
+    }
+    await nextTick();
+    expect(
+      tailStore.tails["w1"]?.lines,
+      "the stream is closed behind the fold, so nothing arrives and the buffer holds",
+    ).toEqual(["read in front", "also read in front"]);
+    expect(tailStore.tails["w1"]?.status, "and the window says it is paused, not following").toBe("paused");
+  });
+
   it("stop throws the reading away and the window is the ask again", async () => {
     openMock.mockResolvedValue("tail-1");
     await mount(windowProps());
