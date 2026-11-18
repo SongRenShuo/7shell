@@ -87,6 +87,12 @@
         }
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
+      "dropUpload": {
+        "hintOne": "松开即上传 1 个文件到 {target}",
+        "hintMany": "松开即上传 {count} 个文件到 {target}",
+        "targetHome": "主目录",
+        "leaveWarning": "上传仍在进行，现在离开会中断它们。"
+      },
       "menu": {
         "open": "打开",
         "remove": "移除",
