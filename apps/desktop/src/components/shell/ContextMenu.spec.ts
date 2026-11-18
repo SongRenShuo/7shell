@@ -54,9 +54,9 @@ function withSubmenu(run: (id: string) => void, packed: boolean): MenuEntry[] {
 }
 
 /** Opens the menu the way a region does, and lets it draw. */
-async function open(list: MenuEntry[], title = "menu.terminal"): Promise<MouseEvent> {
+async function open(list: MenuEntry[], title = "menu.terminal", tone?: "desktop"): Promise<MouseEvent> {
   const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 });
-  useContextMenu().openMenu(event, { key: title }, list);
+  useContextMenu().openMenu(event, { key: title }, list, tone === undefined ? undefined : { tone });
   await nextTick();
   await nextTick();
   return event;
@@ -122,6 +122,20 @@ describe("the context menu", () => {
     expect(menu()?.getAttribute("aria-label")).toBe("Terminal actions");
     expect(items().map((item) => item.textContent?.trim())).toEqual(["Copy", "Paste"]);
     expect(document.querySelectorAll('[role="separator"]')).toHaveLength(1);
+  });
+
+  it("draws the desktop's teal sheet when the region asks for one", async () => {
+    await open(
+      entries(() => {}),
+      "menu.terminal",
+      "desktop",
+    );
+    expect(menu()?.className, "the sheet the reference desktop draws over a picture").toContain("bg-[#17b38e]");
+
+    // The next menu without the ask is the application's own card again: the tone belongs to the
+    // menu that was opened, not to the one window.
+    await open(entries(() => {}));
+    expect(menu()?.className, "every other region keeps the card").not.toContain("bg-[#17b38e]");
   });
 
   it("cancels the browser's own menu for the region that opened it", async () => {

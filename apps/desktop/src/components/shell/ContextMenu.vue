@@ -28,13 +28,14 @@ import { useContextMenu } from "@/composables/useContextMenu";
 import { firstEnabledIndex, lastEnabledIndex, nextEnabledIndex } from "@/lib/menu/navigate";
 import { placeMenu, placeSubmenu } from "@/lib/menu/place";
 import { type MenuAction, type MenuEntry, type MenuSubmenu, canFocus } from "@/lib/menu/types";
+import { cn } from "@/lib/utils";
 
 /** What each level's row ids start with. The layer above recomputes the same string for its own use. */
 const ROOT = "context-menu-root";
 const SUB = "context-menu-sub";
 
 const { t } = useI18n();
-const { visible, at, title, entries, closeMenu } = useContextMenu();
+const { visible, at, title, entries, tone, closeMenu } = useContextMenu();
 
 const box = ref<HTMLElement | null>(null);
 const submenuBox = ref<HTMLElement | null>(null);
@@ -49,11 +50,26 @@ const open = ref<{ index: number; entry: MenuSubmenu } | null>(null);
 let restoreTo: HTMLElement | null = null;
 
 const label = computed(() => t(title.value.key, title.value.params ?? {}));
-// A menu is chrome rather than a document: a drag across it is somebody leaving in a hurry, and a
-// selection smeared over a list of verbs is noise. `select-none` on the box is inherited by both
-// levels — the rows below are its children. See `docs/ui-conventions.md`.
-const boxClass =
-  "fixed z-[70] max-w-72 min-w-44 rounded-lg border border-border bg-card py-1 shadow-xl outline-none cursor-default select-none";
+/**
+ * The sheet the rows are drawn on.
+ *
+ * Two tones, and the difference is where the menu was opened rather than what it does: the
+ * application's own card for its surfaces, and the desktop's teal for a menu opened on a wallpaper.
+ * The teal is the reference desktop's, measured from its stylesheet: `#17b38e` with white rows, a
+ * slight blur behind it, and a shadow soft enough to lift it off a picture.
+ *
+ * A menu is chrome rather than a document: a drag across it is somebody leaving in a hurry, and a
+ * selection smeared over a list of verbs is noise. `select-none` on the box is inherited by both
+ * levels — the rows below are its children. See `docs/ui-conventions.md`.
+ */
+const boxClass = computed(() =>
+  cn(
+    "fixed z-[70] max-w-72 min-w-44 rounded-lg py-1 shadow-xl outline-none cursor-default select-none",
+    tone.value === "desktop"
+      ? "border border-white/15 bg-[#17b38e] text-white shadow-[3px_7px_14px_#00000042] backdrop-blur-[7px]"
+      : "border border-border bg-card",
+  ),
+);
 const rootActiveId = computed(() => rowId(ROOT, entries.value[active.value]));
 const submenuActiveId = computed(() => rowId(SUB, open.value?.entry.entries[subActive.value]));
 
@@ -332,6 +348,7 @@ onBeforeUnmount(detach);
         :entries="entries"
         :prefix="ROOT"
         :active="active"
+        :tone="tone"
         @hover="(index, entry) => hover(index, entry, 'root')"
         @activate="(index, entry) => activate(index, entry, 'root')"
       />
@@ -358,6 +375,7 @@ onBeforeUnmount(detach);
         :entries="open.entry.entries"
         :prefix="SUB"
         :active="subActive"
+        :tone="tone"
         @hover="(index, entry) => hover(index, entry, 'sub')"
         @activate="(index, entry) => activate(index, entry, 'sub')"
       />

@@ -20,13 +20,30 @@ export interface MenuTitle {
   readonly params?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Which visual language the menu is drawn in.
+ *
+ * `default` is the application's own: card, border, muted labels. `desktop` is the one the reference
+ * desktop uses over its wallpaper — a teal sheet with white rows — because a menu opened on a
+ * picture is chrome on that picture, and the interface's palette belongs to the surfaces inside its
+ * windows rather than to the desktop around them. A region says which one it wants when it opens a
+ * menu; nothing else changes.
+ */
+export type MenuTone = "default" | "desktop";
+
 const visible: Ref<boolean> = ref(false);
 const at = ref({ x: 0, y: 0 });
 const title: Ref<MenuTitle> = ref({ key: "" });
 const entries: ShallowRef<readonly MenuEntry[]> = shallowRef<readonly MenuEntry[]>([]);
+const tone = ref<MenuTone>("default");
 
 export function useContextMenu() {
-  function openMenu(event: MouseEvent, menuTitle: MenuTitle, menuEntries: readonly MenuEntry[]): void {
+  function openMenu(
+    event: MouseEvent,
+    menuTitle: MenuTitle,
+    menuEntries: readonly MenuEntry[],
+    options?: { readonly tone?: MenuTone },
+  ): void {
     // Cancelled and stopped here: what is under the pointer has answered, and the regions above it
     // must not answer too — a row's menu would otherwise be replaced by its list's on the way up.
     event.preventDefault();
@@ -34,6 +51,7 @@ export function useContextMenu() {
     at.value = { x: event.clientX, y: event.clientY };
     title.value = menuTitle;
     entries.value = menuEntries;
+    tone.value = options?.tone ?? "default";
     visible.value = true;
   }
 
@@ -41,5 +59,5 @@ export function useContextMenu() {
     visible.value = false;
   }
 
-  return { visible, at, title, entries, openMenu, closeMenu };
+  return { visible, at, title, entries, tone, openMenu, closeMenu };
 }
