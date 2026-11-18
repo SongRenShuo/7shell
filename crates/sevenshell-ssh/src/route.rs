@@ -345,7 +345,7 @@ impl SshSession {
                 // Each connection is its own task, the way a local forward's is: one slow transfer
                 // cannot hold up the next connection the server accepts.
                 tokio::spawn(async move {
-                    let mut incoming: BoxedStream = Box::new(channel.into_stream());
+                    let incoming: BoxedStream = Box::new(channel.into_stream());
                     bridge_one(incoming, dial, target, &counting, &failing).await;
                 });
             }
@@ -484,29 +484,45 @@ mod tests {
             }
         });
 
-        // The connection that "arrived": a client stream into the stand-in listener, and the
-        // server half, which is where the answer will be read back from.
+        // The bridge runs on its own task, the way a forward's loop does, and the test holds the
+        // client half. The bridge can only finish once the client closes — a copy across two open
+        // ends does not end by itself — so awaiting it before the traffic would be a deadlock.
         let client = tokio::net::TcpStream::connect(incoming_address).await.expect("a connect");
-        let (mut arrived, _) = incoming_listener.accept().await.expect("an accept");
+        let (arrived, _) = incoming_listener.accept().await.expect("an accept");
 
-        let connections = AtomicU64::new(0);
-        let failures = AtomicU64::new(0);
-        bridge_one(
-            Box::new(client),
-            Arc::new(DialTo(target_address)),
-            ("127.0.0.1".to_owned(), 0),
-            &connections,
-            &failures,
-        )
-        .await;
+        let connections = Arc::new(AtomicU64::new(0));
+        let failures = Arc::new(AtomicU64::new(0));
+        let bridging = tokio::spawn({
+            let connections = Arc::clone(&connections);
+            let failures = Arc::clone(&failures);
+            async move {
+                bridge_one(
+                    Box::new(arrived),
+                    Arc::new(DialTo(target_address)),
+                    ("127.0.0.1".to_owned(), 0),
+                    &connections,
+                    &failures,
+                )
+                .await;
+            }
+        });
 
-        assert_eq!(connections.load(Ordering::Relaxed), 1);
-        assert_eq!(failures.load(Ordering::Relaxed), 0);
-
+        let mut arrived = client;
         arrived.write_all(b"ping").await.expect("the write");
         let mut buffer = [0u8; 4];
         arrived.read_exact(&mut buffer).await.expect("the echo");
         assert_eq!(&buffer, b"ping", "what went in came back out");
+        drop(arrived);
+
+        // The close is what lets the copy end; the timeout only bounds the wait, so a bridge that
+        // never finishes fails the test instead of hanging it.
+        tokio::time::timeout(std::time::Duration::from_secs(5), bridging)
+            .await
+            .expect("the bridge finishes once the connection closes")
+            .expect("the bridge task joins");
+
+        assert_eq!(connections.load(Ordering::Relaxed), 1);
+        assert_eq!(failures.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
