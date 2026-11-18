@@ -72,9 +72,11 @@ export interface TerminalSettings {
  * What kind of forward a saved forward is.
  *
  * `local` is the `ssh -L` shape: one port, one destination. `dynamic` is `ssh -D`: one port that
- * speaks SOCKS5, and whoever connects says where it wants to go.
+ * speaks SOCKS5, and whoever connects says where it wants to go. `remote` is the `ssh -R` shape:
+ * a port listened for on the far side, handed to something on this machine — which is how a
+ * service on the user's machine becomes reachable by whoever can reach the server.
  */
-export type ForwardMode = "local" | "dynamic";
+export type ForwardMode = "local" | "dynamic" | "remote";
 
 /** A local port answered from the far side of a connection: the `ssh -L` shape. */
 export interface LocalForward {

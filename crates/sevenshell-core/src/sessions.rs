@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sevenshell_error::ShellError;
 use sevenshell_session::{OpenTerminal, RecordingSpec, SessionRegistry};
 use sevenshell_ssh::{
-    Credential, LocalForward as HopForward, OpenRequest, Purpose, Route, SshSession, Target, TerminalSize, TunnelHandle,
+    Credential, LocalForward as HopForward, OpenRequest, Purpose, Route, SshSession, Target, TcpDialer, TerminalSize,
+    TunnelHandle,
 };
 use sevenshell_term::{LocalSpec, SerialSpec, TcpSpec, TelnetSpec, WslSpec};
 use sevenshell_types::{
@@ -542,6 +543,7 @@ impl Core {
         let mode = match request.mode {
             ForwardMode::Local => "local",
             ForwardMode::Dynamic => "dynamic",
+            ForwardMode::Remote => "remote",
         };
         let verdict = sevenshell_policy::tunnel_open(mode, &request.bind_host);
         let subject = format!("{}:{}", request.bind_host, request.bind_port);
@@ -569,7 +571,9 @@ impl Core {
         };
 
         // Which kind of listener to bring up is the whole difference: a local forward sends
-        // everything to one address, a dynamic one is told by whoever connects.
+        // everything to one address, a dynamic one is told by whoever connects, and a remote one
+        // opens the port on the server and answers each connection the server accepts from here —
+        // the dialer is the plain socket reach, which is what a target on this machine is.
         let requested = HopForward {
             bind_host: request.bind_host.clone(),
             bind_port: request.bind_port,
@@ -579,6 +583,11 @@ impl Core {
         let tunnel = match request.mode {
             ForwardMode::Local => Arc::clone(&carrier.connection).forward_local(requested).await?,
             ForwardMode::Dynamic => Arc::clone(&carrier.connection).forward_dynamic(requested).await?,
+            ForwardMode::Remote => {
+                Arc::clone(&carrier.connection)
+                    .forward_remote(requested, Arc::new(TcpDialer))
+                    .await?
+            }
         };
 
         let id = if request.id.trim().is_empty() {
@@ -776,10 +785,16 @@ impl Core {
             };
 
             // Which kind of listener to bring up is the whole difference: a local forward sends
-            // everything to one address, a dynamic one is told by whoever connects.
+            // everything to one address, a dynamic one is told by whoever connects. A remote one
+            // is not brought up here at all: it opens a port on the server, and that kind always
+            // stops for a person — which a bring-up at connection time cannot do. It is reported
+            // back as a failure naming why, and the forwards window's open is the path that asks.
             let brought_up = match spec.mode {
                 ForwardMode::Local => Arc::clone(&connection).forward_local(requested).await,
                 ForwardMode::Dynamic => Arc::clone(&connection).forward_dynamic(requested).await,
+                ForwardMode::Remote => Err(ShellError::app_unsupported(
+                    "a remote forward is opened from the forwards window, where it stops for a person first",
+                )),
             };
 
             match brought_up {
