@@ -601,6 +601,53 @@ function resizeFrom(
   windows.value = resizeWindowFrom(windows.value, id, next.dir, next.rect, bounds.value);
 }
 
+// -- the desktop's own keys ---------------------------------------------------
+
+/**
+ * Whether the Meta key is being held *alone*.
+ *
+ * The launcher key is a chord-avoiding key, not a modifier to hijack: Meta pressed and released by
+ * itself opens (or closes) the starter, but Meta+S is somebody's shortcut, not a half-pressed
+ * launcher. So the flag is armed by a fresh Meta keydown and disarmed by any other key — and the
+ * release only counts while it is still armed.
+ */
+const metaAlone = ref(false);
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!props.active) {
+    return;
+  }
+  if (event.key === "Meta") {
+    if (!event.repeat) {
+      metaAlone.value = true;
+    }
+    return;
+  }
+  metaAlone.value = false;
+  if (event.altKey && event.key === "Tab") {
+    // A terminal that holds the focus is holding keystrokes for the machine on the other end; the
+    // desktop has no business intercepting a key the shell may be waiting for. Everything else on
+    // the desk — the icons, the dialogs, the starter's own field — cycles the windows.
+    const focus = document.activeElement;
+    if (focus instanceof Element && focus.closest(".terminal-surface") !== null) {
+      return;
+    }
+    event.preventDefault();
+    windows.value = cycleWindow(windows.value, event.shiftKey);
+  }
+}
+
+function onKeyup(event: KeyboardEvent): void {
+  if (!props.active) {
+    metaAlone.value = false;
+    return;
+  }
+  if (event.key === "Meta" && metaAlone.value) {
+    metaAlone.value = false;
+    starterOpen.value = !starterOpen.value;
+  }
+}
+
 function raise(id: string): void {
   windows.value = showWindow(windows.value, id);
 }
@@ -1029,6 +1076,8 @@ onMounted(() => {
   clockTicker = setInterval(() => {
     now.value = new Date();
   }, 60_000);
+  window.addEventListener("keydown", onKeydown);
+  window.addEventListener("keyup", onKeyup);
 });
 
 onUnmounted(() => {
@@ -1042,6 +1091,8 @@ onUnmounted(() => {
   }
   areaObserver?.disconnect();
   areaObserver = undefined;
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("keyup", onKeyup);
 });
 
 /** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
