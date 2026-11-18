@@ -256,5 +256,9 @@ async fn a_remote_forward_reaches_this_machine_from_the_far_side_and_stops_with_
         after.exit_code,
         after.stdout.trim()
     );
-    assert_ne!(after.stdout.trim(), "200", "the server's listener went down with the tunnel");
+    assert_ne!(
+        after.stdout.trim(),
+        "200",
+        "the server's listener went down with the tunnel"
+    );
 }

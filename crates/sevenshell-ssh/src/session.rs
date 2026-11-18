@@ -256,10 +256,7 @@ impl SshSession {
             .tcpip_forward(host, u32::from(port))
             .await
             .map_err(|error| {
-                self.channel_failure(
-                    &format!("the far side would not listen on {host}:{port}"),
-                    &error,
-                )
+                self.channel_failure(&format!("the far side would not listen on {host}:{port}"), &error)
             })?;
         u16::try_from(bound)
             .map_err(|_| ShellError::app_internal(format!("the far side named a port outside the range: {bound}")))

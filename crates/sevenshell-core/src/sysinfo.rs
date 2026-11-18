@@ -1292,14 +1292,20 @@ ESTAB  0       0       192.168.1.20:22     192.168.1.5:52344
         assert_eq!(listeners[0].process, "sshd");
 
         assert_eq!(listeners[1].port, 22);
-        assert_eq!(listeners[1].address, "::", "the brackets are the printer's, not the address's");
+        assert_eq!(
+            listeners[1].address, "::",
+            "the brackets are the printer's, not the address's"
+        );
         assert_eq!(listeners[1].process, "sshd");
 
         assert_eq!(listeners[2].address, "127.0.0.1");
         assert_eq!(listeners[2].process, "cupsd");
 
         assert_eq!(listeners[3].port, 4225);
-        assert_eq!(listeners[3].process, "", "a process the account cannot see is not a name");
+        assert_eq!(
+            listeners[3].process, "",
+            "a process the account cannot see is not a name"
+        );
 
         assert_eq!(listeners[4].port, 8080);
         assert_eq!(listeners[4].process, "Web Content", "a name with a space stays whole");
@@ -1329,7 +1335,10 @@ nameserver 192.168.1.1
         assert_eq!(overview.listeners[0].process, "sshd");
 
         let no_answer = parse_overview("@@resolver\nnameserver 192.168.1.1\n");
-        assert!(no_answer.listeners.is_empty(), "no section is an empty list, not a failed read");
+        assert!(
+            no_answer.listeners.is_empty(),
+            "no section is an empty list, not a failed read"
+        );
     }
 
     /// A journal tail with the tool's own header, an ordinary entry, a message that ran over two

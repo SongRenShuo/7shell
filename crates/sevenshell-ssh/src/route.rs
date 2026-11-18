@@ -309,7 +309,9 @@ impl SshSession {
         forward: LocalForward,
         dial: Arc<dyn RemoteDialer>,
     ) -> Result<TunnelHandle, ShellError> {
-        let bound_port = self.request_remote_listen(&forward.bind_host, forward.bind_port).await?;
+        let bound_port = self
+            .request_remote_listen(&forward.bind_host, forward.bind_port)
+            .await?;
 
         let connections = Arc::new(AtomicU64::new(0));
         let failures = Arc::new(AtomicU64::new(0));
@@ -461,9 +463,7 @@ mod tests {
     impl RemoteDialer for DialTo {
         fn dial(&self, _host: String, _port: u16) -> RemoteDial {
             let address = self.0;
-            Box::pin(async move {
-                Ok(Box::new(tokio::net::TcpStream::connect(address).await?) as BoxedStream)
-            })
+            Box::pin(async move { Ok(Box::new(tokio::net::TcpStream::connect(address).await?) as BoxedStream) })
         }
     }
 
@@ -487,7 +487,9 @@ mod tests {
         // The bridge runs on its own task, the way a forward's loop does, and the test holds the
         // client half. The bridge can only finish once the client closes — a copy across two open
         // ends does not end by itself — so awaiting it before the traffic would be a deadlock.
-        let client = tokio::net::TcpStream::connect(incoming_address).await.expect("a connect");
+        let client = tokio::net::TcpStream::connect(incoming_address)
+            .await
+            .expect("a connect");
         let (arrived, _) = incoming_listener.accept().await.expect("an accept");
 
         let connections = Arc::new(AtomicU64::new(0));
@@ -535,7 +537,9 @@ mod tests {
 
         let incoming_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a listener");
         let incoming_address = incoming_listener.local_addr().expect("the incoming address");
-        let client = tokio::net::TcpStream::connect(incoming_address).await.expect("a connect");
+        let client = tokio::net::TcpStream::connect(incoming_address)
+            .await
+            .expect("a connect");
         let (_held, _) = incoming_listener.accept().await.expect("an accept");
 
         let connections = AtomicU64::new(0);
