@@ -442,6 +442,9 @@ export const DEFAULT_CORNER_STYLE: CornerStyle = "large";
 /** How the file browser is laid out, from `sevenshell_types::FilesLayout`. */
 export type FilesLayout = "tree" | "list";
 
+/** Where a delete in the file browser lands, from `sevenshell_types::FilesDeleteMode`. */
+export type FilesDeleteMode = "trash" | "direct";
+
 /**
  * A named remote directory the file browser offers as a quick jump, from
  * `sevenshell_types::FileBookmark`.
@@ -621,6 +624,8 @@ export interface AppSettings {
   /** `system` means "follow the interface theme" for the terminal, not the operating system. */
   readonly terminalTheme: ThemeMode;
   readonly filesLayout: FilesLayout;
+  /** Where a delete in the file browser lands: the trash by default, or gone where it stood. */
+  readonly filesDeleteMode: FilesDeleteMode;
   /** Whether opening a session opens a terminal on its own, or one with its file panel. */
   readonly sessionLayout: SessionLayout;
   /** What the session list's menu does when the session it opens is already open. */

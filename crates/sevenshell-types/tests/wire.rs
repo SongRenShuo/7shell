@@ -18,7 +18,8 @@ use sevenshell_types::{
     BatchHostRef, BatchHostResult, BatchOutcome, BatchRequest, CommandHistoryEntry, CompletionExecuteResult,
     CompletionWord, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime, ContainerSettings,
     ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey, CustomColors,
-    DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesLayout, ForwardMode, HomeLayout, HostFailure,
+    DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesDeleteMode, FilesLayout, ForwardMode,
+    HomeLayout, HostFailure,
     HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry,
     KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy, McpPrompt,
     McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent,
@@ -616,6 +617,7 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
             theme_mode: ThemeMode::Dark,
             terminal_theme: ThemeMode::System,
             files_layout: FilesLayout::List,
+            files_delete_mode: FilesDeleteMode::Direct,
             session_layout: SessionLayout::Terminal,
             session_reopen: SessionReopen::NewTab,
             terminal_panel_height: Some(320),
@@ -771,6 +773,11 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
     assert_eq!(
         settings["fileBookmarks"][0]["path"],
         serde_json::json!("/var/log/nginx")
+    );
+    assert_eq!(
+        settings["filesDeleteMode"],
+        serde_json::json!("direct"),
+        "the delete mode travels under the name the settings page reads"
     );
     // The terminal's typography travels under the names the page reads, and the two cursor shapes
     // are the lower-case words the menu matches.
