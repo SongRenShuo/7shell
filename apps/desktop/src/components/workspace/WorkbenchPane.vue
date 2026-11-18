@@ -329,6 +329,13 @@ function endDrag(): void {
   dragOverId.value = null;
 }
 
+/**
+ * Measured budget (2026-11-19, `WorkbenchPane.perf.spec.ts`): on the fullest desktop the product
+ * allows — 24 shortcuts over 11 doors — ten full drag sequences with hover stops run in ~70ms
+ * total, and no icon element is remounted: the keyed list patches in place, so writing the whole
+ * order array here and letting `icons` rebuild is comfortably inside budget. The spec stays in the
+ * tree as the regression guard.
+ */
 function dropIcon(target: DesktopIcon | null): void {
   const dragged = draggingId.value;
   endDrag();
