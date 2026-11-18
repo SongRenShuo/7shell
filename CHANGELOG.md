@@ -8,6 +8,52 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+#### The desk grows a desktop's daily shape
+
+- Windows reopen where their kind was last left: each kind's geometry is written down per session
+  a hundred milliseconds after the last change settles, clamped into the desk as it is now, and
+  the default opening grows to 900×600. The taskbar gains a desktop cell that empties the desk of
+  visible windows and brings everything back on the next press, and the window in front is marked
+  the way a launch dock marks it — a 3px bar at the cell's left edge over the wash — as the bar
+  reads in three segments: getting around, what is open, the system end (d9c0558, 84b7d2b).
+- The starter sheet learns to search: a 380px field that takes the focus on open, filters the
+  grid after a 300ms settle, and says when nothing matches; the grid takes the reference launch
+  sheet's 172px columns and the sheet arrives with the slight scale-down step (a2db09d, c6f7b6b).
+- The machine's vitals sit on the desk as widgets — system (host, uptime, load), CPU busy share,
+  network rate, and the fullest filesystem's fill — each card a button into the window that can
+  explain its readings. Rates need two samples a known distance apart; storage wears the 90/95
+  threshold colours; the pump runs only while this desktop is the tab on screen and the
+  application window is visible. The set is per session, toggled in the desktop's settings
+  (fcf2a5f).
+- The wallpaper grows two forms beside the gradients: a solid colour with the opacity the washes
+  get, and a custom picture scaled to the desk and kept on this device's storage — the session
+  carries only the decision, so moving it costs the picture, not the face, and a picture without
+  its bytes is the plain surface, never white chrome on a light ground (eddc0cf).
+
+#### The desk takes the world in, and deepens its windows
+
+- The desk takes files from outside: dropping them uploads to the session's home, the hover says
+  plainly where they will land, and an upload in flight asks before the page goes away
+  (6e19e8a).
+- A notification centre rung by the bell: transfer completions and failures, a followed log's
+  stream ending, a container task's stream ending, and the power receipt land as grouped entries
+  with an unread count on the bell, opening the panel marks the batch read, and clearing needs
+  the confirmation every destructive action here uses (a388faa).
+- One empty state for every empty surface, drawn once: a line-drawn illustration per scene —
+  no data, a load that failed, no file, no disk, no search result — at three sizes, worn by the
+  trash, the container list, the image page and the notification panel (7b4c618).
+- The light host's desktop: the workbench token family splits into a light default and the dark
+  values it always had, while everything drawn over a wallpaper keeps the fixed white text, so
+  the wallpaper line holds in both themes (75da8ca).
+- A window resizes from its eight edges and corners, and dragging toward a screen edge shows
+  where a snap would land — half the desk for an edge, a quarter for a corner — with the landing
+  on release (bfc7e5f).
+- The launcher key and Alt+Tab belong to the desk: Meta opens and closes the starter, Alt+Tab
+  walks the visible windows in stacking order and does not reach into a terminal the focus is
+  inside (3d2cc2f).
+- The widgets' column no longer covers a door: on a narrow desk the door grid reserves the
+  widgets' column, the way the reference reserves its dock's width (6893c36).
+
 #### The desktop wears tokens, and the Docker window speaks fnOS
 
 - The desktop chrome's colours, durations, shadows and radii moved into a `--workbench-*` /
