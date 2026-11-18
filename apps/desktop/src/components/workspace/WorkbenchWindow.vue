@@ -4,12 +4,17 @@
  * in. It owns no window record — position, size, mode and focus all arrive as props — so the same
  * component draws a terminal, a file browser or a monitor page without knowing which it is.
  *
- * The look is the reference desktop's, measured rather than invented: a translucent black pane
- * with a 15px backdrop blur, an 8px radius and a shadow that lets it float over the wallpaper; a
- * title bar at least 45px tall with a 17px white title and a hairline under it; three round icon
- * buttons at the far end, the last of which turns red under the pointer. Everything here stays
- * white on dark, like the rest of the desktop chrome — a window is a thing on a picture, and it
- * does not follow the interface's light theme.
+ * The look is the reference desktop's, measured rather than invented, and named in the workbench
+ * token block of `globals.css` rather than written here: the pane is `--workbench-glass` (a
+ * translucent black under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
+ * app tier of the `--wb-shadow-*` scale, and its roundness `--wb-radius-window` — the window step
+ * of the desktop's own radius scale, still derived from the corner style the rest of the
+ * interface obeys. A title bar at least 45px tall with a 17px white title and a hairline under
+ * it; three round icon buttons at the far end, the last of which turns `--workbench-danger` under
+ * the pointer. Everything here stays white on dark, like the rest of the desktop chrome — a
+ * window is a thing on a picture, and it does not follow the interface's light theme: the tokens
+ * resolve to the same dark-face values in both theme blocks, and a light desktop plugs in at that
+ * seam, not here.
  *
  * The gestures are pointer-based rather than HTML5 drag-and-drop, because a drag is not a data
  * transfer: it starts on the title bar, moves the window by the distance the pointer travelled
@@ -95,7 +100,7 @@ const windowStyle = computed(() => ({
 
 const rootClass = computed(() =>
   cn(
-    "workbench-window absolute flex flex-col overflow-hidden rounded-lg border border-white/10 bg-[#000000c4] text-white shadow-[2px_6px_10px_2px_#00000091] backdrop-blur-[15px]",
+    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-white shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
     props.state === "max" ? "workbench-window--max rounded-none" : undefined,
     props.state === "min" ? "workbench-window--min" : undefined,
     props.closing ? "workbench-window--closing" : undefined,
@@ -230,7 +235,7 @@ function onGripPointerUp(event: PointerEvent): void {
     <header
       ref="titleBar"
       data-workbench-window-title
-      class="flex min-h-[45px] shrink-0 touch-none items-center gap-2 border-b border-[#ffffff12] px-3 select-none"
+      class="flex min-h-[45px] shrink-0 touch-none items-center gap-2 border-b border-[var(--workbench-glass-border)] px-3 select-none"
       @pointerdown="onTitlePointerDown"
       @pointermove="onTitlePointerMove"
       @pointerup="onTitlePointerUp"
@@ -269,7 +274,7 @@ function onGripPointerUp(event: PointerEvent): void {
           data-workbench-window-close
           :aria-label="labels.close"
           :title="labels.close"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-[#c50f1f] hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-[var(--workbench-danger)] hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
           @click="emit('close')"
         >
           <X :size="19" aria-hidden="true" />
@@ -311,19 +316,20 @@ function onGripPointerUp(event: PointerEvent): void {
 <style scoped>
 /*
  * The three moving modes, all of them transforms so the content underneath is never re-laid out:
- * the opening/moving transition is 200ms, a maximised window takes 300ms because it crosses much
- * more of the screen, and minimised and closing are the two collapses. The transition is on
- * `transform` only — position and size are absolute pixels that a drag changes every pointer move,
- * and transitioning those would make the window lag behind the hand.
+ * the durations are the desktop's motion tokens — base for the opening/moving transition, slow
+ * for a maximise, which crosses much more of the screen, and minimised and closing are the two
+ * collapses. The transition is on `transform` only — position and size are absolute pixels that a
+ * drag changes every pointer move, and transitioning those would make the window lag behind the
+ * hand.
  */
 .workbench-window {
   transform-origin: center;
-  transition: transform 0.2s ease;
+  transition: transform var(--wb-dur-base) var(--wb-ease-out);
   will-change: transform;
   /* The entrance: every window arrives by settling into place rather than by appearing. It runs
      once per mount (the animation, unlike the transition, does not re-fire when geometry changes),
      and it is short enough that a fast double-click never sees a half-drawn window. */
-  animation: workbench-window-in 0.16s ease-out;
+  animation: workbench-window-in var(--wb-dur-fast) var(--wb-ease-out);
 }
 
 @keyframes workbench-window-in {
@@ -348,7 +354,7 @@ function onGripPointerUp(event: PointerEvent): void {
 }
 
 .workbench-window--max {
-  transition-duration: 0.3s;
+  transition-duration: var(--wb-dur-slow);
 }
 
 .workbench-window--min {
@@ -359,6 +365,6 @@ function onGripPointerUp(event: PointerEvent): void {
 .workbench-window--closing {
   transform: scaleY(0);
   pointer-events: none;
-  transition-duration: 0.2s;
+  transition-duration: var(--wb-dur-base);
 }
 </style>

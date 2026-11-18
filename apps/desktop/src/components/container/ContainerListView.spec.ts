@@ -66,6 +66,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 }));
 
 import ContainerListView from "@/components/container/ContainerListView.vue";
+import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
 import { containerAction, containerExecOpen, filesOpenContainer } from "@/lib/backend/tauri";
 import { useContainerStore, type ContainerSession } from "@/stores/container";
@@ -240,6 +241,146 @@ describe("container list", () => {
 
     await vi.waitFor(() => {
       expect(actionMock).toHaveBeenCalledWith("conn-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "stop", true);
+    });
+  });
+});
+
+describe("the desktop layout of the same list", () => {
+  /** Mounts the list in the desktop window's layout, over the same session the flat table uses. */
+  async function mountDesktop(): Promise<ContainerSession> {
+    const engine = tab();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useContainerStore();
+    await store.connect(engine);
+    const session = store.sessionFor(engine.id);
+    if (!session) {
+      throw new Error("the session was never opened");
+    }
+
+    app = createApp({
+      render: () =>
+        h(ContainerListView, { tab: engine, session, layout: "desktop", imageFilter: null, stateFilter: null }),
+    });
+    app.use(i18n);
+    app.use(pinia);
+    host = document.createElement("div");
+    document.body.append(host);
+    app.mount(host);
+    await nextTick();
+    return session;
+  }
+
+  function rowOf(name: string): HTMLTableRowElement | undefined {
+    return [...(host?.querySelectorAll<HTMLTableRowElement>("tbody tr") ?? [])].find((row) =>
+      row.textContent?.includes(name),
+    );
+  }
+
+  async function openRowMenu(name: string): Promise<void> {
+    const more = rowOf(name)?.querySelector("button");
+    more?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextTick();
+  }
+
+  /** Turns the default "running only" off, so the exited container's row is drawn too. */
+  async function showEveryState(): Promise<void> {
+    const checkbox = host?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    checkbox?.click();
+    await nextTick();
+  }
+
+  /** Runs the one entry of the open menu whose id is given, the way a click on its row would. */
+  async function runMenuEntry(id: string): Promise<void> {
+    const menu = useContextMenu();
+    const entry = menu.entries.value.find((candidate) => candidate.kind === "action" && candidate.id === id);
+    if (entry === undefined || entry.kind !== "action") {
+      throw new Error(`the menu has no action called ${id}`);
+    }
+    await entry.run();
+  }
+
+  it("draws the state as the light-wash tag the state table names", async () => {
+    await mountDesktop();
+    await showEveryState();
+
+    const running = rowOf("web")?.querySelector("[data-wb-tag]");
+    const exited = rowOf("old")?.querySelector("[data-wb-tag]");
+    expect(running?.textContent?.trim()).toBe("Running");
+    expect(running?.className).toContain("wb-tag--success");
+    expect(exited?.textContent?.trim()).toBe("Exited");
+    expect(exited?.className).toContain("wb-tag--neutral");
+  });
+
+  it("keeps the flat table's row untouched when no layout is asked for", async () => {
+    await mount();
+
+    const row = rowOf("web");
+    expect(row?.querySelector("[data-wb-tag]"), "the flat row has no tag").toBeNull();
+    expect(row?.querySelectorAll("button")?.length).toBeGreaterThan(1);
+  });
+
+  it("gathers start, shell and the rest under the one menu, and the engine's word labels them", async () => {
+    await mountDesktop();
+    await showEveryState();
+    const menu = useContextMenu();
+
+    await openRowMenu("old");
+    expect(menu.visible.value).toBe(true);
+    const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(ids).toContain("start");
+    expect(ids).toContain("exec");
+    expect(ids).toContain("logs");
+    expect(ids).toContain("files");
+    expect(ids).toContain("remove");
+
+    await openRowMenu("web");
+    const runningIds = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(runningIds).toContain("stop");
+    expect(runningIds, "a running container is offered stop, not start").not.toContain("start");
+  });
+
+  it("says what a write in flight is doing, on the row it is working on", async () => {
+    let settle: ((value: void) => void) | undefined;
+    actionMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    await mountDesktop();
+    await showEveryState();
+
+    await openRowMenu("old");
+    await runMenuEntry("start");
+    await nextTick();
+
+    const loading = rowOf("old")?.querySelector("[data-container-row-loading]");
+    expect(loading?.textContent?.trim()).toBe("Starting…");
+
+    settle?.();
+    await vi.waitFor(() => {
+      expect(rowOf("old")?.querySelector("[data-container-row-loading]")).toBeNull();
+    });
+  });
+
+  it("states the consequence of removal in the confirmation it sends acknowledged", async () => {
+    await mountDesktop();
+    await showEveryState();
+
+    await openRowMenu("old");
+    await runMenuEntry("remove");
+    await nextTick();
+
+    expect(document.body.textContent).toContain("Remove the container “old”?");
+    expect(document.body.textContent).toContain("All data inside the container will be lost.");
+
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (element) => element.textContent?.trim() === "Remove",
+    );
+    confirm?.click();
+    await vi.waitFor(() => {
+      expect(actionMock).toHaveBeenCalledWith("conn-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "rm", true);
     });
   });
 });

@@ -130,12 +130,14 @@ describe("the context menu", () => {
       "menu.terminal",
       "desktop",
     );
-    expect(menu()?.className, "the sheet the reference desktop draws over a picture").toContain("bg-[#17b38e]");
+    expect(menu()?.className, "the sheet the reference desktop draws over a picture").toContain(
+      "bg-[var(--workbench-menu-bg)]",
+    );
 
     // The next menu without the ask is the application's own card again: the tone belongs to the
     // menu that was opened, not to the one window.
     await open(entries(() => {}));
-    expect(menu()?.className, "every other region keeps the card").not.toContain("bg-[#17b38e]");
+    expect(menu()?.className, "every other region keeps the card").not.toContain("bg-[var(--workbench-menu-bg)]");
   });
 
   it("cancels the browser's own menu for the region that opened it", async () => {

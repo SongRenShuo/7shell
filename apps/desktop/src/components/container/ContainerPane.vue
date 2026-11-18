@@ -9,11 +9,21 @@
  *
  * The connection is opened here once, on mount, and closed by `terminals` when the tab goes away. On
  * unmount this pane only forgets its share of the state — see `useContainerStore.forget`.
+ *
+ * Two layouts share this pane, and the prop picks between them. `flat` — the default — is the
+ * application tab's workspace exactly as it has always been drawn. `desktop` is the desktop
+ * window's: the 220px side rail the reference Docker manager keeps, the overview with the engine's
+ * vital signs, and the pages rebuilt for a window rather than a strip. The connection, the store
+ * and the view keeping are the same in both — only the drawing differs, so the application tab
+ * never sees the desktop's presentational choices.
  */
 import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import DockerImages from "@/components/container/DockerImages.vue";
+import DockerOverview from "@/components/container/DockerOverview.vue";
+import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
 import Select from "@/components/ui/Select.vue";
 import { describeShellError } from "@/i18n/errors";
 import { cn } from "@/lib/utils";
@@ -24,12 +34,22 @@ import ContainerImageView from "./ContainerImageView.vue";
 import ContainerListView from "./ContainerListView.vue";
 import ContainerOverview from "./ContainerOverview.vue";
 
-const props = defineProps<{ tab: ContainerTab; active: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    tab: ContainerTab;
+    active: boolean;
+    /** `flat` is the application tab's workspace; `desktop` is the desktop window's. */
+    layout?: "desktop" | "flat";
+  }>(),
+  { layout: "flat" },
+);
 
 type ContainerView = "overview" | "containers" | "images";
 
 const { t } = useI18n();
 const containers = useContainerStore();
+
+const desktop = computed(() => props.layout === "desktop");
 
 const view = ref<ContainerView>("overview");
 /** Set when the images view asked to see which containers run an image. */
@@ -72,6 +92,26 @@ const namespaceOptions = computed(() => {
   names.add(current.namespace);
   names.add("default");
   return [...names].sort().map((name) => ({ value: name, label: name }));
+});
+
+/**
+ * The desktop rail's rows, and the rule it carries: an engine this session has not reached — not
+ * connected yet, or failed to — offers the overview and nothing else. There is nothing to count
+ * and nowhere to go, and a rail that pretended otherwise would be drawing buttons for an engine
+ * that is not there.
+ */
+const sideRail = computed<readonly SideNavItem[]>(() => {
+  const current = session.value;
+  const connected = current !== undefined && current.connectionId !== null;
+  const overview: SideNavItem = { id: "overview", label: t("container.rail.overview"), icon: Gauge, count: null };
+  if (!connected) {
+    return [overview];
+  }
+  return [
+    overview,
+    { id: "containers", label: t("container.rail.containers"), icon: Boxes, count: current.containers.length },
+    { id: "images", label: t("container.rail.images"), icon: Layers, count: current.images.length },
+  ];
 });
 
 function translate(key: string, params?: Record<string, string>): string {
@@ -148,25 +188,52 @@ onBeforeUnmount(() => {
       <p class="text-xs text-muted-foreground">{{ t("container.connecting") }}</p>
     </div>
 
+    <!--
+      The connection as it failed to be made, and the way back. The desktop layout keeps its rail
+      beside the failure, and the rail offers the overview only — the pane's rule for an engine
+      that is not there. The flat layout draws this block exactly as it always has.
+    -->
     <div
       v-else-if="session.connectionId === null"
-      class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
+      class="flex min-h-0 flex-1"
+      :class="desktop ? '' : 'flex-col items-center justify-center gap-2 p-6 text-center'"
     >
-      <p class="text-xs text-muted-foreground">{{ t("container.connectFailed") }}</p>
-      <p v-if="problem" class="max-w-xl text-xs text-destructive select-text">{{ problem.message }}</p>
-      <p v-if="problem" class="font-mono text-[10px] text-muted-foreground">{{ problem.code }}</p>
-      <button
-        type="button"
-        class="mt-1 flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
-        @click="retry()"
-      >
-        <RotateCw :size="12" />
-        {{ t("container.retry") }}
-      </button>
+      <WbSideNav
+        v-if="desktop"
+        :items="sideRail"
+        :active-id="view"
+        :label="t('container.rail.label')"
+        @select="view = $event as ContainerView"
+      />
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <p class="text-xs text-muted-foreground">{{ t("container.connectFailed") }}</p>
+        <p v-if="problem" class="max-w-xl text-xs text-destructive select-text">{{ problem.message }}</p>
+        <p v-if="problem" class="font-mono text-[10px] text-muted-foreground">{{ problem.code }}</p>
+        <button
+          type="button"
+          class="mt-1 flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+          @click="retry()"
+        >
+          <RotateCw :size="12" />
+          {{ t("container.retry") }}
+        </button>
+      </div>
     </div>
 
     <div v-else class="flex min-h-0 flex-1">
+      <!--
+        Two rails, one pane: the desktop window's 220px side navigation with count badges, and the
+        application tab's compact one exactly as it has always been drawn.
+      -->
+      <WbSideNav
+        v-if="desktop"
+        :items="sideRail"
+        :active-id="view"
+        :label="t('container.rail.label')"
+        @select="view = $event as ContainerView"
+      />
       <nav
+        v-else
         class="flex w-36 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-1.5"
         :aria-label="t('container.rail.label')"
       >
@@ -214,10 +281,22 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <!--
+          All views stay mounted in either layout. The desktop's overview and image page draw from
+          the same session the flat views do; which pair is visible is the layout's choice.
+        -->
         <ContainerOverview
-          v-show="view === 'overview'"
+          v-show="!desktop && view === 'overview'"
           :tab="props.tab"
           :session="session"
+          @show-state="showState"
+          @show-images="view = 'images'"
+        />
+        <DockerOverview
+          v-show="desktop && view === 'overview'"
+          :tab="props.tab"
+          :session="session"
+          :active="props.active"
           @show-state="showState"
           @show-images="view = 'images'"
         />
@@ -226,6 +305,7 @@ onBeforeUnmount(() => {
           v-show="view === 'containers'"
           :tab="props.tab"
           :session="session"
+          :layout="layout"
           :image-filter="imageFilter"
           :state-filter="stateFilter"
           @clear-image-filter="imageFilter = null"
@@ -233,7 +313,13 @@ onBeforeUnmount(() => {
           @filter-state="stateFilter = $event"
         />
         <ContainerImageView
-          v-show="view === 'images'"
+          v-show="!desktop && view === 'images'"
+          :tab="props.tab"
+          :session="session"
+          @view-related="showRelatedContainers"
+        />
+        <DockerImages
+          v-show="desktop && view === 'images'"
           :tab="props.tab"
           :session="session"
           @view-related="showRelatedContainers"

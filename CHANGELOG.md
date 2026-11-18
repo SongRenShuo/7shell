@@ -8,6 +8,28 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+#### The desktop wears tokens, and the Docker window speaks the reference
+
+- The desktop chrome's colours, durations, shadows and radii moved into a `--workbench-*` /
+  `--wb-*` token family in `globals.css` — glass pane, glass border, on-picture text, accent teal,
+  danger, menu skin, three surface elevations, the wallpaper gradients, the reference's three durations and
+  two easings, three shadow tiers, the two-layer icon-label shadow, and two radius steps derived
+  from the corner style. The window, status bar, taskbar, starter, desktop pane and the desktop's
+  teal menu read the tokens instead of inline literals, with no literal colour left in any of them
+  (fe64549, 6639435, 9a4664c, 249bcff).
+- Two shared primitives for what the desktop draws: **WbButton** (primary/secondary/ghost at two
+  sizes, with a busy state) and **WbTag** (a state on a light wash of the colour it means —
+  success, danger, warning, neutral) (249bcff).
+- The desktop's Docker window speaks the reference manager's language: a 220px side navigation
+  with count badges that offers the overview alone while the engine is unreachable, an overview
+  page with three pressable summary rows, a health lamp and CPU/memory/network lines drawn from
+  stats sampled every five seconds only while somebody is looking, a container list whose states
+  are tags from a nine-state table and whose actions gather under one menu with the write in
+  flight named on its row, an image page with a used-status column and a pull dialog that checks
+  the tag as it is typed, and a removal confirmation that says plainly that the container's data
+  goes with it. The application's container tab is unchanged — the same pane draws both, and the
+  tab's layout is the untouched default (03d1bf3).
+
 #### Linux desktop workbench
 
 - A new connection type, **Linux desktop** (`linuxDesk`): an SSH session whose front page is a

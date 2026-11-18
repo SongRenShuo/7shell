@@ -166,6 +166,100 @@
 }
 
 /*
+ * Desktop workbench chrome.
+ *
+ * The desktop's own surfaces — the windows, the taskbar, the starter, the menus — stand on a
+ * picture, not on the interface's theme, so they do not wear the tokens above. This block is
+ * theirs: one place where the desktop's colours are named, so the chrome can be reskinned without
+ * touching a component.
+ *
+ * Both blocks below declare the same dark-face values, on purpose. A window is a thing on a
+ * picture and keeps white-on-dark in either theme — that is the invariant the first release
+ * shipped and the wallpaper still needs. The `.dark` block is not a duplicate for its own sake:
+ * it keeps the pairing rule the rest of this file holds (a theme block that forgets a token
+ * quietly keeps the other theme's value), and it is the seam where a light desktop plugs in —
+ * the light values land in both blocks' light slots in a later batch, and until then a light
+ * desktop draws the same dark chrome it always drew.
+ *
+ * The values are the reference desktop's, measured rather than invented; where this batch adopted
+ * a the reference recipe the comment says so. Nothing here overrides a token above: this block only adds.
+ */
+:root,
+.dark {
+  /* The window pane: the reference's translucent black under a blur. */
+  --workbench-glass: rgba(0, 0, 0, 0.769);
+  /* The hairline every glass surface draws around itself (the reference: white at 8%). */
+  --workbench-glass-border: rgba(255, 255, 255, 0.08);
+  /* Text that stands on a picture: white, whatever the theme says. */
+  --workbench-on-picture: #ffffff;
+  /* The step dimmer, for labels that yield to the tiles beside them (#e1e1e1). */
+  --workbench-on-picture-muted: #e1e1e1;
+  /* The white wash a hover lays over a glass surface (#ffffff2e). */
+  --workbench-wash-hover: rgba(255, 255, 255, 0.18);
+  /* The keyboard focus outline on a picture (#ffffffa0). */
+  --workbench-focus-outline: rgba(255, 255, 255, 0.627);
+  /* The desktop's accent: the menu teal the reference ships, converted to oklch (#17b38e). */
+  --workbench-accent: oklch(0.6841 0.1308 170.6);
+  /* The one red the chrome itself draws: the close button under the pointer (#c50f1f). */
+  --workbench-danger: oklch(0.5227 0.2063 25.85);
+
+  /* The teal menu skin, collected from ContextMenu's desktop tone. */
+  --workbench-menu-bg: var(--workbench-accent);
+  --workbench-menu-border: rgba(255, 255, 255, 0.15);
+  --workbench-menu-text: var(--workbench-on-picture);
+
+  /* Elevation inside the desktop, darkest first: the bars, the sheets, the raised hover. */
+  --workbench-surface-1: rgba(0, 0, 0, 0.51);
+  --workbench-surface-2: rgba(0, 0, 0, 0.722);
+  --workbench-surface-3: rgba(72, 70, 70, 0.741);
+
+  /* The four backdrops the session editor can choose, said here rather than in the pane. */
+  --workbench-wallpaper-aurora: linear-gradient(165deg, #1e1b4b 0%, #312e81 45%, #155e75 100%);
+  --workbench-wallpaper-dawn: linear-gradient(165deg, #431407 0%, #9a3412 55%, #b45309 100%);
+  --workbench-wallpaper-forest: linear-gradient(165deg, #052e16 0%, #14532d 55%, #3f6212 100%);
+  --workbench-wallpaper-plain: none;
+
+  /*
+   * Motion. the reference keeps three durations and two easings and every transition picks from them;
+   * this is the same three drawers. Durations do not follow the theme, so they are said once and
+   * the desktop's components read them from here.
+   */
+  --wb-dur-fast: 120ms;
+  --wb-dur-base: 180ms;
+  --wb-dur-slow: 220ms;
+  --wb-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --wb-ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /*
+   * Shadows, three of them, one per kind of floating thing. Each is the the reference recipe — several
+   * low-opacity layers plus the hairline drawn separately — with the opacity raised for a dark
+   * desktop, and the first layer of the first two kept at the value this build already drew, so
+   * the windows and menus do not jump when this block lands.
+   */
+  --wb-shadow-app:
+    2px 6px 10px 2px rgba(0, 0, 0, 0.569), 8px 8px 16px -6px rgba(0, 0, 0, 0.2), 1px 12px 42px -4px rgba(0, 0, 0, 0.3);
+  --wb-shadow-elevated:
+    0 10px 20px rgba(0, 0, 0, 0.3), 0 10px 40px rgba(0, 0, 0, 0.4);
+  --wb-shadow-dropdown:
+    3px 7px 14px rgba(0, 0, 0, 0.259), 0 12px 42px -4px rgba(0, 0, 0, 0.35), 0 8px 18px -6px rgba(0, 0, 0, 0.4);
+
+  /*
+   * The icon-label shadow: the reference's two-layer recipe (`0 1px 6px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.5)`)
+   * — a soft drop plus a halo — which is what keeps white text readable on any wallpaper.
+   */
+  --wb-shadow-text-picture: 0 1px 6px rgba(0, 0, 0, 0.2), 0 0 4px rgba(0, 0, 0, 0.5);
+
+  /*
+   * Radii, two steps, derived from the corner style like every other radius here: at the default
+   * corner style they land on the adopted the reference tiers collapsed for a tool's context (window 12px,
+   * content 8px), and a smaller corner style shrinks them by the same ratio — square is still
+   * square everywhere.
+   */
+  --wb-radius-window: calc(var(--radius) * 1.2);
+  --wb-radius-content: calc(var(--radius) * 0.8);
+}
+
+/*
  * Colour themes.
  *
  * The theme above says whether the lights are on; these say what colour they are. Each is a whole
@@ -775,6 +869,11 @@
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
+
+  /* The desktop's own two steps — the window frame and the content inside it — so the chrome's
+     roundness is named by the same token the rest of the interface derives its radius from. */
+  --radius-wb-window: var(--wb-radius-window);
+  --radius-wb-content: var(--wb-radius-content);
 
   --font-sans: Inter, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", Consolas, ui-monospace, monospace;

@@ -177,6 +177,18 @@ describe("the chrome", () => {
 
     expect(root().className).not.toContain("ring-primary/70");
   });
+
+  it("dresses itself from the workbench tokens, not literals", () => {
+    const className = root().className;
+    expect(className, "the pane is the glass token").toContain("bg-[var(--workbench-glass)]");
+    expect(className, "the edge is the glass-border token").toContain("border-[var(--workbench-glass-border)]");
+    expect(className, "the shadow is the app tier").toContain("shadow-[var(--wb-shadow-app)]");
+    expect(className, "the frame takes the window radius step").toContain("rounded-wb-window");
+    const close = document.querySelector("[data-workbench-window-close]");
+    expect(close?.className, "the close button hovers to the danger token").toContain(
+      "hover:bg-[var(--workbench-danger)]",
+    );
+  });
 });
 
 describe("the three buttons", () => {

@@ -101,4 +101,10 @@ describe("the strip along the top of the desktop", () => {
 
     expect(disconnectButton().disabled).toBe(true);
   });
+
+  it("stands on the workbench surface token, in the on-picture text colour", () => {
+    const bar = part("host").parentElement as HTMLElement;
+    expect(bar.className).toContain("bg-[var(--workbench-surface-1)]");
+    expect(bar.className).toContain("text-[var(--workbench-on-picture)]");
+  });
 });
