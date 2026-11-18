@@ -255,6 +255,19 @@ describe("dragging the title bar", () => {
     expect(moves).toEqual([]);
   });
 
+  it("reads a double-click on the title bar as the maximize button's other face", async () => {
+    titleBar().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await nextTick();
+    expect(calls.maximize).toBe(1);
+
+    mode.value = "max";
+    await nextTick();
+    titleBar().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await nextTick();
+    expect(calls.restore).toBe(1);
+    expect(calls.maximize).toBe(1);
+  });
+
   it("keeps moving while the pointer is above the viewport's top but the window has not reached it", () => {
     // The desktop is nested under the application's chrome, so a pointer at the top of the screen
     // is not the gesture: the window's own top is what the work area's edge is measured against.

@@ -987,3 +987,17 @@
     background-color: color-mix(in oklch, var(--color-primary) 14%, transparent);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * The desktop's motion — the window settling into place and folding away, the starter's fade, the
+   * icon press feedback — is decoration. Under a system-wide calm-motion request the states still
+   * apply, instantly: nothing functional is lost, nothing moves.
+   */
+  [data-workbench-shell] .workbench-window,
+  [data-workbench-shell] [data-workbench-starter],
+  [data-workbench-shell] [data-workbench-icon] {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

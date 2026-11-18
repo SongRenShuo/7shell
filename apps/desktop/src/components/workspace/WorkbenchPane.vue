@@ -32,7 +32,9 @@ export type WorkbenchWallpaperId = (typeof WORKBENCH_WALLPAPER_IDS)[number];
  * here uses, and the acknowledgement that a person answered it is what travels with the command.
  */
 import {
+  ArrowUpDown,
   Boxes,
+  Container,
   Cpu,
   ExternalLink,
   Folder,
@@ -62,6 +64,8 @@ import SystemReport from "@/components/inspect/SystemReport.vue";
 import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
+import WorkbenchDockerWindow from "@/components/workspace/WorkbenchDockerWindow.vue";
+import WorkbenchTransfersWindow from "@/components/workspace/WorkbenchTransfersWindow.vue";
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
 import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
 import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
@@ -97,7 +101,7 @@ import {
 } from "@/lib/workbench/windows";
 import type { MenuEntry } from "@/lib/menu/types";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
-import { useTerminalsStore, type TerminalTab, type WorkbenchTab } from "@/stores/terminals";
+import { useTerminalsStore, type ContainerTab, type TerminalTab, type WorkbenchTab } from "@/stores/terminals";
 
 const props = defineProps<{
   /** The tab this pane draws; its session is what everything here is about. */
@@ -180,7 +184,16 @@ const onPicture = computed(() => wallpaper.value !== undefined);
  */
 interface DesktopIcon {
   readonly id: string;
-  readonly kind: "home" | "terminal" | "monitor" | "systemInfo" | "system" | "trash" | "shortcut";
+  readonly kind:
+    | "home"
+    | "terminal"
+    | "monitor"
+    | "systemInfo"
+    | "system"
+    | "trash"
+    | "docker"
+    | "transfers"
+    | "shortcut";
   readonly label: string;
   readonly icon: Component;
   /** Drawn, but not openable: the placeholder is the whole of what it says. */
@@ -201,9 +214,11 @@ interface DesktopIcon {
 const systemIcons = computed<DesktopIcon[]>(() => [
   { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
   { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
+  { id: "system-docker", kind: "docker", label: t("workbench.desktop.icons.docker"), icon: Container },
   { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
   { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
   { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
+  { id: "system-transfers", kind: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown },
   { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
 ]);
 
@@ -400,23 +415,38 @@ function raise(id: string): void {
 /**
  * Closes a window and, when it was holding a terminal, the tab underneath it.
  *
+ * The close is drawn before it happens: the record keeps its place for the 200ms the collapse
+ * animation runs, and only then is removed together with everything it holds. A window that
+ * vanished between one frame and the next reads as a crash; a window that folds away reads as
+ * something somebody closed.
+ *
  * The window is the tab's surface here, so a closed window that left a connection running would be
  * a connection nobody can see or close. A terminal that ended is still a tab — it is where its
  * reason and its reconnect live — so this closes it through the store like any other tab.
  */
+const CLOSING_MS = 220;
+const closingIds = ref<string[]>([]);
+
 function close(id: string): void {
-  const payload = payloads.value[id];
-  windows.value = closeWindowRecord(windows.value, id);
-  const next = { ...payloads.value };
-  delete next[id];
-  payloads.value = next;
-  if (payload?.tabId !== undefined) {
-    terminals.closeTab(payload.tabId);
+  if (closingIds.value.includes(id)) {
+    return;
   }
-  if (payload?.fileHandle !== undefined) {
-    // The browser was this window's own; closing it is what releases the channel it opened.
-    void files.close(payload.fileHandle);
-  }
+  closingIds.value = [...closingIds.value, id];
+  setTimeout(() => {
+    closingIds.value = closingIds.value.filter((entry) => entry !== id);
+    const payload = payloads.value[id];
+    windows.value = closeWindowRecord(windows.value, id);
+    const next = { ...payloads.value };
+    delete next[id];
+    payloads.value = next;
+    if (payload?.tabId !== undefined) {
+      terminals.closeTab(payload.tabId);
+    }
+    if (payload?.fileHandle !== undefined) {
+      // The browser was this window's own; closing it is what releases the channel it opened.
+      void files.close(payload.fileHandle);
+    }
+  }, CLOSING_MS);
 }
 
 const windowLabels = computed(() => ({
@@ -438,6 +468,16 @@ function terminalOf(id: string): TerminalTab | null {
 /** The handle a terminal window draws, or null while there is no shell to draw. */
 function terminalHandle(id: string): string | null {
   return terminalOf(id)?.handle ?? null;
+}
+
+/** The container tab a Docker window carries, or null before its open answered. */
+function dockerTabOf(id: string): ContainerTab | null {
+  const tabId = payloads.value[id]?.tabId;
+  if (tabId === undefined) {
+    return null;
+  }
+  const tab = terminals.tabs.find((entry) => entry.id === tabId);
+  return tab?.kind === "container" ? tab : null;
 }
 
 /** Whether the terminal a window holds can still take keystrokes. */
@@ -473,6 +513,10 @@ function iconOf(kind: string): Component {
       return Cpu;
     case "system":
       return HardDrive;
+    case "docker":
+      return Container;
+    case "transfers":
+      return ArrowUpDown;
     case "trash":
       return Trash2;
     default:
@@ -501,6 +545,10 @@ function toneOf(kind: string): string {
       return "bg-sky-500/90";
     case "system":
       return "bg-violet-500/90";
+    case "docker":
+      return "bg-sky-600/90";
+    case "transfers":
+      return "bg-cyan-600/90";
     case "trash":
       return "bg-rose-500/90";
     default:
@@ -545,6 +593,12 @@ function openIcon(icon: DesktopIcon): void {
     case "system":
       openRecord("system", t("workbench.desktop.icons.system"), "system");
       return;
+    case "docker":
+      void openDockerWindow();
+      return;
+    case "transfers":
+      openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
+      return;
     case "trash":
       openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
       return;
@@ -552,6 +606,22 @@ function openIcon(icon: DesktopIcon): void {
       void openFilesWindow(icon.path, icon.label);
       return;
   }
+}
+
+/**
+ * Opens the Docker manager.
+ *
+ * The engine is the machine's own Docker, reached over the connection this desktop already holds —
+ * `desktop_engine_open` in the core, on the same carrier the trash and the file windows use. The
+ * tab underneath is an ordinary container tab marked windowed, so the strip leaves it here and
+ * closing the window closes the engine with it.
+ */
+async function openDockerWindow(): Promise<void> {
+  const tabId = await terminals.openContainerTab(session.value, { windowed: true });
+  if (tabId === null) {
+    return;
+  }
+  openRecord(`docker:${tabId}`, t("workbench.desktop.icons.docker"), "docker", { tabId });
 }
 
 /**
@@ -605,8 +675,10 @@ interface StarterApp {
 const starterApps = computed<StarterApp[]>(() => [
   { id: "home", label: t("workbench.desktop.icons.home"), icon: House, tone: "bg-amber-500/85" },
   { id: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal, tone: "bg-emerald-500/85" },
+  { id: "docker", label: t("workbench.desktop.icons.docker"), icon: Container, tone: "bg-sky-600/85" },
   { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
   { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
+  { id: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown, tone: "bg-cyan-600/85" },
   { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
   { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
 ]);
@@ -620,11 +692,17 @@ function launch(appId: string): void {
     case "terminal":
       void openTerminalWindow();
       return;
+    case "docker":
+      void openDockerWindow();
+      return;
     case "monitor":
       openRecord("monitor", t("workbench.desktop.icons.monitor"), "monitor");
       return;
     case "system":
       openRecord("system", t("workbench.desktop.icons.system"), "system");
+      return;
+    case "transfers":
+      openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
       return;
     case "trash":
       openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
@@ -654,13 +732,17 @@ interface TaskbarEntry {
  * the window it names.
  */
 const taskbarEntries = computed<TaskbarEntry[]>(() =>
-  windows.value.map((window) => ({
-    id: window.id,
-    label: window.title,
-    icon: iconOf(window.kind),
-    tone: toneOf(window.kind),
-    active: window.focused && window.mode !== "min",
-  })),
+  windows.value
+    // A window that is folding away has left the bar already: the cell and the animation would
+    // disagree about whether the thing still exists, and the bar is the faster read of the two.
+    .filter((window) => !closingIds.value.includes(window.id))
+    .map((window) => ({
+      id: window.id,
+      label: window.title,
+      icon: iconOf(window.kind),
+      tone: toneOf(window.kind),
+      active: window.focused && window.mode !== "min",
+    })),
 );
 
 function pressTaskbar(id: string): void {
@@ -1072,7 +1154,7 @@ function disconnect(): void {
             :disabled="icon.disabled"
             draggable="true"
             :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
-            class="flex h-[5.25rem] w-[5.25rem] flex-col items-center justify-start gap-1.5 rounded-lg px-1 py-2 text-center transition-colors"
+            class="flex h-[5.25rem] w-[5.25rem] flex-col items-center justify-start gap-1.5 rounded-lg px-1 py-2 text-center transition duration-150 active:scale-[0.96]"
             :class="[
               onPicture
                 ? selectedId === icon.id
@@ -1129,6 +1211,7 @@ function disconnect(): void {
         :top="window.top"
         :width="window.width"
         :height="window.height"
+        :closing="closingIds.includes(window.id)"
         :labels="windowLabels"
         :style="{ zIndex: window.z }"
         class="absolute"
@@ -1178,6 +1261,21 @@ function disconnect(): void {
             <SystemReport :live="live" />
           </template>
         </HostPage>
+
+        <!--
+          The machine's Docker, over the connection the desktop already holds. The window body owns
+          the engine's whole lifecycle — connecting, failed, the workspace itself — through the
+          windowed container tab this window carries.
+        -->
+        <WorkbenchDockerWindow
+          v-else-if="window.kind === 'docker' && dockerTabOf(window.id) !== null"
+          :tab="dockerTabOf(window.id) as ContainerTab"
+          :active="window.focused"
+          class="h-full"
+        />
+
+        <!-- Everything this session is moving, in one window. -->
+        <WorkbenchTransfersWindow v-else-if="window.kind === 'transfers'" class="h-full" />
 
         <!-- The machine's own details, and the trash: the same panels, in a frame now. -->
         <SystemPanel
