@@ -36,6 +36,7 @@ src-tauri/gen/
 /.scratch/
 
 # Local-only configuration and rules files. Never commit these.
+/.local/
 *.local.json
 .env
 .env.*
