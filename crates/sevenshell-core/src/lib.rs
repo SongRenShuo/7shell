@@ -20,6 +20,7 @@ mod policy;
 mod process;
 mod sessions;
 mod snippets;
+mod sysinfo;
 mod system;
 mod trash;
 mod workbench;
