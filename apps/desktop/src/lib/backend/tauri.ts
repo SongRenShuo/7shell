@@ -1375,6 +1375,11 @@ export function containerConnect(sessionId: string): Promise<string> {
   return invoke<string>("container_connect", { sessionId });
 }
 
+/** Opens the Docker engine of a Linux desktop session, on the connection that session already holds. */
+export function desktopEngineOpen(sessionId: string): Promise<string> {
+  return invoke<string>("desktop_engine_open", { sessionId });
+}
+
 export function containerDisconnect(connectionId: string): Promise<void> {
   return invoke<void>("container_disconnect", { connectionId });
 }

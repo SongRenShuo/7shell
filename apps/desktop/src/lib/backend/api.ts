@@ -832,6 +832,8 @@ export const backend = {
   containers: {
     connect: (sessionId: string): Promise<string> =>
       forward("container_connect", () => desktop.containerConnect(sessionId)),
+    connectDesktop: (sessionId: string): Promise<string> =>
+      forward("desktop_engine_open", () => desktop.desktopEngineOpen(sessionId)),
     disconnect: (connectionId: string): Promise<void> =>
       forward("container_disconnect", () => desktop.containerDisconnect(connectionId)),
     list: (connectionId: string): Promise<ContainerSummary[]> =>
