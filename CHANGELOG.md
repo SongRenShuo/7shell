@@ -68,6 +68,17 @@ All notable changes to 7Shell are documented in this file. The format is
 - A desktop icon's **Properties** is a real card now rather than a disabled placeholder: what the
   icon is, what it opens, and — for a shortcut — the path it stands for, with "open the folder",
   "copy path" and "remove from the desktop" beside it (86e611b).
+- The desktop's **Docker manager**: the machine's own Docker engine, opened over the connection the
+  desktop already holds and closed with the window. Containers with their state and ports, the
+  engine's stats, images, a container's logs and a container terminal — all of it the container
+  workspace the application already had, now standing on the desktop as an application (c800bd1,
+  6802f6d, 0ead797).
+- A **transfer manager** window on the desktop: everything this session is moving, in one place,
+  with each transfer's progress and stop (6802f6d).
+- Motion polish on the desktop: a window settles into place when it opens and folds away before it
+  is removed (its tab and engine go with it), a double-click on a title bar is the maximize
+  button's other face, icons press back, and a system-wide reduced-motion request turns the
+  decoration off without touching any state (0ead797).
 - The system panel reads further: each service's boot state with a switch to enable or disable it
   (the states a unit file refuses are shown rather than offered), the account's crontab, the last
   twenty logins including the machine's own reboots, the firewall's state from ufw or firewalld,
