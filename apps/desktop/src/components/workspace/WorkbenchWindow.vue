@@ -6,15 +6,16 @@
  *
  * The look is the reference desktop's, measured rather than invented, and named in the workbench
  * token block of `globals.css` rather than written here: the pane is `--workbench-glass` (a
- * translucent black under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
+ * translucent face under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
  * app tier of the `--wb-shadow-*` scale, and its roundness `--wb-radius-window` — the window step
  * of the desktop's own radius scale, still derived from the corner style the rest of the
- * interface obeys. A title bar at least 45px tall with a 17px white title and a hairline under
+ * interface obeys. A title bar at least 45px tall with a 17px title and a hairline under
  * it; three round icon buttons at the far end, the last of which turns `--workbench-danger` under
- * the pointer. Everything here stays white on dark, like the rest of the desktop chrome — a
- * window is a thing on a picture, and it does not follow the interface's light theme: the tokens
- * resolve to the same dark-face values in both theme blocks, and a light desktop plugs in at that
- * seam, not here.
+ * the pointer. The face follows the host's theme — dark glass and white text on a dark host, white
+ * glass and dark text on a light one — except where it must not: on a wallpaper the pane re-points
+ * the whole chrome at the fixed white pair and the dark glass (`data-workbench-on-picture` in
+ * `globals.css`), because text standing on a picture is always white. Nothing here names a colour
+ * of its own.
  *
  * The gestures are pointer-based rather than HTML5 drag-and-drop, because a drag is not a data
  * transfer: it starts on the title bar, moves the window by the distance the pointer travelled
@@ -163,7 +164,7 @@ const windowStyle = computed(() => ({
 
 const rootClass = computed(() =>
   cn(
-    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-white shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
+    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
     props.state === "max" ? "workbench-window--max rounded-none" : undefined,
     props.state === "min" ? "workbench-window--min" : undefined,
     props.closing ? "workbench-window--closing" : undefined,
@@ -363,8 +364,17 @@ function onResizePointerUp(event: PointerEvent): void {
       @pointercancel="onTitlePointerUp"
       @dblclick="onTitleDoubleClick"
     >
-      <component :is="icon" v-if="icon" :size="16" class="shrink-0 text-white/80" aria-hidden="true" />
-      <h2 data-workbench-window-caption class="min-w-0 flex-1 truncate text-[17px] leading-none text-white">
+      <component
+        :is="icon"
+        v-if="icon"
+        :size="16"
+        class="shrink-0 text-[color-mix(in_srgb,var(--workbench-on-picture)_80%,transparent)]"
+        aria-hidden="true"
+      />
+      <h2
+        data-workbench-window-caption
+        class="min-w-0 flex-1 truncate text-[17px] leading-none text-[var(--workbench-on-picture)]"
+      >
         {{ title }}
       </h2>
 
@@ -374,7 +384,7 @@ function onResizePointerUp(event: PointerEvent): void {
           data-workbench-window-min
           :aria-label="labels.minimize"
           :title="labels.minimize"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-wash-hover)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="emit('minimize')"
         >
           <Minus :size="19" aria-hidden="true" />
@@ -384,7 +394,7 @@ function onResizePointerUp(event: PointerEvent): void {
           data-workbench-window-max
           :aria-label="canRestore ? labels.restore : labels.maximize"
           :title="canRestore ? labels.restore : labels.maximize"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-wash-hover)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="canRestore ? emit('restore') : emit('maximize')"
         >
           <Copy v-if="canRestore" :size="19" aria-hidden="true" />
@@ -395,7 +405,7 @@ function onResizePointerUp(event: PointerEvent): void {
           data-workbench-window-close
           :aria-label="labels.close"
           :title="labels.close"
-          class="grid h-7 w-7 place-items-center rounded-full text-white/75 transition-colors hover:bg-[var(--workbench-danger)] hover:text-white focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-danger)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="emit('close')"
         >
           <X :size="19" aria-hidden="true" />
@@ -449,7 +459,12 @@ function onResizePointerUp(event: PointerEvent): void {
       @pointerup="onResizePointerUp"
       @pointercancel="onResizePointerUp"
     >
-      <svg width="10" height="10" viewBox="0 0 10 10" class="pointer-events-none text-white/40">
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        class="pointer-events-none text-[color-mix(in_srgb,var(--workbench-on-picture)_40%,transparent)]"
+      >
         <path d="M9 1 1 9M9 5 5 9" stroke="currentColor" stroke-width="1" fill="none" />
       </svg>
     </span>
