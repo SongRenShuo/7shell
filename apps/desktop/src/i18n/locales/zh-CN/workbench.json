@@ -7,6 +7,22 @@
     },
     "desktop": {
       "title": "桌面",
+      "shell": {
+        "disconnect": "断开连接",
+        "starter": "应用",
+        "clock": "时钟",
+        "power": "电源",
+        "minimize": "最小化",
+        "maximize": "最大化",
+        "restore": "还原",
+        "close": "关闭",
+        "files": "文件",
+        "terminal": "终端",
+        "monitor": "监控",
+        "system": "系统",
+        "trash": "回收站",
+        "settings": "设置"
+      },
       "icons": {
         "home": "主目录",
         "terminal": "终端",
@@ -96,6 +112,8 @@
         "disks": "磁盘",
         "accounts": "账户",
         "network": "网络",
+        "crontab": "定时任务",
+        "logins": "登录记录",
         "journal": "日志"
       },
       "facts": {
@@ -114,6 +132,7 @@
         "load": "加载",
         "active": "活动",
         "sub": "细分",
+        "boot": "开机启动",
         "description": "描述",
         "empty": "该主机没有返回任何服务——没有 systemd 的容器在这里什么都不会回答。",
         "actions": "操作"
@@ -148,7 +167,23 @@
         "dns": "DNS 解析器",
         "noDns": "没有返回解析器。",
         "empty": "该主机没有返回网卡。",
-        "noRoutes": "该主机没有返回路由。"
+        "noRoutes": "该主机没有返回路由。",
+        "firewall": "防火墙",
+        "firewallOn": "已启用",
+        "firewallOff": "未启用",
+        "firewallMissing": "该主机上未找到受支持的防火墙。"
+      },
+      "crontab": {
+        "hint": "该账户的定时任务，按主机上存储的原样显示。",
+        "empty": "该账户没有定时任务。"
+      },
+      "logins": {
+        "user": "账户",
+        "tty": "TTY",
+        "from": "来源",
+        "start": "登录时间",
+        "status": "时长",
+        "empty": "该主机没有返回登录记录。"
       },
       "journal": {
         "tail": "最近 {count} 行",
