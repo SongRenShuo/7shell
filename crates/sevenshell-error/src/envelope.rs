@@ -397,6 +397,17 @@ impl ShellError {
             .with_outcome(OperationOutcome::Sent)
     }
 
+    /// The machine refused to end a process the monitor's page asked about, or reported failure.
+    ///
+    /// Same reading as the power action's failure: the detail is the server's own reply about a
+    /// command this build chose — typically "no such process", which is somebody's answer rather
+    /// than a secret.
+    pub fn process_kill_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::ProcessKillFailed, Origin::new(Subsystem::Ssh))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::Sent)
+    }
+
     // -- SFTP --------------------------------------------------------------
 
     pub fn sftp_not_found(remote_path: &str) -> Self {

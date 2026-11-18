@@ -17,6 +17,7 @@ mod k8s;
 mod keys;
 mod monitor;
 mod policy;
+mod process;
 mod sessions;
 mod snippets;
 mod system;
