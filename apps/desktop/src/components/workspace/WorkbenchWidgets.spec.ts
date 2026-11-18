@@ -199,7 +199,6 @@ describe("the widgets column", () => {
   });
 
   it("does not pump at all while the application window is hidden", async () => {
-    document.visibilityState;
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     try {
       mount({ handle: "h1", active: true });
