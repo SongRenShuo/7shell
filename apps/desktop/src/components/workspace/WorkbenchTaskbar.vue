@@ -129,7 +129,9 @@ const emit = defineEmits<{
   display: flex;
   height: 57px;
   flex: none;
-  margin: 0 73px 15px;
+  /* The reference's 73px each side on a full-width desk; narrowed with the desk, because a fixed
+     73px on a 212px pane leaves a 66px bar with a starter button in it. */
+  margin: 0 clamp(0.5rem, 6vw, 73px) 15px;
   overflow: hidden;
   border-radius: 12px;
   box-shadow: 0 2px 10px #00000069;

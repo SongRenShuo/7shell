@@ -120,6 +120,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   overflow-y: auto;
   background: #000000b8;
   opacity: 1;
+  /* The layer this sheet is mounted in is click-through while the sheet is closed; the sheet takes
+     presses back the moment it is drawn. */
+  pointer-events: auto;
 }
 
 .starter-enter-active,
