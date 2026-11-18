@@ -51,6 +51,14 @@ const props = defineProps<{
   handle: string;
   /** Whether the panel is the one on screen; a hidden panel does not re-read. */
   active: boolean;
+  /**
+   * Whether the panel is drawn inside a desktop window.
+   *
+   * A window already carries a title bar with its own close button, so the panel leaves its name
+   * and its cross out and keeps only the refresh: two titles stacked on one another is the one
+   * thing a frame and its content must not both draw.
+   */
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -269,8 +277,10 @@ watch(
 <template>
   <section class="flex min-h-0 flex-1 flex-col" data-workbench-system>
     <header class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
-      <Boxes :size="13" class="text-muted-foreground" />
-      <span class="text-xs font-medium">{{ t("workbench.system.title") }}</span>
+      <template v-if="!embedded">
+        <Boxes :size="13" class="text-muted-foreground" />
+        <span class="text-xs font-medium">{{ t("workbench.system.title") }}</span>
+      </template>
       <span class="flex-1" />
       <button
         type="button"
@@ -282,6 +292,7 @@ watch(
         <RefreshCw :size="12" :class="reading ? 'animate-spin' : ''" />
       </button>
       <button
+        v-if="!embedded"
         type="button"
         class="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         :title="t('common.action.close')"

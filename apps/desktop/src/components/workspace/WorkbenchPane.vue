@@ -1139,6 +1139,7 @@ function disconnect(): void {
           :session-id="session.id"
           :handle="tab.handle"
           :active="window.focused"
+          embedded
           class="h-full"
           @close="close(window.id)"
         />
@@ -1147,6 +1148,7 @@ function disconnect(): void {
           :session-id="session.id"
           :handle="tab.handle"
           :active="window.focused"
+          embedded
           class="h-full"
           @close="close(window.id)"
         />
