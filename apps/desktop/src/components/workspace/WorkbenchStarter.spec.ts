@@ -8,6 +8,8 @@
  * the classic "the sheet is closed and the keyboard is still inside it" bug.
  */
 import { Folder, Terminal } from "@lucide/vue";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type App, createApp, defineComponent, h } from "vue";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -148,5 +150,13 @@ describe("the starter sheet", () => {
     click(close);
 
     expect(closes).toBe(1);
+  });
+
+  it("draws its sheet from the workbench surface token, with no literal colour left", () => {
+    // The sheet's glass is scoped CSS, invisible to DOM assertions here; the probe is the source.
+    const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchStarter.vue"), "utf8");
+    expect(source).toContain("var(--workbench-surface-2)");
+    expect(source).toContain("var(--workbench-on-picture-muted)");
+    expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

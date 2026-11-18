@@ -14,7 +14,7 @@
  * click here even though its desktop icons need two, and that is the right way round, since a tile
  * is already a deliberate act and a desktop icon is something the pointer can catch by accident.
  *
- * The sheet is kept in the DOM and hidden with `v-show` so the 0.4s fade runs in both directions —
+ * The sheet is kept in the DOM and hidden with `v-show` so the fade runs in both directions —
  * a `v-if` would remove it the moment it closed, and the fade out would never be seen. While it is
  * closed the container is `inert`, so the tiles it still holds cannot be reached by Tab or by a
  * screen reader even though they exist. The `Transition` wrapper is what lets `v-show` animate at
@@ -118,7 +118,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   inset: 0;
   z-index: 20;
   overflow-y: auto;
-  background: #000000b8;
+  background: var(--workbench-surface-2);
   opacity: 1;
   /* The layer this sheet is mounted in is click-through while the sheet is closed; the sheet takes
      presses back the moment it is drawn. */
@@ -127,7 +127,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 .starter-enter-active,
 .starter-leave-active {
-  transition: opacity 0.4s;
+  transition: opacity var(--wb-dur-slow);
 }
 
 .starter-enter-from,
@@ -145,21 +145,21 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: #e1e1e1;
+  color: var(--workbench-on-picture-muted);
   transition:
-    background-color 0.2s,
-    color 0.2s;
+    background-color var(--wb-dur-base),
+    color var(--wb-dur-base);
 }
 
 .starter-close:hover,
 .starter-close:focus-visible {
-  background: #ffffff2e;
-  color: #ffffff;
+  background: var(--workbench-wash-hover);
+  color: var(--workbench-on-picture);
 }
 
 .starter-close:focus-visible,
 .starter-tile:focus-visible {
-  outline: 1px solid #ffffffa0;
+  outline: 1px solid var(--workbench-focus-outline);
   outline-offset: -1px;
 }
 
@@ -185,12 +185,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   justify-content: center;
   gap: 6px;
   border-radius: 7px;
-  transition: background-color 0.2s;
+  transition: background-color var(--wb-dur-base);
   cursor: pointer;
 }
 
 .starter-tile:hover {
-  background: #ffffff2e;
+  background: var(--workbench-wash-hover);
   backdrop-filter: blur(15px);
   -webkit-backdrop-filter: blur(15px);
 }
@@ -203,13 +203,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  color: #ffffff;
+  color: var(--workbench-on-picture);
 }
 
 .starter-label {
   max-width: 100px;
   overflow: hidden;
-  color: #e1e1e1;
+  color: var(--workbench-on-picture-muted);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
