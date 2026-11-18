@@ -27,9 +27,9 @@ use sevenshell_types::{
     AppInfo, AppSettings, AuthMethod, BatchRequest, CompletionExecuteRequest, CompletionWord, ContainerCommitRequest,
     ContainerCreateRequest, ContainerImageTransfer, ContainerRegistryLogin, ContainerStreamEnd, ContainerStreamLine,
     CreatedKey, DownloadFolderView, EntryKind, K8sExecRequest, K8sLogRequest, K8sRequest, K8sStreamEnd, K8sStreamLine,
-    K8sWatchEvent, KeyAlgorithm, KeyInfo, PresentedHostKey, Protocol, SecretInput, SendTarget, Session,
-    SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup, SyncSelection, TransferState,
-    TrashMoveRequest, UpdateCheck, UploadAnswer, UploadOutcome, VaultState,
+    K8sWatchEvent, KeyAlgorithm, KeyInfo, LocalForward, PresentedHostKey, Protocol, SecretInput, SendTarget, Session,
+    SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup, SyncSelection, TailStreamEnd,
+    TailStreamLine, TransferState, TrashMoveRequest, UpdateCheck, UploadAnswer, UploadOutcome, VaultState,
 };
 use sevenshell_vault::{ExportProtection, OpenedBundle, SessionSecret, Vault, VaultStatus};
 use std::collections::HashMap;
@@ -312,6 +312,29 @@ fn forward_container_stream(
     });
 }
 
+fn forward_tail_stream(
+    sender: broadcast::Sender<String>,
+    mut lines: UnboundedReceiver<TailStreamLine>,
+    mut end: UnboundedReceiver<TailStreamEnd>,
+) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(line) = lines.recv() => {
+                    let _ = sender.send(json!({ "event": "tail_line", "payload": line }).to_string());
+                }
+                Some(finished) = end.recv() => {
+                    while let Ok(line) = lines.try_recv() {
+                        let _ = sender.send(json!({ "event": "tail_line", "payload": line }).to_string());
+                    }
+                    let _ = sender.send(json!({ "event": "tail_end", "payload": finished }).to_string());
+                    break;
+                }
+            }
+        }
+    });
+}
+
 fn forward_k8s_watch(
     sender: broadcast::Sender<String>,
     mut events: UnboundedReceiver<K8sWatchEvent>,
@@ -555,6 +578,34 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
         "tunnel_close" => {
             let id: String = from_args(&args, "id")?;
             state.core.close_tunnel(&id).await?;
+            Ok(Value::Null)
+        }
+        "tunnel_runtime_open" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let forward: LocalForward = from_args(&args, "forward")?;
+            to_value(state.core.tunnel_open(&session_id, forward).await?)
+        }
+        "tunnel_runtime_stop" => {
+            let tunnel_id: String = from_args(&args, "tunnelId")?;
+            state.core.tunnel_runtime_stop(&tunnel_id).await?;
+            Ok(Value::Null)
+        }
+        "file_tail_open" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let path: String = from_args(&args, "path")?;
+            let lines: u32 = from_args(&args, "lines")?;
+            let (events, tail_lines) = tokio::sync::mpsc::unbounded_channel();
+            let (end, ends) = tokio::sync::mpsc::unbounded_channel();
+            let tail_id = state
+                .core
+                .file_tail_open(&session_id, &path, lines, events, end)
+                .await?;
+            forward_tail_stream(state.events.clone(), tail_lines, ends);
+            Ok(json!(tail_id))
+        }
+        "file_tail_close" => {
+            let tail_id: String = from_args(&args, "tailId")?;
+            state.core.file_tail_close(&tail_id).await?;
             Ok(Value::Null)
         }
 

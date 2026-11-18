@@ -22,6 +22,7 @@ mod sessions;
 mod snippets;
 mod sysinfo;
 mod system;
+mod tail;
 mod trash;
 mod workbench;
 

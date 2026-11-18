@@ -402,7 +402,10 @@ impl Core {
 }
 
 /// Turns a host-key decision into the refusal a workspace can show without a prompt.
-fn decision_error(decision: HostKeyDecision) -> ShellError {
+///
+/// Crate-visible because the tail and the runtime forwards ride the same carrier and answer the
+/// same decisions with the same refusal.
+pub(crate) fn decision_error(decision: HostKeyDecision) -> ShellError {
     match decision {
         HostKeyDecision::Unknown(key) => ShellError::ssh_host_key_unknown(&key.host, key.port, &key.key_type),
         HostKeyDecision::Mismatch { trusted, .. } => {

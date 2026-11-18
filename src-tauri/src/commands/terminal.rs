@@ -16,7 +16,7 @@ use sevenshell_core::Core;
 use sevenshell_error::ShellError;
 use sevenshell_session::OpenTerminal;
 use sevenshell_term::zmodem::{Detector, DetectorEvent, Direction, EndReason, FileInfo, ReceiveEvent};
-use sevenshell_types::{HostSystem, LocalShell, OpenOutcome, OpenTunnel, SerialPortInfo};
+use sevenshell_types::{HostSystem, LocalForward, LocalShell, OpenOutcome, OpenTunnel, SerialPortInfo};
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::io::AsyncWriteExt;
@@ -132,6 +132,22 @@ pub async fn tunnels_open(state: State<'_, ShellState>) -> Result<Vec<OpenTunnel
 #[tauri::command]
 pub async fn tunnel_close(state: State<'_, ShellState>, id: String) -> Result<(), ShellError> {
     state.core().close_tunnel(&id).await
+}
+
+/// Opens one forward at runtime, on the connection the session already holds.
+#[tauri::command]
+pub async fn tunnel_runtime_open(
+    state: State<'_, ShellState>,
+    session_id: String,
+    forward: LocalForward,
+) -> Result<OpenTunnel, ShellError> {
+    state.core().tunnel_open(&session_id, forward).await
+}
+
+/// Stops a runtime forward. The engine's stop is the same one `tunnel_close` drives.
+#[tauri::command]
+pub async fn tunnel_runtime_stop(state: State<'_, ShellState>, tunnel_id: String) -> Result<(), ShellError> {
+    state.core().tunnel_runtime_stop(&tunnel_id).await
 }
 
 /// A ZMODEM session running on one terminal, and the file it is moving.
