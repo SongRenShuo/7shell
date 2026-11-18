@@ -81,9 +81,11 @@ All notable changes to 7Shell are documented in this file. The format is
   decoration off without touching any state (0ead797).
 - A **forwards manager** on the desktop: the forwards somebody opens while the desktop is up,
   listed with their mode, binding, destination and connection count, an add form that teaches the
-  two shapes with scenario sentences, and a stop behind a question - with the policy gate answering
-  a bind address that is not loopback with the "this is reachable by other machines" question
-  (f8dab9e, ef4ea1e, ee5eb35).
+  three shapes with scenario sentences, and a stop behind a question. A bind address that is not
+  loopback meets the policy matrix as any forward does - and where the matrix is set to ask, the
+  desktop's open path runs unattended and answers with a refusal naming the rule, so a refused
+  forward is allowed by loosening the matrix, not by answering a question (f8dab9e, ef4ea1e,
+  ee5eb35).
 - A **log tracker** on the desktop: follow a file on the machine line by line (`tail -F` under the
   hood, the path quoted and gated), a stream that sticks to the bottom until somebody scrolls up,
   and a window nobody is watching stops reading - resuming may miss lines, and the copy says so
@@ -105,6 +107,13 @@ All notable changes to 7Shell are documented in this file. The format is
 - The desktop reads its doors from one table: the icon grid, the starter sheet and the taskbar now
   name, glyph and colour each door from the same list, so the Docker door is one picture everywhere
   and a door added to the table appears on every surface at once.
+- The forwards manager grows the third shape: a **remote forward** (`ssh -R`) opens its port on the
+  server, answered by a service of this machine. The add form reads its fields in the reverse
+  direction and says so in its own scenario sentence, and the list draws a remote forward with its
+  kind named and the arrow pointing home.
+- The forwards list keeps itself current: a forward a terminal brought up, or one stopped from
+  another surface, arrives and leaves the reading on its own, with the refresh button still there
+  for the asking.
 
 ### Fixed
 

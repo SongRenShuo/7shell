@@ -6,19 +6,27 @@
  *
  * - **What is up** is a reading: the live list of forwards the connection carries, each with where
  *   it listens and where it leads — `SOCKS5` standing where a dynamic forward has no destination
- *   of its own — and how many connections it has carried. Stopping one is the single write, and it
- *   is asked about once, plainly: the policy gate on the far side will ask in its own voice, and a
- *   second interrogation here would be a question nobody answers well twice.
+ *   of its own, a reversed arrow where a remote forward turns the shape around — and how many
+ *   connections it has carried. The reading keeps itself current: the terminals store learns when
+ *   a terminal brings a forward up or takes one down, and this window re-reads the authoritative
+ *   list whenever that state moves, so a forward opened or stopped somewhere else does not stay
+ *   stale here. Stopping one is the single write, and it is asked about once, plainly.
  * - **Adding one** is the the reference product scene, said in sentences rather than fields alone: a local forward
  *   maps a service inside the machine onto a port here, a dynamic one turns the machine into a
- *   SOCKS5 door. The open answer is the runtime entry — which carries the id, and the port that
- *   was actually bound when `0` asked for a free one — and it joins the list as what is up.
+ *   SOCKS5 door, and a remote one opens a port on the *server* handed to something on this
+ *   machine. The open answer is the runtime entry — which carries the id, and the port that was
+ *   actually bound when `0` asked for a free one — and it joins the list as what is up.
+ *
+ * One honesty note about opening: the desktop's open path runs unattended, so where a stricter
+ * policy matrix raises a question about a forward, the answer is a refusal naming the rule —
+ * shown in the add form's failure sentence — not a question this window could put to anybody.
+ * Loosening the matrix is how a refused forward is allowed.
  *
  * The window is hosted by a session that has a connection forwards can ride on — SSH, or the
  * desktop's own session. Anything else is refused in a sentence, not drawn as an empty room.
  */
 import { ArrowRight, Network, Plus, RotateCw, X } from "@lucide/vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
@@ -27,6 +35,7 @@ import { backend } from "@/lib/backend/api";
 import { type ShellError, asShellError } from "@/lib/backend/errors";
 import { describeShellError } from "@/i18n/errors";
 import { useSessionsStore } from "@/stores/sessions";
+import { useTerminalsStore } from "@/stores/terminals";
 import type { ForwardMode, ForwardRequest, OpenTunnel } from "@/types/session";
 
 const props = defineProps<{
@@ -36,6 +45,7 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const library = useSessionsStore();
+const terminals = useTerminalsStore();
 
 const session = computed(() => library.sessions.find((entry) => entry.id === props.sessionId));
 const hosted = computed(() => session.value?.protocol === "ssh" || session.value?.protocol === "linuxDesk");
@@ -66,6 +76,24 @@ onMounted(() => {
     void refresh();
   }
 });
+
+/**
+ * The forwards elsewhere changed, so the reading changes with them.
+ *
+ * The terminals store's tunnel list is what moves whenever a terminal session brings forwards up,
+ * takes one down, or re-reads its own — this window's own writes answer through its local list
+ * below, so the watch is here for everybody *else*: a forward opened from a terminal appears, and
+ * one stopped from another surface leaves, without anybody pressing refresh. The store's list is
+ * the signal, not the source: the re-read is what keeps what is drawn the authoritative answer.
+ */
+watch(
+  () => terminals.tunnels,
+  () => {
+    if (hosted.value) {
+      void refresh();
+    }
+  },
+);
 
 /** The row whose stop has been asked about, or nothing while no question is on screen. */
 const stopping = ref<OpenTunnel | null>(null);
@@ -115,6 +143,7 @@ const mode = ref<ForwardMode>("local");
 const MODES: SelectOption[] = [
   { value: "local", label: t("workbench.desktop.forwards.modeLocal") },
   { value: "dynamic", label: t("workbench.desktop.forwards.modeDynamic") },
+  { value: "remote", label: t("workbench.desktop.forwards.modeRemote") },
 ];
 
 const bindHost = ref("127.0.0.1");
@@ -149,6 +178,8 @@ const addOk = computed(() => {
   if (mode.value === "dynamic") {
     return true;
   }
+  // A local forward needs the service inside the machine; a remote one needs the service on this
+  // one. Both name it with the same two fields, each mode reading them in its own direction.
   const target = portOf(targetPort.value);
   return targetHost.value.trim() !== "" && target !== null && target !== 0;
 });
@@ -163,7 +194,8 @@ async function add(): Promise<void> {
     bindHost: bindHost.value.trim(),
     bindPort: portOf(bindPort.value) ?? 0,
     // Empty for a dynamic forward, which has no destination of its own — the callers of it
-    // choose, connection by connection. This is the same shape the session editor saves.
+    // choose, connection by connection. For a remote forward these two are read the other way:
+    // the service is on this machine, and the server's port is the window onto it.
     targetHost: dynamic ? "" : targetHost.value.trim(),
     targetPort: dynamic ? 0 : (portOf(targetPort.value) ?? 0),
   };
@@ -232,16 +264,34 @@ async function add(): Promise<void> {
             :key="tunnel.id"
             class="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-accent/50"
             data-workbench-forwards-row
+            :data-forward-mode="tunnel.mode"
           >
             <Network :size="13" class="shrink-0 text-muted-foreground" />
             <span class="min-w-0 flex-1">
               <span class="flex items-center gap-1 font-mono text-[11px]">
+                <!--
+                  A remote forward is the shape read backwards: its bind is a port on the server and
+                  its destination is this machine, so the arrow points home and the row names its
+                  kind, where a local one's shape says "local" already.
+                -->
+                <span
+                  v-if="tunnel.mode === 'remote'"
+                  class="shrink-0 font-sans text-[10px] uppercase tracking-wide text-muted-foreground"
+                  >{{ t("workbench.desktop.forwards.modeRemoteTag") }}</span
+                >
                 <span class="min-w-0 truncate">{{ tunnel.bindHost }}:{{ tunnel.bindPort }}</span>
                 <ArrowRight
                   :size="11"
                   class="shrink-0 text-muted-foreground"
+                  :class="tunnel.mode === 'remote' ? 'rotate-180' : ''"
                   role="img"
-                  :aria-label="t('terminal.tunnels.direction')"
+                  :aria-label="
+                    t(
+                      tunnel.mode === 'remote'
+                        ? 'workbench.desktop.forwards.remoteDirection'
+                        : 'terminal.tunnels.direction',
+                    )
+                  "
                 />
                 <span v-if="tunnel.mode === 'dynamic'" class="min-w-0 truncate">SOCKS5</span>
                 <span v-else class="min-w-0 truncate">{{ tunnel.targetHost }}:{{ tunnel.targetPort }}</span>
@@ -278,7 +328,9 @@ async function add(): Promise<void> {
 
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
           <label class="flex items-center gap-1.5">
-            <span class="text-muted-foreground">{{ t("workbench.desktop.forwards.bindHost") }}</span>
+            <span class="text-muted-foreground">{{
+              t(mode === "remote" ? "workbench.desktop.forwards.bindHostServer" : "workbench.desktop.forwards.bindHost")
+            }}</span>
             <input
               v-model="bindHost"
               type="text"
@@ -287,7 +339,9 @@ async function add(): Promise<void> {
             />
           </label>
           <label class="flex items-center gap-1.5">
-            <span class="text-muted-foreground">{{ t("workbench.desktop.forwards.bindPort") }}</span>
+            <span class="text-muted-foreground">{{
+              t(mode === "remote" ? "workbench.desktop.forwards.bindPortServer" : "workbench.desktop.forwards.bindPort")
+            }}</span>
             <input
               v-model="bindPort"
               type="text"
@@ -296,9 +350,15 @@ async function add(): Promise<void> {
               class="w-16 rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] focus:border-primary focus:outline-none"
             />
           </label>
-          <template v-if="mode === 'local'">
+          <template v-if="mode === 'local' || mode === 'remote'">
             <label class="flex items-center gap-1.5">
-              <span class="text-muted-foreground">{{ t("workbench.desktop.forwards.targetHost") }}</span>
+              <span class="text-muted-foreground">{{
+                t(
+                  mode === "remote"
+                    ? "workbench.desktop.forwards.targetHostLocal"
+                    : "workbench.desktop.forwards.targetHost",
+                )
+              }}</span>
               <input
                 v-model="targetHost"
                 type="text"
@@ -307,7 +367,13 @@ async function add(): Promise<void> {
               />
             </label>
             <label class="flex items-center gap-1.5">
-              <span class="text-muted-foreground">{{ t("workbench.desktop.forwards.targetPort") }}</span>
+              <span class="text-muted-foreground">{{
+                t(
+                  mode === "remote"
+                    ? "workbench.desktop.forwards.targetPortLocal"
+                    : "workbench.desktop.forwards.targetPort",
+                )
+              }}</span>
               <input
                 v-model="targetPort"
                 type="text"
@@ -325,6 +391,7 @@ async function add(): Promise<void> {
         >
           <p>{{ t("workbench.desktop.forwards.hint.local") }}</p>
           <p>{{ t("workbench.desktop.forwards.hint.dynamic") }}</p>
+          <p>{{ t("workbench.desktop.forwards.hint.remote") }}</p>
         </div>
 
         <p v-if="addFailure" class="text-[11px] text-destructive">
@@ -345,7 +412,11 @@ async function add(): Promise<void> {
       </form>
     </template>
 
-    <!-- One question, plainly: the policy gate will speak in its own voice afterwards. -->
+    <!--
+      One question, plainly, about the one write this window has: stopping a forward somebody may
+      have been using. Opening has no question of its own — the desktop's open path runs unattended,
+      and a stricter matrix answers with a refusal naming the rule, which the add form says below.
+    -->
     <ConfirmDialog
       :open="stopQuestion"
       :title="t('workbench.desktop.forwards.stopTitle')"
