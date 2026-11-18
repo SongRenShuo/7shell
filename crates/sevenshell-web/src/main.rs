@@ -1054,6 +1054,18 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
                     .await?,
             )
         }
+        "process_kill" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            let handle: String = from_args(&args, "handle")?;
+            let pid: u32 = from_args(&args, "pid")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(
+                state
+                    .core
+                    .kill_process(&session_id, &handle, pid, acknowledged)
+                    .await?,
+            )
+        }
 
         "trash_list" => {
             let handle: String = from_args(&args, "handle")?;
