@@ -179,7 +179,9 @@
       "emptyState": "The trash is empty.",
       "emptyHint": "Files deleted into the trash are listed here until they are put back or deleted for good.",
       "emptyTitle": "Empty the trash?",
-      "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone."
+      "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone.",
+      "removeTitle": "Delete {name} for good?",
+      "removeMessage": "\"{name}\" is deleted for good. This cannot be undone."
     },
     "system": {
       "title": "System panel",

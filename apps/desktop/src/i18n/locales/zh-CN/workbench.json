@@ -179,7 +179,9 @@
       "emptyState": "回收站是空的。",
       "emptyHint": "删除到回收站的文件会列在这里，直到被放回或永久删除。",
       "emptyTitle": "清空回收站？",
-      "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。"
+      "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。",
+      "removeTitle": "永久删除 {name}？",
+      "removeMessage": "“{name}”将被永久删除，无法恢复。"
     },
     "system": {
       "title": "系统面板",
