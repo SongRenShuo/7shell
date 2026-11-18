@@ -20,6 +20,7 @@ mod policy;
 mod sessions;
 mod snippets;
 mod system;
+mod trash;
 mod workbench;
 
 pub use archive::{ARCHIVE_TIMEOUT, archive_name, shell_quote};

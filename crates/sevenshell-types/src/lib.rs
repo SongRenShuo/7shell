@@ -22,6 +22,7 @@ mod settings;
 mod snippet;
 mod sync;
 mod system;
+mod trash;
 mod update;
 mod words;
 
@@ -114,6 +115,7 @@ pub use snippet::{
     CommandHistoryEntry, DEFAULT_GROUP_ID, SLOT_HISTORY, SNIPPET_SLOTS, SendFailure, SendOutcome, SendReport,
     SendTarget, Snippet, SnippetGroup,
 };
+pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
 pub use sync::{
     SnippetProvider, SnippetStatus, SnippetUploadReceipt, SyncApplySummary, SyncCatalog, SyncContents,
     SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt,

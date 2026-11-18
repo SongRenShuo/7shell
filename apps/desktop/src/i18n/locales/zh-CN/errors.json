@@ -37,6 +37,10 @@
       "transferFailed": "{path} 的传输失败。",
       "operationFailed": "{path} 的操作失败。"
     },
+    "trash": {
+      "operationFailed": "对 {path} 的回收站操作失败。{detail}",
+      "entryNotFound": "{path} 已不在回收站中，请刷新列表。"
+    },
     "file": {
       "notText": "{path} 不是文本文件，编辑器无法显示。",
       "tooLarge": "{path} 超过文本编辑器可打开的大小上限（{limit} MB），请下载后用本地工具查看。"
