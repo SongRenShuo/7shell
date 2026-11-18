@@ -61,9 +61,9 @@ export interface WorkbenchWindowState {
   restore?: WorkbenchWindowRect;
 }
 
-/** The reference desktop's opening size, which is also the size a window is remembered at. */
-export const DEFAULT_WIDTH = 666;
-export const DEFAULT_HEIGHT = 422;
+/** The desktop's opening size, which is also the size a window is remembered at. */
+export const DEFAULT_WIDTH = 900;
+export const DEFAULT_HEIGHT = 600;
 
 /** No window may be made smaller than this, except where the desk itself is smaller. */
 export const MIN_WIDTH = 200;
@@ -89,6 +89,11 @@ export interface OpenWindowInput {
   title: string;
   kind: string;
   bounds: WorkbenchBounds;
+  /**
+   * Where the window was last time this kind of window was open, which `openWindow` puts it back
+   * at. Absent — a kind never opened on this machine — means the centred default.
+   */
+  remembered?: WorkbenchWindowRect;
 }
 
 /** The room the desk actually offers: below the status bar and above the taskbar. */
@@ -191,12 +196,15 @@ export function clampToWorkArea(rect: WorkbenchWindowRect, bounds: WorkbenchBoun
 }
 
 /**
- * Opens a window centred on the desk, at the default size, on top of everything else.
+ * Opens a window at its remembered geometry, or centred at the default size, on top of everything.
  *
- * The centre is taken over the whole desk and then clamped into the work area, which is what makes
- * a short surface push the window down out from under the status bar rather than half behind it.
- * A window larger than the work area is shrunk to it — an opening window that overflows the desk
- * would hide its own title bar before anybody had a chance to move it.
+ * A remembered rectangle — the geometry this kind of window was last left at on this machine — is
+ * what a reopened window comes back to, clamped into the work area as it is now: a desk that got
+ * smaller must not leave a window half off it. Without one, the centre is taken over the whole desk
+ * and then clamped into the work area, which is what makes a short surface push the window down out
+ * from under the status bar rather than half behind it. A window larger than the work area is
+ * shrunk to it — an opening window that overflows the desk would hide its own title bar before
+ * anybody had a chance to move it.
  *
  * Opening an id that is already open does not open a second one: it brings the existing window
  * forward, which for a minimised one means showing it again. The geometry is left where the person
@@ -207,12 +215,18 @@ export function openWindow(list: readonly WorkbenchWindowState[], input: OpenWin
   if (list.some((window) => window.id === input.id)) {
     return showWindow(list, input.id);
   }
+  const wanted = input.remembered ?? {
+    left: (finite(input.bounds.width, DEFAULT_WIDTH) - DEFAULT_WIDTH) / 2,
+    top: (finite(input.bounds.height, DEFAULT_HEIGHT) - DEFAULT_HEIGHT) / 2,
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
+  };
   const rect = clampToWorkArea(
     {
-      left: (finite(input.bounds.width, DEFAULT_WIDTH) - DEFAULT_WIDTH) / 2,
-      top: (finite(input.bounds.height, DEFAULT_HEIGHT) - DEFAULT_HEIGHT) / 2,
-      width: DEFAULT_WIDTH,
-      height: DEFAULT_HEIGHT,
+      left: finite(wanted.left, (finite(input.bounds.width, DEFAULT_WIDTH) - DEFAULT_WIDTH) / 2),
+      top: finite(wanted.top, (finite(input.bounds.height, DEFAULT_HEIGHT) - DEFAULT_HEIGHT) / 2),
+      width: finite(wanted.width, DEFAULT_WIDTH),
+      height: finite(wanted.height, DEFAULT_HEIGHT),
     },
     input.bounds,
   );
@@ -475,4 +489,42 @@ export function closeWindow(list: readonly WorkbenchWindowState[], id: string): 
   }
   const remaining = list.filter((window) => window.id !== id).map(copyWindow);
   return target.focused ? focusHighest(remaining) : remaining;
+}
+
+/**
+ * Minimises every window that is on screen, the desktop button's first half.
+ *
+ * Each visible window goes through the same `minimizeWindow` path a single one would — same
+ * remembered rectangle, same focus hand-over — so the desk empties the same way one window at a
+ * time does, ending with nothing focused because nothing is visible. Already-minimised windows are
+ * left exactly as they are: their geometry was not on screen to change.
+ */
+export function minimizeAll(list: readonly WorkbenchWindowState[]): WorkbenchWindowState[] {
+  const visible = list.some((window) => window.mode !== "min");
+  if (!visible) {
+    return copyList(list);
+  }
+  return list.reduce(
+    (current, window) => (window.mode === "min" ? current : minimizeWindow(current, window.id)),
+    copyList(list),
+  );
+}
+
+/**
+ * Puts every minimised window back on the desk, the desktop button's second half.
+ *
+ * The windows come back stacked in the order the list keeps them, each raise leaving the focus with
+ * the last — the top of the pile is where the pointer goes next, and that is as good a guess as the
+ * list offers. Windows that were never put away are untouched: "restore the desk" means bringing
+ * back what was hidden, not rearranging what was never hidden.
+ */
+export function restoreAll(list: readonly WorkbenchWindowState[]): WorkbenchWindowState[] {
+  const hidden = list.some((window) => window.mode === "min");
+  if (!hidden) {
+    return copyList(list);
+  }
+  return list.reduce(
+    (current, window) => (window.mode === "min" ? showWindow(current, window.id) : current),
+    copyList(list),
+  );
 }
