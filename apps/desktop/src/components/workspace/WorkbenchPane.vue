@@ -85,6 +85,7 @@ import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
 import { useFilesStore } from "@/stores/files";
 import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
+import { usePreferencesStore } from "@/stores/preferences";
 import type { NoticeSourceKey } from "@/components/workspace/WorkbenchNotices.vue";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
@@ -395,6 +396,30 @@ function dragOver(icon: DesktopIcon): void {
 
 function dragOverDesktop(): void {
   dragOverId.value = null;
+}
+
+/**
+ * The drag over an icon: the desk's own arrangement when it is an icon being dragged, the file
+ * upload's hover when it is files from outside. A desk icon is not a folder — files from outside
+ * land in the directory the desk's hover names, never inside another icon.
+ */
+function dragOverIcon(event: DragEvent, icon: DesktopIcon): void {
+  if (externalFiles(event)) {
+    dragOverDesk(event);
+    return;
+  }
+  event.stopPropagation();
+  dragOver(icon);
+}
+
+/** The drop on an icon, split the same way its dragover is. */
+function dropIconFrom(event: DragEvent, icon: DesktopIcon): void {
+  if (externalFiles(event)) {
+    dropOnDesk(event);
+    return;
+  }
+  event.stopPropagation();
+  dropIcon(icon);
 }
 
 function endDrag(): void {
@@ -1068,6 +1093,155 @@ const noticeLabels = computed(() => ({
   clearConfirm: t("workbench.notices.clearConfirm"),
 }));
 
+// -- files from outside the window -------------------------------------------
+
+const preferences = usePreferencesStore();
+
+/**
+ * The external file drag hovering over the desk, or none.
+ *
+ * A drag of real files — the operating system handing them over, not the desktop's own icon
+ * arrangement — is answered the way the reference's file manager answers a dragged batch: the desk
+ * says what letting go would do, and where. The window under the pointer decides the "where": a
+ * file window offers its own directory, and the desk itself offers the session's home.
+ */
+const fileDrag = ref<{ count: number; target: string } | null>(null);
+
+/** Whether what is being dragged is a batch of files from outside, and not this desk's own icons. */
+function externalFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+/** Where a drop would land: a file window's own directory, or the session's home. */
+function dropTargetOf(event: DragEvent): {
+  windowId: string | null;
+  handle: string | null;
+  directory: string | null;
+  label: string;
+} {
+  const over =
+    event.target instanceof Element
+      ? (event.target.closest("[data-workbench-window]")?.getAttribute("data-window-id") ?? null)
+      : null;
+  const payload = over !== null ? payloads.value[over] : undefined;
+  if (over !== null && payload?.fileHandle !== undefined) {
+    const browser = files.browser(payload.fileHandle);
+    if (browser !== null) {
+      return { windowId: over, handle: payload.fileHandle, directory: browser.path, label: browser.path };
+    }
+  }
+  // The desk itself: the home, named through whichever file browser is already open — its `home`
+  // is where every browser of this session opened, which is what `~` means here.
+  for (const entry of Object.values(payloads.value)) {
+    if (entry.fileHandle === undefined) {
+      continue;
+    }
+    const browser = files.browser(entry.fileHandle);
+    if (browser !== null) {
+      return {
+        windowId: null,
+        handle: entry.fileHandle,
+        directory: browser.home,
+        label: t("workbench.desktop.dropUpload.targetHome"),
+      };
+    }
+  }
+  return {
+    windowId: null,
+    handle: null,
+    directory: null,
+    label: t("workbench.desktop.dropUpload.targetHome"),
+  };
+}
+
+function dragOverDesk(event: DragEvent): void {
+  if (!externalFiles(event)) {
+    dragOverDesktop();
+    return;
+  }
+  const target = dropTargetOf(event);
+  fileDrag.value = { count: event.dataTransfer?.items.length ?? 0, target: target.label };
+}
+
+function dragLeftDesk(event: DragEvent): void {
+  if (event.relatedTarget === null) {
+    fileDrag.value = null;
+  }
+}
+
+function dropOnDesk(event: DragEvent): void {
+  // The pane is where the drop ends: stopping it here keeps the window-level drop handler (the
+  // one the panels share) from answering the same drop a second time.
+  event.stopPropagation();
+  fileDrag.value = null;
+  if (!externalFiles(event)) {
+    dropIcon(null);
+    return;
+  }
+  const chosen = Array.from(event.dataTransfer?.files ?? []);
+  if (chosen.length === 0) {
+    return;
+  }
+  void uploadDroppedFiles(chosen, dropTargetOf(event));
+}
+
+/**
+ * Sends what was dropped to the directory the hover promised.
+ *
+ * A file window's drop goes through the browser that window already holds. A drop on the desk
+ * itself reuses an open browser's home — and when none is open, a temporary browser is opened for
+ * the listing that names the home, the files are sent, and the browser is closed again: a transfer
+ * outlives the browser it started from, so closing costs nothing that was still moving.
+ */
+async function uploadDroppedFiles(
+  chosen: readonly File[],
+  target: { handle: string | null; directory: string | null },
+): Promise<void> {
+  if (props.tab.handle === null) {
+    return;
+  }
+  if (target.handle !== null && target.directory !== null) {
+    await files.uploadBrowserFiles(target.handle, target.directory, chosen, preferences.packedTransfer);
+    return;
+  }
+  const outcome = await files.open(session.value.id);
+  if (outcome.kind !== "opened") {
+    return;
+  }
+  const home = files.browser(outcome.handle)?.home;
+  if (home !== undefined) {
+    await files.uploadBrowserFiles(outcome.handle, home, chosen, preferences.packedTransfer);
+  }
+  void files.close(outcome.handle);
+}
+
+const fileDragHint = computed(() => {
+  const drag = fileDrag.value;
+  if (drag === null) {
+    return "";
+  }
+  return drag.count === 1
+    ? t("workbench.desktop.dropUpload.hintOne", { target: drag.target })
+    : t("workbench.desktop.dropUpload.hintMany", { count: drag.count, target: drag.target });
+});
+
+/**
+ * The upload guard: while this session is still moving bytes, leaving the window is a question.
+ *
+ * A transfer that a closed window abandoned is a transfer nobody can stop or see — the same reason
+ * the editor's unsaved text arms the quit guard. The warning is said in the interface's language,
+ * whatever the WebView decides to do with it.
+ */
+const transfersRunning = computed(() => files.transfers.some((entry) => entry.state.kind === "running"));
+
+function onBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!transfersRunning.value) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = t("workbench.desktop.dropUpload.leaveWarning");
+}
+
 // -- the taskbar -------------------------------------------------------------
 
 interface TaskbarEntry {
@@ -1153,6 +1327,7 @@ onMounted(() => {
   }, 60_000);
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("keyup", onKeyup);
+  window.addEventListener("beforeunload", onBeforeUnload);
   // The centre's sources are the desktop's events; subscribing is idempotent, so several desktops
   // sharing the window cost one subscription.
   notifications.connect();
@@ -1171,6 +1346,7 @@ onUnmounted(() => {
   areaObserver = undefined;
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("keyup", onKeyup);
+  window.removeEventListener("beforeunload", onBeforeUnload);
 });
 
 /** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
@@ -1613,8 +1789,9 @@ function disconnect(): void {
       class="relative z-0 min-h-0 flex-1 overflow-hidden"
       @click="clearSelection()"
       @contextmenu="openDesktopMenu"
-      @dragover.prevent="dragOverDesktop()"
-      @drop.prevent="dropIcon(null)"
+      @dragover.prevent="dragOverDesk($event)"
+      @dragleave="dragLeftDesk($event)"
+      @drop.prevent="dropOnDesk($event)"
     >
       <!--
         The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
@@ -1659,8 +1836,8 @@ function disconnect(): void {
             @keydown.enter.prevent="openIcon(icon)"
             @contextmenu.stop="openIconMenu($event, icon)"
             @dragstart.stop="beginDrag($event, icon)"
-            @dragover.prevent.stop="dragOver(icon)"
-            @drop.stop.prevent="dropIcon(icon)"
+            @dragover.prevent="dragOverIcon($event, icon)"
+            @drop.prevent="dropIconFrom($event, icon)"
             @dragend="endDrag()"
           >
             <!--
@@ -1834,6 +2011,25 @@ function disconnect(): void {
         aria-hidden="true"
         class="pointer-events-none absolute z-40 rounded-md border-2 border-dashed border-[color-mix(in_srgb,var(--workbench-on-picture)_60%,transparent)] bg-[color-mix(in_srgb,var(--workbench-on-picture)_10%,transparent)] transition-[left,top,width,height] duration-100"
       ></div>
+
+      <!--
+        The file drop's hover: the reference's dragged-batch sentence, over the whole desk — what
+        letting go will do, and where. A faint wash marks the desk as the target while the drag
+        lasts. Both layers are drawings; neither catches a press (the wrapper lesson), and the drop
+        itself is the desk's own handler, not this hint's.
+      -->
+      <div
+        v-if="fileDrag !== null"
+        data-workbench-drop-hint
+        class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[color-mix(in_srgb,var(--workbench-accent)_8%,transparent)]"
+      >
+        <div
+          data-workbench-drop-hint-text
+          class="pointer-events-none max-w-[80%] truncate rounded-lg border border-[var(--workbench-glass-border)] bg-[var(--workbench-surface-2)] px-4 py-2 text-xs text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-dropdown)]"
+        >
+          {{ fileDragHint }}
+        </div>
+      </div>
     </div>
 
     <!--

@@ -45,7 +45,15 @@ import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import { useToast } from "@/composables/useToast";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
-import { filesList, filesOpen, sessionOpen, systemOverview, trashList, workbenchPower } from "@/lib/backend/tauri";
+import {
+  filesClose,
+  filesList,
+  filesOpen,
+  sessionOpen,
+  systemOverview,
+  trashList,
+  workbenchPower,
+} from "@/lib/backend/tauri";
 import {
   readDesktopShortcuts,
   writeDesktopShortcuts,
@@ -54,9 +62,10 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import { iconOrderKey } from "@/lib/workbench/iconOrder";
 import { hiddenDoorsKey } from "@/lib/workbench/hiddenDoors";
+import { useFilesStore } from "@/stores/files";
 import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
 import { useTerminalsStore } from "@/stores/terminals";
-import type { Session } from "@/types/session";
+import type { Session, TransferInfo } from "@/types/session";
 
 const trashListMock = vi.mocked(trashList);
 const systemOverviewMock = vi.mocked(systemOverview);
@@ -64,6 +73,7 @@ const systemOverviewMock = vi.mocked(systemOverview);
 const sessionOpenMock = vi.mocked(sessionOpen);
 const filesOpenMock = vi.mocked(filesOpen);
 const filesListMock = vi.mocked(filesList);
+const filesCloseMock = vi.mocked(filesClose);
 const workbenchPowerMock = vi.mocked(workbenchPower);
 
 const desk: Session = {
@@ -1477,5 +1487,167 @@ describe("the notification centre", () => {
     await nextTick();
 
     expect(host.querySelector("[data-workbench-notices-layer]")).toBeNull();
+  });
+});
+
+/*
+ * Files from outside the window. The reference's dragged-batch behaviour, said on the desk: while
+ * real files hover over it, the desk tells what letting go would do and where; letting go sends
+ * them through the same upload engine every other door uses — a file window's own directory when
+ * the drop lands there, the session's home when it lands on the desk — and while anything is still
+ * moving, closing the window is a question.
+ */
+describe("files from outside the window", () => {
+  /** A transfer as the polled list answers it, with only the fields the guard reads varying. */
+  function transfer(kind: TransferInfo["state"]["kind"]): TransferInfo {
+    return {
+      id: "t1",
+      direction: "upload",
+      name: "backup.tar",
+      remotePath: "/root/backup.tar",
+      sessionId: "desk-1",
+      size: 100,
+      transferred: 0,
+      state: kind === "failed" ? { kind: "failed", detail: "broken" } : { kind },
+      hasLocalPath: false,
+      packed: false,
+      pausable: true,
+    };
+  }
+
+  /** A drag event with files, built by hand: jsdom has no DataTransfer to dispatch. */
+  function fileDragEvent(type: string, files: readonly File[]): Event {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: {
+        types: ["Files"],
+        items: { length: files.length },
+        files: [...files],
+      },
+    });
+    return event;
+  }
+
+  /** Opens one file window (Home) so the desk has a browser to name the home through. */
+  async function withFileWindow(): Promise<void> {
+    await render();
+    fire(iconByLabel("Home"), "dblclick");
+    // The open is a few awaits deep; the window is what everything after this reads.
+    for (let hop = 0; hop < 20 && host.querySelector("[data-workbench-window]") === null; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+    if (host.querySelector("[data-workbench-window]") === null) {
+      throw new Error("the file window did not open");
+    }
+  }
+
+  it("says what letting go would do, and where, while the files hover over the desk", async () => {
+    await withFileWindow();
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    desk.dispatchEvent(fileDragEvent("dragover", [new File(["a"], "a.txt"), new File(["b"], "b.txt")]));
+    await nextTick();
+
+    const hint = host.querySelector<HTMLElement>("[data-workbench-drop-hint]");
+    expect(hint, "the desk answers a dragged batch").not.toBeNull();
+    expect(host.querySelector("[data-workbench-drop-hint-text]")?.textContent?.trim()).toBe(
+      "Release to upload 2 files to the home directory",
+    );
+    expect(hint?.className, "the hover is a drawing, not a surface").toContain("pointer-events-none");
+    expect(document.elementFromPoint(200, 200), "nothing answers a press but what sits under it").not.toBe(hint);
+  });
+
+  it("does not answer the desk's own icon drags with the upload hover", async () => {
+    await withFileWindow();
+
+    const icon = iconByLabel("Terminal");
+    icon.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const plain = new Event("dragover", { bubbles: true, cancelable: true });
+    desk.dispatchEvent(plain);
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-drop-hint]")).toBeNull();
+  });
+
+  it("uploads what is let go on the desk to the session's home", async () => {
+    await withFileWindow();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const files = [new File(["a"], "a.txt")];
+    desk.dispatchEvent(fileDragEvent("dragover", files));
+    desk.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(upload, "the home directory is where the desk sends them").toHaveBeenCalledWith(
+      expect.any(String),
+      "/root",
+      files,
+      false,
+    );
+    expect(host.querySelector("[data-workbench-drop-hint]"), "the hover went with the drop").toBeNull();
+  });
+
+  it("opens the browser it needs for the home, and closes it again when none is open", async () => {
+    await render();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const files = [new File(["a"], "a.txt")];
+    desk.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(filesOpenMock, "a browser was opened just for this listing").toHaveBeenCalledWith("desk-1");
+    expect(upload).toHaveBeenCalledWith(expect.any(String), "/root", files, false);
+    expect(filesCloseMock, "the temporary browser went away again").toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("sends a drop that lands on a file window to that window's own directory", async () => {
+    await withFileWindow();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+    await store.navigate("f1", "/root/logs");
+    await nextTick();
+
+    const windowBody = host.querySelector<HTMLElement>("[data-workbench-window]");
+    const files = [new File(["a"], "a.txt")];
+    windowBody?.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(upload).toHaveBeenCalledWith("f1", "/root/logs", files, false);
+  });
+
+  it("asks before the window goes away while an upload is still moving", async () => {
+    await render();
+    const store = useFilesStore();
+
+    store.transfers = [transfer("running")];
+    await nextTick();
+    let event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, "bytes are still moving").toBe(true);
+
+    store.transfers = [transfer("done")];
+    await nextTick();
+    event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, "nothing is moving any more").toBe(false);
   });
 });

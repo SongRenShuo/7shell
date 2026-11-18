@@ -87,6 +87,12 @@
         }
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
+      "dropUpload": {
+        "hintOne": "Release to upload 1 file to {target}",
+        "hintMany": "Release to upload {count} files to {target}",
+        "targetHome": "the home directory",
+        "leaveWarning": "Uploads are still running. Leaving now abandons them."
+      },
       "menu": {
         "open": "Open",
         "remove": "Remove",
