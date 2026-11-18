@@ -28,6 +28,8 @@ const closing = ref(false);
 const calls = { focus: 0, close: 0, minimize: 0, maximize: 0, restore: 0 };
 const moves: { left: number; top: number }[] = [];
 const resizes: { width: number; height: number }[] = [];
+const resizesDir: { dir: string; rect: { left: number; top: number; width: number; height: number } }[] = [];
+const moveEnds: number[] = [];
 
 const StubIcon = defineComponent({ render: () => h("span", { "data-stub-icon": "" }) });
 
@@ -65,6 +67,11 @@ const Host = defineComponent({
           },
           onMove: (payload: { left: number; top: number }) => moves.push(payload),
           onResize: (payload: { width: number; height: number }) => resizes.push(payload),
+          onResizeDir: (payload: { dir: string; rect: { left: number; top: number; width: number; height: number } }) =>
+            resizesDir.push(payload),
+          onMoveEnd: () => {
+            moveEnds.push(1);
+          },
         },
         { default: () => h("p", { "data-content": "" }, "the content") },
       );
@@ -89,6 +96,8 @@ beforeEach(() => {
   calls.restore = 0;
   moves.length = 0;
   resizes.length = 0;
+  resizesDir.length = 0;
+  moveEnds.length = 0;
 
   host = document.createElement("div");
   document.body.append(host);
@@ -123,6 +132,15 @@ function grip(): HTMLElement {
   const element = document.querySelector("[data-workbench-window-grip]");
   if (!(element instanceof HTMLElement)) {
     throw new Error("the window has no resize grip");
+  }
+  return element;
+}
+
+/** One of the eight edge zones, by the direction it resizes from. */
+function zone(dir: string): HTMLElement {
+  const element = document.querySelector(`[data-workbench-resize="${dir}"]`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`the window has no ${dir} resize zone`);
   }
   return element;
 }
@@ -354,5 +372,91 @@ describe("the modes", () => {
     await nextTick();
 
     expect(root().className).toContain("workbench-window--closing");
+  });
+});
+
+describe("resizing from the edge zones", () => {
+  it("draws all eight, each naming the edge it resizes from", () => {
+    for (const dir of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
+      expect(zone(dir).dataset.workbenchResize).toBe(dir);
+    }
+  });
+
+  it("hands the pane a proposed rectangle tagged with the edge, measured from the drag's own start", () => {
+    zone("w").dispatchEvent(pointer("pointerdown", 300, 300));
+    zone("w").dispatchEvent(pointer("pointermove", 260, 310));
+
+    expect(resizesDir).toEqual([{ dir: "w", rect: { left: 60, top: 100, width: 706, height: 422 } }]);
+    expect(moves).toEqual([]);
+    expect(resizes).toEqual([]);
+  });
+
+  it("keeps the anchored edge where the drag began, from any corner", () => {
+    zone("ne").dispatchEvent(pointer("pointerdown", 300, 300));
+    zone("ne").dispatchEvent(pointer("pointermove", 350, 250));
+
+    // east grew the width; north lifted the top and grew the height by the same amount.
+    expect(resizesDir).toEqual([{ dir: "ne", rect: { left: 100, top: 50, width: 716, height: 472 } }]);
+  });
+
+  it("never starts a move, and works while the window is not focused", async () => {
+    focused.value = false;
+    await nextTick();
+
+    zone("s").dispatchEvent(pointer("pointerdown", 300, 300));
+    zone("s").dispatchEvent(pointer("pointermove", 300, 400));
+
+    expect(resizesDir).toEqual([{ dir: "s", rect: { left: 100, top: 100, width: 666, height: 522 } }]);
+    expect(moves).toEqual([]);
+    expect(calls.focus).toBe(1);
+  });
+
+  it("stops sending rectangles once the pointer is released", () => {
+    zone("e").dispatchEvent(pointer("pointerdown", 300, 300));
+    zone("e").dispatchEvent(pointer("pointermove", 350, 300));
+    zone("e").dispatchEvent(pointer("pointerup", 350, 300));
+    zone("e").dispatchEvent(pointer("pointermove", 400, 300));
+
+    expect(resizesDir).toHaveLength(1);
+  });
+
+  it("is not drawn while the window is maximised", async () => {
+    mode.value = "max";
+    await nextTick();
+
+    expect(document.querySelector('[data-workbench-resize="w"]')).toBeNull();
+  });
+
+  it("keeps the grip's own contract: the bottom-right grip still asks for a size", () => {
+    grip().dispatchEvent(pointer("pointerdown", 300, 300));
+    grip().dispatchEvent(pointer("pointermove", 350, 340));
+
+    expect(resizes).toEqual([{ width: 716, height: 462 }]);
+    expect(resizesDir).toEqual([]);
+  });
+});
+
+describe("the end of a move", () => {
+  it("says so once when a drag ends with the pointer let go", () => {
+    pressTitle();
+    titleBar().dispatchEvent(pointer("pointermove", 220, 120));
+    titleBar().dispatchEvent(pointer("pointerup", 220, 120));
+
+    expect(moveEnds).toEqual([1]);
+  });
+
+  it("says nothing when a drag ended in the maximise gesture instead", () => {
+    top.value = 20;
+    pressTitle(200, 40);
+    titleBar().dispatchEvent(pointer("pointermove", 200, -80));
+
+    expect(calls.maximize).toBe(1);
+    expect(moveEnds).toEqual([]);
+  });
+
+  it("says nothing when no drag was in progress", () => {
+    titleBar().dispatchEvent(pointer("pointerup", 200, 100));
+
+    expect(moveEnds).toEqual([]);
   });
 });

@@ -102,16 +102,23 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import {
   closeWindow as closeWindowRecord,
+  cycleWindow,
   focusWindow,
   minimizeAll,
   minimizeWindow,
   moveWindow,
   openWindow,
   resizeWindow,
+  resizeWindowFrom,
   restoreAll,
   restoreWindow,
   setMaximized,
   showWindow,
+  snapRect,
+  snapZoneAt,
+  snapZoneRect,
+  type ResizeDirection,
+  type SnapZone,
   type WorkbenchBounds,
   type WorkbenchWindowState,
 } from "@/lib/workbench/windows";
@@ -441,6 +448,22 @@ interface WindowPayload {
 const windows = ref<WorkbenchWindowState[]>([]);
 const payloads = ref<Record<string, WindowPayload>>({});
 
+/**
+ * The snap zone a dragged window's hand is in, while the drag lasts.
+ *
+ * The preview is drawn from this; the landing (`snapRect`) waits for the drag to end. It is cleared
+ * the moment the drag is over — including the maximise exit, which never sends a pointerup.
+ */
+const snapZone = ref<SnapZone | null>(null);
+
+const snapPreviewStyle = computed(() => {
+  if (snapZone.value === null) {
+    return undefined;
+  }
+  const rect = snapZoneRect(snapZone.value, bounds.value);
+  return { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
+});
+
 /** The work area — everything between the status bar and the taskbar — as the geometry's frame. */
 const workArea = ref<HTMLElement | null>(null);
 const bounds = ref<WorkbenchBounds>({ width: 1024, height: 700 });
@@ -522,6 +545,9 @@ function minimize(id: string): void {
 }
 
 function maximize(id: string): void {
+  // The drag that reached the top line ended without a pointerup; its pending snap, if the hand
+  // had crossed a zone on the way, never happened.
+  snapZone.value = null;
   windows.value = setMaximized(windows.value, id, bounds.value);
 }
 
@@ -533,8 +559,46 @@ function move(id: string, next: { left: number; top: number }): void {
   windows.value = moveWindow(windows.value, id, next, bounds.value);
 }
 
+/**
+ * The snap zone the dragged window's hand is in, or none.
+ *
+ * The window's own drag gesture reports the pointer's desktop position alongside every move; the
+ * zones are judged by the hand, not by the corner the window happens to be dragged by. Nothing is
+ * committed here — the preview is drawn from this, and the landing happens when the drag ends.
+ */
+function moveAt(id: string, at: { left: number; top: number }): void {
+  const window = windows.value.find((entry) => entry.id === id);
+  if (window === undefined || window.mode !== "normal") {
+    return;
+  }
+  snapZone.value = snapZoneAt(at, bounds.value);
+}
+
+/** The drag ended: a pending snap lands, and the preview goes away either way. */
+function endMove(id: string): void {
+  const zone = snapZone.value;
+  snapZone.value = null;
+  if (zone !== null) {
+    windows.value = snapRect(windows.value, id, zone, bounds.value);
+  }
+}
+
 function resize(id: string, next: { width: number; height: number }): void {
   windows.value = resizeWindow(windows.value, id, next, bounds.value);
+}
+
+/**
+ * A resize from one of the window's eight edge zones.
+ *
+ * The gesture hands over the rectangle the pointer travelled to, tagged with the edge it was
+ * measured from; the arithmetic that keeps the far edge anchored and the pointer inside the desk
+ * is `resizeWindowFrom`'s, the same list arithmetic every other gesture answers to.
+ */
+function resizeFrom(
+  id: string,
+  next: { dir: ResizeDirection; rect: { left: number; top: number; width: number; height: number } },
+): void {
+  windows.value = resizeWindowFrom(windows.value, id, next.dir, next.rect, bounds.value);
 }
 
 function raise(id: string): void {
@@ -1518,7 +1582,10 @@ function disconnect(): void {
         @maximize="maximize(window.id)"
         @restore="restore(window.id)"
         @move="move(window.id, $event)"
+        @move-at="moveAt(window.id, $event)"
+        @move-end="endMove(window.id)"
         @resize="resize(window.id, $event)"
+        @resize-dir="resizeFrom(window.id, $event)"
       >
         <!-- The terminal the window holds: an ordinary terminal tab drawn here instead of in the strip. -->
         <template v-if="window.kind === 'terminal'">
@@ -1609,6 +1676,22 @@ function disconnect(): void {
           @close="close(window.id)"
         />
       </WorkbenchWindow>
+
+      <!--
+        The snap preview: the ghost rectangle the desk offers a dragged window while its hand is in
+        an edge or corner zone. It is a drawing, never a surface — `pointer-events-none` is the whole
+        point, because a rectangle that could catch a click would eat the desktop under it while the
+        drag lasted (the wrapper lesson this desktop already paid for once). The window lands in the
+        zone when the hand lets go, not here.
+      -->
+      <div
+        v-if="snapZone !== null"
+        data-workbench-snap-preview
+        :data-snap-zone="snapZone"
+        :style="snapPreviewStyle"
+        aria-hidden="true"
+        class="pointer-events-none absolute z-40 rounded-md border-2 border-dashed border-white/60 bg-white/10 transition-[left,top,width,height] duration-100"
+      ></div>
     </div>
 
     <!--
