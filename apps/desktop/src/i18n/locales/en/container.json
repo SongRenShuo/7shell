@@ -15,6 +15,49 @@
     "loading": "Reading from the engine…",
     "retry": "Try again",
     "namespace": "Namespace",
+    "state": {
+      "running": "Running",
+      "exited": "Exited",
+      "created": "Created",
+      "restarting": "Restarting",
+      "paused": "Paused",
+      "dead": "Dead",
+      "updating": "Updating",
+      "starting": "Starting",
+      "stopping": "Stopping"
+    },
+    "desktop": {
+      "summary": {
+        "containers": "Containers: {total} in total, {running} running",
+        "images": "Images: {total} in total",
+        "abnormal": "Abnormal containers: {count}"
+      },
+      "health": {
+        "healthy": "All services are running normally.",
+        "unhealthy": "Some services are in an abnormal state."
+      },
+      "chart": {
+        "cpu": "CPU",
+        "memory": "Memory",
+        "network": "Network"
+      },
+      "images": {
+        "usedBy": "Used by",
+        "used": "In use",
+        "unused": "Unused",
+        "showRelated": "Show the containers using this image",
+        "tagLabel": "Tag",
+        "tagPlaceholder": "latest",
+        "tagInvalid": "That is not a tag Docker would accept: letters, digits, dots, dashes and underscores, starting with a letter or digit."
+      }
+    },
+    "loadingActions": {
+      "starting": "Starting…",
+      "stopping": "Stopping…",
+      "restarting": "Restarting…",
+      "removing": "Removing…",
+      "pulling": "Pulling…"
+    },
     "refresh": "Read again",
     "dismiss": "Dismiss this message",
     "filesTabName": "{name} files",
@@ -82,7 +125,8 @@
       "restart": "Restart the container “{name}”?",
       "restartMessage": "Its processes end and start again from the same image and configuration.",
       "remove": "Remove the container “{name}”?",
-      "removeMessage": "The container and its writable layer are deleted. Images and named volumes it used are kept."
+      "removeMessage": "The container and its writable layer are deleted. Images and named volumes it used are kept.",
+      "dataLoss": "All data inside the container will be lost."
     },
     "rename": {
       "title": "Rename the container",

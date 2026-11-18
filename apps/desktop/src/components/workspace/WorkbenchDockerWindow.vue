@@ -10,6 +10,10 @@
  * room. A tab opened for a desktop carries no pane of its own to do the asking, which is why the
  * open is made here — on mount, through the store's own entry, exactly as the pane in the strip
  * does for its tab.
+ *
+ * The pane is asked for its `desktop` layout: the 220px side rail, the overview with the engine's
+ * vital signs and the pages drawn for a window. The application tab asks for nothing and keeps the
+ * pane's flat layout — that is the shared component's own default, and this window does not touch it.
  */
 import { LoaderCircle, RotateCw } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted } from "vue";
@@ -56,7 +60,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden" data-workbench-docker-window>
     <!-- The workspace, once there is an engine to draw. The pane keeps its own views mounted. -->
-    <ContainerPane v-if="tab.connectionId !== null" :tab="tab" :active="active" class="h-full" />
+    <ContainerPane v-if="tab.connectionId !== null" :tab="tab" :active="active" layout="desktop" class="h-full" />
 
     <!-- The connection as it is being made. -->
     <div
