@@ -795,8 +795,10 @@ function openIconMenu(event: MouseEvent, icon: DesktopIcon): void {
     kind: "action",
     id: "icon-properties",
     labelKey: "workbench.desktop.menu.properties",
-    disabled: true,
-    run: () => {},
+    icon: Info,
+    run: () => {
+      propertiesIcon.value = icon;
+    },
   });
   openMenu(event, { key: "workbench.desktop.title" }, entries, { tone: "desktop" });
 }
@@ -847,6 +849,40 @@ function createShortcut(): void {
 // -- the desktop's own settings ----------------------------------------------
 
 const settingsOpen = ref(false);
+
+/**
+ * The icon whose properties are on screen, or null.
+ *
+ * A desktop's "Properties" is a read-only card: what the thing is called, what kind of thing it is,
+ * and — for a shortcut — the path it opens. It also carries the two actions that only make sense
+ * from here: copying that path, and removing the shortcut from this desktop. A system door has
+ * neither: it is not somebody's to copy away or delete.
+ */
+const propertiesIcon = ref<DesktopIcon | null>(null);
+
+/** What a door opens, as a key: one sentence per kind, rather than one per icon. */
+function propertiesOpensKey(icon: DesktopIcon): string {
+  return `workbench.desktop.properties.opens.${icon.kind === "systemInfo" ? "monitor" : icon.kind}`;
+}
+
+/** Puts a shortcut's path on the clipboard, and says which of the two things happened. */
+async function copyPropertiesPath(icon: DesktopIcon): Promise<void> {
+  if (icon.path === undefined) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(icon.path);
+    toast(t("workbench.desktop.properties.copied"), "receipt");
+  } catch {
+    toast(t("workbench.desktop.properties.copyFailed"), "failure");
+  }
+}
+
+/** Takes the properties of a shortcut away with the shortcut itself. */
+function removeFromProperties(icon: DesktopIcon): void {
+  propertiesIcon.value = null;
+  removeIcon(icon);
+}
 
 const ICON_DENSITY_KEY = "sevenshell-workbench-density";
 
@@ -1250,6 +1286,91 @@ function disconnect(): void {
               @click="createShortcut()"
             >
               {{ t("workbench.desktop.shortcut.create") }}
+            </button>
+          </footer>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
+
+    <!--
+      An icon's properties: what it is called, what kind of thing it is, what it opens, and — for a
+      shortcut — the path it stands for, with the two things that are only sensible from here.
+    -->
+    <DialogRoot
+      :open="propertiesIcon !== null"
+      @update:open="(value: boolean) => (propertiesIcon = value ? propertiesIcon : null)"
+    >
+      <DialogPortal>
+        <DialogOverlay class="fixed inset-0 z-50 bg-overlay" />
+        <DialogContent
+          class="fixed top-1/2 left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-xl select-none focus:outline-none"
+          data-workbench-icon-properties
+        >
+          <div v-if="propertiesIcon" class="px-4 pt-4">
+            <DialogTitle class="text-sm font-medium">{{ t("workbench.desktop.properties.title") }}</DialogTitle>
+            <DialogDescription class="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {{ t(propertiesOpensKey(propertiesIcon)) }}
+            </DialogDescription>
+
+            <dl class="mt-3 space-y-1.5 text-xs">
+              <div class="flex gap-3">
+                <dt class="w-16 shrink-0 text-muted-foreground">{{ t("workbench.desktop.properties.name") }}</dt>
+                <dd class="min-w-0 flex-1 truncate" data-properties-name>{{ propertiesIcon.label }}</dd>
+              </div>
+              <div class="flex gap-3">
+                <dt class="w-16 shrink-0 text-muted-foreground">{{ t("workbench.desktop.properties.kind") }}</dt>
+                <dd class="min-w-0 flex-1">
+                  {{
+                    propertiesIcon.kind === "shortcut"
+                      ? t("workbench.desktop.properties.kindShortcut")
+                      : t("workbench.desktop.properties.kindEntry")
+                  }}
+                </dd>
+              </div>
+              <div v-if="propertiesIcon.path" class="flex gap-3">
+                <dt class="w-16 shrink-0 text-muted-foreground">{{ t("workbench.desktop.properties.target") }}</dt>
+                <dd class="min-w-0 flex-1 break-all font-mono text-[11px]" data-properties-path>
+                  {{ propertiesIcon.path }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <footer
+            class="mt-4 flex flex-col-reverse gap-2 rounded-b-lg border-t border-border bg-muted/40 px-4 py-3 sm:flex-row sm:justify-end"
+          >
+            <template v-if="propertiesIcon?.path">
+              <button
+                type="button"
+                class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent"
+                @click="
+                  openFilesWindow(propertiesIcon.path, propertiesIcon.label);
+                  propertiesIcon = null;
+                "
+              >
+                {{ t("workbench.desktop.properties.openFolder") }}
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent"
+                @click="copyPropertiesPath(propertiesIcon)"
+              >
+                {{ t("workbench.desktop.properties.copyPath") }}
+              </button>
+            </template>
+            <button
+              v-if="propertiesIcon?.kind === 'shortcut'"
+              type="button"
+              class="rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/10"
+              @click="removeFromProperties(propertiesIcon)"
+            >
+              {{ t("workbench.desktop.properties.remove") }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90"
+              @click="propertiesIcon = null"
+            >
+              {{ t("common.action.close") }}
             </button>
           </footer>
         </DialogContent>

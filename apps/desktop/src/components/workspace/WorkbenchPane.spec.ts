@@ -714,7 +714,7 @@ describe("the workbench desktop", () => {
     expect(readDesktopShortcuts()[desk.id], "and so is its memory").toBeUndefined();
   });
 
-  it("offers a system icon its door and its properties, but no removal", async () => {
+  it("opens a system door's properties for real, and offers no removal from there", async () => {
     await render();
 
     const menu = lastMenu();
@@ -724,8 +724,49 @@ describe("the workbench desktop", () => {
     const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
     expect(ids).toContain("icon-open");
     expect(ids, "a door every desktop has is not somebody's to remove").not.toContain("icon-remove");
+
     const properties = menu.entries.value.find((entry) => entry.kind === "action" && entry.id === "icon-properties");
-    expect(properties && properties.kind === "action" ? properties.disabled : undefined).toBe(true);
+    expect(
+      properties && properties.kind === "action" ? properties.disabled : undefined,
+      "properties is a door too",
+    ).not.toBe(true);
+    await runMenuEntry(menu, "icon-properties");
+
+    const dialog = document.body.querySelector<HTMLElement>("[data-workbench-icon-properties]");
+    expect(dialog, "the card is drawn").not.toBeNull();
+    expect(dialog?.querySelector("[data-properties-name]")?.textContent?.trim()).toBe("Home");
+    expect(dialog?.textContent, "and it says what the door opens").toContain("file browser");
+    expect(
+      [...dialog!.querySelectorAll("button")].some(
+        (button) => button.textContent?.trim() === "Remove from the desktop",
+      ),
+      "a door that is not a shortcut cannot be removed from its own properties",
+    ).toBe(false);
+  });
+
+  it("shows a shortcut's path in its properties, and copies it", async () => {
+    writeDesktopShortcuts({ [desk.id]: [{ id: "s1", path: "/srv/data" }] });
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    await render();
+
+    const menu = lastMenu();
+    fire(iconByLabel("data"), "contextmenu");
+    await nextTick();
+    await runMenuEntry(menu, "icon-properties");
+    await nextTick();
+
+    const dialog = document.body.querySelector<HTMLElement>("[data-workbench-icon-properties]");
+    expect(dialog?.querySelector("[data-properties-path]")?.textContent?.trim()).toBe("/srv/data");
+
+    const copy = [...dialog!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Copy path");
+    copy?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(written, "the path went to the clipboard").toEqual(["/srv/data"]);
+    expect(useToast().message.value).toContain("clipboard");
   });
 
   it("mirrors the open windows in the taskbar, and raises the one that is clicked", async () => {

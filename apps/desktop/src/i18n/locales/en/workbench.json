@@ -41,6 +41,27 @@
         "resetLayout": "Reset icon layout",
         "settings": "Desktop settings"
       },
+      "properties": {
+        "title": "Properties",
+        "name": "Name",
+        "kind": "Type",
+        "kindEntry": "Desktop entry",
+        "kindShortcut": "Shortcut",
+        "target": "Target",
+        "openFolder": "Open the folder",
+        "copyPath": "Copy path",
+        "copied": "The path is on the clipboard.",
+        "copyFailed": "The path could not be copied.",
+        "remove": "Remove from the desktop",
+        "opens": {
+          "home": "The file browser, on this account's home directory.",
+          "terminal": "A new terminal window for this machine.",
+          "monitor": "The monitor's system page for this machine.",
+          "system": "This machine's system panel.",
+          "trash": "This machine's trash.",
+          "shortcut": "The file browser, at the path below."
+        }
+      },
       "clock": {
         "title": "Clock — open the system panel"
       },
