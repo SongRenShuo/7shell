@@ -89,6 +89,7 @@ import type {
   PresentedHostKey,
   SerialPortInfo,
   SecretInput,
+  ForwardRequest,
   OpenTunnel,
   Session,
   SessionExportSummary,
@@ -968,6 +969,25 @@ export function tunnelsOpen(): Promise<OpenTunnel[]> {
 
 export function tunnelClose(id: string): Promise<void> {
   return invoke<void>("tunnel_close", { id });
+}
+
+/** Opens one forward at runtime on a desktop session's own connection. */
+export function tunnelRuntimeOpen(sessionId: string, request: ForwardRequest): Promise<OpenTunnel> {
+  return invoke<OpenTunnel>("tunnel_runtime_open", { sessionId, forward: request });
+}
+
+/** Stops a runtime forward. The engine's stop is the same one `tunnel_close` drives. */
+export function tunnelRuntimeStop(tunnelId: string): Promise<void> {
+  return invoke<void>("tunnel_runtime_stop", { tunnelId });
+}
+
+/** Follows a file on the far side; lines arrive as `tail_line` events until `file_tail_close`. */
+export function fileTailOpen(sessionId: string, path: string, lines: number): Promise<string> {
+  return invoke<string>("file_tail_open", { sessionId, path, lines });
+}
+
+export function fileTailClose(tailId: string): Promise<void> {
+  return invoke<void>("file_tail_close", { tailId });
 }
 
 // -- Host monitor ------------------------------------------------------------

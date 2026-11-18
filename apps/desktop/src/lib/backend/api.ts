@@ -78,6 +78,7 @@ import type { UpdateCheck, UpdateProgress } from "@/types/update";
 import type {
   CreatedKey,
   DownloadFolderView,
+  ForwardRequest,
   KeyAlgorithm,
   KeyInfo,
   KnownHostEntry,
@@ -977,6 +978,21 @@ export const backend = {
     /** The forwards that are up, and how much they have carried. */
     tunnels: (): Promise<OpenTunnel[]> => forward("tunnels_open", () => desktop.tunnelsOpen()),
     closeTunnel: (id: string): Promise<void> => forward("tunnel_close", () => desktop.tunnelClose(id)),
+  },
+
+  /** Forwards a desktop opens at runtime, on the connection it already holds. */
+  forwards: {
+    open: (sessionId: string, request: ForwardRequest): Promise<OpenTunnel> =>
+      forward("tunnel_runtime_open", () => desktop.tunnelRuntimeOpen(sessionId, request)),
+    stop: (tunnelId: string): Promise<void> =>
+      forward("tunnel_runtime_stop", () => desktop.tunnelRuntimeStop(tunnelId)),
+  },
+
+  /** Following a file on the far side, line by line, for as long as the window watches it. */
+  tails: {
+    open: (sessionId: string, path: string, lines: number): Promise<string> =>
+      forward("file_tail_open", () => desktop.fileTailOpen(sessionId, path, lines)),
+    close: (tailId: string): Promise<void> => forward("file_tail_close", () => desktop.fileTailClose(tailId)),
   },
 
   /**
