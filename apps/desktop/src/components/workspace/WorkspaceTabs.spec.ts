@@ -27,6 +27,8 @@ vi.mock("@/lib/backend/tauri", () => ({
   onDesktopResized: vi.fn(async () => () => {}),
   onDesktopClosed: vi.fn(async () => () => {}),
   onDesktopFailed: vi.fn(async () => () => {}),
+  // The notification centre subscribes to container stream-ends as soon as a container tab exists.
+  onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs.vue";
