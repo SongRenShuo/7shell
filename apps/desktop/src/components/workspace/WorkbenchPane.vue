@@ -73,6 +73,7 @@ import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWin
 import WorkbenchTailWindow from "@/components/workspace/WorkbenchTailWindow.vue";
 import WorkbenchBatchWindow from "@/components/workspace/WorkbenchBatchWindow.vue";
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
+import WorkbenchNotices from "@/components/workspace/WorkbenchNotices.vue";
 import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
 import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
 import WorkbenchWidgets from "@/components/workspace/WorkbenchWidgets.vue";
@@ -83,6 +84,8 @@ import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
 import { useFilesStore } from "@/stores/files";
+import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
+import type { NoticeSourceKey } from "@/components/workspace/WorkbenchNotices.vue";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
 import {
@@ -993,6 +996,78 @@ function launch(appId: string): void {
   }
 }
 
+// -- the notification centre -------------------------------------------------
+
+const notifications = useNotificationsStore();
+
+/**
+ * Whether the centre's panel is over the desk.
+ *
+ * Opening it is also the act of reading it: every notice this session can see is marked read, the
+ * way every notification centre clears its badge when it is opened — a badge that stayed lit under
+ * an open centre would be counting something the person is looking straight at.
+ */
+const noticesOpen = ref(false);
+
+const unreadCount = computed(() => notifications.unreadCount(session.value.id));
+
+function toggleNotices(): void {
+  noticesOpen.value = !noticesOpen.value;
+  if (noticesOpen.value) {
+    notifications.markAllRead(session.value.id);
+  }
+}
+
+function activateNotice(id: string): void {
+  notifications.markRead(session.value.id, id);
+  const notice = notifications.notices.find((entry: WorkbenchNotice) => entry.id === id);
+  if (notice?.target === "transfers") {
+    // The one jump a transfer notice promises: the window where everything this session is moving
+    // is listed, opened the way its desktop icon opens it.
+    noticesOpen.value = false;
+    openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
+  }
+}
+
+/**
+ * The rows the panel draws: the store's keyed notices spoken in this interface's language, with
+ * the time formatted the way the taskbar's clock is.
+ */
+const noticeRows = computed(() =>
+  notifications.notices.map((notice) => ({
+    id: notice.id,
+    source: notice.source,
+    title: notice.params === undefined ? t(notice.titleKey) : t(notice.titleKey, notice.params),
+    body:
+      notice.bodyKey === undefined
+        ? undefined
+        : notice.params === undefined
+          ? t(notice.bodyKey)
+          : t(notice.bodyKey, notice.params),
+    atLabel: new Intl.DateTimeFormat(locale.value, { hour: "2-digit", minute: "2-digit", hour12: false }).format(
+      notice.at,
+    ),
+    read: notifications.isRead(session.value.id, notice.id),
+    actionable: notice.target === "transfers",
+  })),
+);
+
+const noticeGroupLabels = computed<Record<NoticeSourceKey, string>>(() => ({
+  transfer: t("workbench.notices.group.transfer"),
+  container: t("workbench.notices.group.container"),
+  tail: t("workbench.notices.group.tail"),
+  power: t("workbench.notices.group.power"),
+}));
+
+const noticeLabels = computed(() => ({
+  title: t("workbench.notices.title"),
+  empty: t("workbench.notices.empty"),
+  clear: t("workbench.notices.clear"),
+  clearTitle: t("workbench.notices.clearTitle"),
+  clearMessage: t("workbench.notices.clearMessage"),
+  clearConfirm: t("workbench.notices.clearConfirm"),
+}));
+
 // -- the taskbar -------------------------------------------------------------
 
 interface TaskbarEntry {
@@ -1078,6 +1153,9 @@ onMounted(() => {
   }, 60_000);
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("keyup", onKeyup);
+  // The centre's sources are the desktop's events; subscribing is idempotent, so several desktops
+  // sharing the window cost one subscription.
+  notifications.connect();
 });
 
 onUnmounted(() => {
@@ -1445,6 +1523,14 @@ async function issuePower(): Promise<void> {
   try {
     await backend.workbenchPower(session.value.id, props.tab.handle, action, true);
     toast(t("workbench.power.issued"), "receipt");
+    // The receipt is also the notification centre's power source: a machine that was told to stop
+    // or restart is something that happened while the desk was up, and the centre is where that
+    // stays written down after the toast is gone.
+    notifications.push({
+      source: "power",
+      titleKey: action === "reboot" ? "workbench.notices.power.issuedReboot" : "workbench.notices.power.issuedShutdown",
+      params: { name: session.value.name },
+    });
   } catch (error) {
     const failure = asShellError(error, "workbench_power");
     toast(describeShellError(translate as Translate, failure).message, "failure");
@@ -1779,21 +1865,49 @@ function disconnect(): void {
       />
     </div>
 
+    <!--
+      The notification centre, at the desk's lower right. The layer is a layer, not a surface: it
+      carries no pixels and exists only while the panel is open, so a closed centre cannot eat a
+      click (the wrapper lesson). Inside it, the mask is the one thing that catches a press on the
+      desk — its whole job is closing the panel — and the panel turns pointer events back on for
+      itself.
+    -->
+    <div v-if="noticesOpen" class="pointer-events-none absolute inset-0 z-40" data-workbench-notices-layer>
+      <div
+        data-workbench-notices-mask
+        class="pointer-events-auto absolute inset-0"
+        aria-hidden="true"
+        @click="noticesOpen = false"
+      ></div>
+      <WorkbenchNotices
+        class="pointer-events-auto absolute bottom-[76px] right-3"
+        :notices="noticeRows"
+        :group-labels="noticeGroupLabels"
+        :labels="noticeLabels"
+        @activate="activateNotice($event)"
+        @clear="notifications.clear()"
+        @close="noticesOpen = false"
+      />
+    </div>
+
     <WorkbenchTaskbar
       :entries="taskbarEntries"
       :clock="clockTime"
       :align="taskbarAlign"
       :power="t('workbench.power.title')"
+      :unread="unreadCount"
       :labels="{
         starter: t('workbench.desktop.shell.starter'),
         desktop: t('workbench.desktop.shell.desktop'),
         clock: t('workbench.desktop.clock.title'),
+        notices: t('workbench.notices.bell'),
       }"
       @starter="starterOpen = !starterOpen"
       @desktop="pressDesktop()"
       @launch="pressTaskbar($event)"
       @clock="openRecord('system', t('workbench.desktop.icons.system'), 'system')"
       @power="openPowerMenu()"
+      @notices="toggleNotices()"
     />
 
     <!--

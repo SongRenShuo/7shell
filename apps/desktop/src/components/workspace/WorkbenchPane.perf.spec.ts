@@ -62,6 +62,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   onDesktopResized: vi.fn(async () => () => {}),
   onDesktopClosed: vi.fn(async () => () => {}),
   onDesktopFailed: vi.fn(async () => () => {}),
+  onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
 vi.mock("@/lib/batch/bus", () => ({

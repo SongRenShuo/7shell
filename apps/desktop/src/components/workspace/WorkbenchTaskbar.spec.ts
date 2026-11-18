@@ -31,12 +31,15 @@ let root: HTMLDivElement | undefined;
 
 let desks = 0;
 
-function mount(align?: "left" | "center"): void {
+let notices = 0;
+
+function mount(align?: "left" | "center", unreadCount = 0): void {
   launches = [];
   clocks = 0;
   powers = 0;
   starters = 0;
   desks = 0;
+  notices = 0;
   const Host = defineComponent({
     setup() {
       return () =>
@@ -45,7 +48,8 @@ function mount(align?: "left" | "center"): void {
           clock: CLOCK,
           align,
           power: "Shut down",
-          labels: { starter: "Applications", desktop: "Show the desktop", clock: "Clock" },
+          unread: unreadCount,
+          labels: { starter: "Applications", desktop: "Show the desktop", clock: "Clock", notices: "Notifications" },
           onLaunch: (id: string) => {
             launches.push(id);
           },
@@ -60,6 +64,9 @@ function mount(align?: "left" | "center"): void {
           },
           onDesktop: () => {
             desks += 1;
+          },
+          onNotices: () => {
+            notices += 1;
           },
         });
     },
@@ -184,8 +191,8 @@ describe("the taskbar", () => {
 
   it("names every button for a reader, and names no two of them the same", () => {
     const buttons = [...document.querySelectorAll<HTMLElement>("[data-workbench-taskbar] button")];
-    expect(buttons.length, "the starter, the desktop, every entry, the clock and the power control").toBe(
-      ENTRIES.length + 4,
+    expect(buttons.length, "the starter, the desktop, every entry, the bell, the clock and the power control").toBe(
+      ENTRIES.length + 5,
     );
 
     const names = buttons.map((button) => button.getAttribute("aria-label"));
@@ -218,6 +225,36 @@ describe("the taskbar", () => {
     mount("left");
 
     expect(document.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered")).toBe(false);
+  });
+});
+
+describe("the notification bell", () => {
+  it("sits in the system segment and announces itself when clicked", () => {
+    expect(part("notices")).not.toBeNull();
+
+    click(part("notices"));
+    expect(notices).toBe(1);
+  });
+
+  it("draws no badge when nothing is unread", () => {
+    unmountCurrent();
+    mount(undefined, 0);
+
+    expect(document.querySelector("[data-workbench-taskbar-notices-badge]")).toBeNull();
+  });
+
+  it("wears the unread count the moment there is one", () => {
+    unmountCurrent();
+    mount(undefined, 3);
+
+    expect(part("notices-badge").textContent?.trim()).toBe("3");
+  });
+
+  it("caps the badge at 9+, because a two-digit count is a number nobody reads", () => {
+    unmountCurrent();
+    mount(undefined, 12);
+
+    expect(part("notices-badge").textContent?.trim()).toBe("9+");
   });
 });
 
