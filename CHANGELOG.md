@@ -81,11 +81,7 @@ All notable changes to 7Shell are documented in this file. The format is
   decoration off without touching any state (0ead797).
 - A **forwards manager** on the desktop: the forwards somebody opens while the desktop is up,
   listed with their mode, binding, destination and connection count, an add form that teaches the
-  three shapes with scenario sentences, and a stop behind a question. A bind address that is not
-  loopback meets the policy matrix as any forward does - and where the matrix is set to ask, the
-  desktop's open path runs unattended and answers with a refusal naming the rule, so a refused
-  forward is allowed by loosening the matrix, not by answering a question (f8dab9e, ef4ea1e,
-  ee5eb35).
+  three shapes with scenario sentences, and a stop behind a question (f8dab9e, ef4ea1e, ee5eb35).
 - A **log tracker** on the desktop: follow a file on the machine line by line (`tail -F` under the
   hood, the path quoted and gated), a stream that sticks to the bottom until somebody scrolls up,
   and a window nobody is watching stops reading - resuming may miss lines, and the copy says so
@@ -106,19 +102,24 @@ All notable changes to 7Shell are documented in this file. The format is
   control (a14acc7).
 - The desktop reads its doors from one table: the icon grid, the starter sheet and the taskbar now
   name, glyph and colour each door from the same list, so the Docker door is one picture everywhere
-  and a door added to the table appears on every surface at once.
+  and a door added to the table appears on every surface at once (3039854).
 - The forwards manager grows the third shape: a **remote forward** (`ssh -R`) opens its port on the
-  server, answered by a service of this machine. The add form reads its fields in the reverse
-  direction and says so in its own scenario sentence, and the list draws a remote forward with its
-  kind named and the arrow pointing home.
+  server, answered by a service of this machine (c1bcf75, 5e33e54). The add form reads its fields in
+  the reverse direction and says so in its own scenario sentence, and the list draws a remote forward
+  with its kind named and the arrow pointing home.
+- The forwards window asks what the gate wants answered: where the policy matrix raises a question
+  about an open — a remote forward always, a bind other machines could reach where a layer says so —
+  the window puts it in a dialog naming what the forward exposes, and the answer rides the resend.
+  A matrix set to deny still refuses, and loosening it is the only way past a denial (9d686e9,
+  4c5802e).
 - The forwards list keeps itself current: a forward a terminal brought up, or one stopped from
   another surface, arrives and leaves the reading on its own, with the refresh button still there
-  for the asking.
+  for the asking (5e33e54).
 - A **services window** on the desktop: the TCP ports the host is listening on, each with the
   process behind it, and a way in from every row — a tunnel opened to a free port here (the same
   gated `forwards.open` the forwards manager sends), or this machine's browser pointed at the local
   end of that tunnel. A host that names no listeners — or answers the older shape without the list
-  at all — says so instead of drawing rows.
+  at all — says so instead of drawing rows (e47cf22, ab17850).
 
 ### Fixed
 
@@ -126,8 +127,7 @@ All notable changes to 7Shell are documented in this file. The format is
   which is what the "same tone everywhere" contract always said and the sheet quietly rounded off.
 - A system panel or trash window left open when the connection drops no longer hangs there as an
   empty frame: it says the machine is not connected and offers the reconnect, the same sentence the
-  terminal window has always answered with.
-
+  terminal window has always answered with (f7e02da).
 - Deleting one trash entry for good no longer runs straight from its icon: the question emptying
   already asks is there for this verb too, naming the entry, and only the answer carries the
   acknowledgement the policy matrix needs (928b67e).
