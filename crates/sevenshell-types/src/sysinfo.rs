@@ -324,7 +324,10 @@ mod tests {
         assert_eq!(value["logins"][0]["stillLoggedIn"], json!(true));
         assert_eq!(value["crontab"][0], json!("0 3 * * * /usr/local/bin/backup.sh"));
         assert!(value.get("firewall").is_none(), "a read that never asked omits the key");
-        assert!(value.get("listeners").is_none(), "a host that named no listener omits the key");
+        assert!(
+            value.get("listeners").is_none(),
+            "a host that named no listener omits the key"
+        );
         assert_eq!(
             value["mounts"],
             json!([]),
