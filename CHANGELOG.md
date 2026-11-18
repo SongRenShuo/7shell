@@ -65,6 +65,9 @@ All notable changes to 7Shell are documented in this file. The format is
   system panel and trash are drawn inside windows (fdb5dd8, 00f9d80, f1f4a25). The desktop's own
   right-click menus take the reference's teal sheet with white rows; every menu opened elsewhere
   keeps the application's card (ddd1146).
+- A desktop icon's **Properties** is a real card now rather than a disabled placeholder: what the
+  icon is, what it opens, and — for a shortcut — the path it stands for, with "open the folder",
+  "copy path" and "remove from the desktop" beside it (86e611b).
 - The system panel reads further: each service's boot state with a switch to enable or disable it
   (the states a unit file refuses are shown rather than offered), the account's crontab, the last
   twenty logins including the machine's own reboots, the firewall's state from ufw or firewalld,
