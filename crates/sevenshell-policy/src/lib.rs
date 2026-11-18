@@ -15,6 +15,7 @@ pub mod command_risk;
 pub mod container_risk;
 pub mod matrix;
 pub mod process_risk;
+pub mod service_risk;
 pub mod trash_risk;
 pub mod workbench_risk;
 
@@ -22,6 +23,7 @@ pub use command_risk::classify;
 pub use container_risk::{container_action, kubernetes_request};
 pub use matrix::{PolicyAuditEvent, PolicyDecision, PolicySource, PolicyTarget, decide};
 pub use process_risk::process_kill;
+pub use service_risk::service_action;
 pub use sevenshell_types::{RiskAssessment, RiskLevel, RiskReason};
 pub use trash_risk::trash_action;
 pub use workbench_risk::workbench_action;

@@ -66,6 +66,7 @@ import type {
   McpStatus,
 } from "@/types/mcp";
 import type { HostMetrics, ProcessDetail, ProcessPage, SocketRow } from "@/types/monitor";
+import type { JournalTail, SystemOverview } from "@/types/sysinfo";
 import type { HostSystem } from "@/types/system";
 import type { UpdateCheck, UpdateProgress } from "@/types/update";
 import type {
@@ -976,6 +977,33 @@ export function tunnelClose(id: string): Promise<void> {
 
 export function monitorSample(handle: string): Promise<HostMetrics> {
   return invoke<HostMetrics>("monitor_sample", { handle });
+}
+
+/**
+ * The slower, wider read of the same machine: services, disks, accounts, networking, and the
+ * journal. Every field comes from a fixed read-only command, so nothing here is input.
+ */
+export function systemOverview(handle: string): Promise<SystemOverview> {
+  return invoke<SystemOverview>("system_overview", { handle });
+}
+
+/**
+ * Starts, restarts or stops one service. The unit and the verb are both checked on the other
+ * side before a command is built: the unit's shape and a closed set of verbs.
+ */
+export function systemServiceAction(
+  sessionId: string,
+  handle: string,
+  unit: string,
+  verb: string,
+  acknowledged: boolean,
+): Promise<void> {
+  return invoke<void>("system_service_action", { sessionId, handle, unit, verb, acknowledged });
+}
+
+/** The journal's tail, cut to the number asked for (clamped on the other side). */
+export function systemJournal(handle: string, lines: number): Promise<JournalTail> {
+  return invoke<JournalTail>("system_journal", { handle, lines });
 }
 
 /** The process table, cut on the far side to what was asked for. The page orders what it gets. */

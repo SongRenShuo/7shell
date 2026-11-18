@@ -402,6 +402,16 @@ impl ShellError {
     /// Same reading as the power action's failure: the detail is the server's own reply about a
     /// command this build chose — typically "no such process", which is somebody's answer rather
     /// than a secret.
+    /// The machine refused a service action the system panel asked for, or reported a failure.
+    ///
+    /// The detail is the server's own words about a command this build chose — typically "Unit …
+    /// not found" or a permission refusal — which is an answer rather than a secret.
+    pub fn service_action_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::ServiceActionFailed, Origin::new(Subsystem::Ssh))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::Sent)
+    }
+
     pub fn process_kill_failed(detail: impl AsRef<str>) -> Self {
         Self::new(ErrorCode::ProcessKillFailed, Origin::new(Subsystem::Ssh))
             .with_detail(detail)

@@ -29,6 +29,7 @@ pub mod sessions;
 pub mod settings;
 pub mod snippets;
 pub mod sync;
+pub mod system;
 pub mod terminal;
 pub mod trash;
 pub mod update;

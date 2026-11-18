@@ -19,9 +19,9 @@ mod policy_matrix;
 mod risk;
 mod session;
 mod settings;
-mod sysinfo;
 mod snippet;
 mod sync;
+mod sysinfo;
 mod system;
 mod trash;
 mod update;
@@ -85,10 +85,6 @@ pub use session::{
     TransferInfo, TransferState, TunnelFailure, UploadAnswer, UploadOutcome, VaultArchive, VaultState, WebDavSettings,
     WorkbenchPowerOutcome, WorkbenchSettings, WslSettings,
 };
-pub use sysinfo::{
-    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, RouteEntry,
-    ServiceEntry, SystemOverview,
-};
 pub use settings::{
     AI_SESSION_RETENTION_DAYS_DEFAULT, AI_SESSION_RETENTION_DAYS_MAX, AI_SESSION_RETENTION_DAYS_MIN, AppLayout,
     AppSettings, BACKGROUND_BLUR_MAX, BACKGROUND_TRANSPARENCY_MAX, BackgroundDisplayMode, BackgroundImage, CornerStyle,
@@ -123,6 +119,10 @@ pub use snippet::{
 pub use sync::{
     SnippetProvider, SnippetStatus, SnippetUploadReceipt, SyncApplySummary, SyncCatalog, SyncContents,
     SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt,
+};
+pub use sysinfo::{
+    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, RouteEntry, ServiceEntry,
+    SystemOverview,
 };
 pub use system::HostSystem;
 pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};

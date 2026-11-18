@@ -27,6 +27,8 @@ export const ERROR_CATALOG = {
   "WORKBENCH-POWER-FAILED": "errors.workbench.powerFailed",
   // The process page's one write
   "PROCESS-KILL-FAILED": "errors.process.killFailed",
+  // Service actions on the system panel
+  "SERVICE-ACTION-FAILED": "errors.service.actionFailed",
   // Terminal transports that are not SSH
   "TERMINAL-UNREACHABLE": "errors.terminal.unreachable",
   "TERMINAL-SERIAL-FAILED": "errors.terminal.serialFailed",

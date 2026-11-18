@@ -12,7 +12,8 @@
         "terminal": "Terminal",
         "monitor": "Monitor",
         "systemInfo": "System information",
-        "trash": "Trash"
+        "trash": "Trash",
+        "system": "System panel"
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
       "menu": {
@@ -64,6 +65,88 @@
       "emptyHint": "Files deleted into the trash are listed here until they are put back or deleted for good.",
       "emptyTitle": "Empty the trash?",
       "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone."
+    },
+    "system": {
+      "title": "System panel",
+      "refresh": "Read the machine again",
+      "reading": "Reading the machine…",
+      "sections": {
+        "services": "Services",
+        "disks": "Disks",
+        "accounts": "Accounts",
+        "network": "Network",
+        "journal": "Journal"
+      },
+      "facts": {
+        "distribution": "Distribution",
+        "kernel": "Kernel",
+        "uptime": "Uptime",
+        "timezone": "Timezone"
+      },
+      "uptime": {
+        "days": "{days}d {hours}h",
+        "hours": "{hours}h {minutes}m",
+        "minutes": "{minutes}m"
+      },
+      "services": {
+        "name": "Unit",
+        "load": "Load",
+        "active": "Active",
+        "sub": "Sub",
+        "description": "Description",
+        "empty": "This host did not report any services — a container without systemd answers nothing here.",
+        "actions": "Actions"
+      },
+      "disks": {
+        "name": "Device",
+        "size": "Size",
+        "kind": "Type",
+        "filesystem": "Filesystem",
+        "mount": "Mounted at",
+        "model": "Model",
+        "empty": "This host did not report any block devices."
+      },
+      "accounts": {
+        "user": "Account",
+        "uid": "UID",
+        "gid": "GID",
+        "home": "Home",
+        "shell": "Shell",
+        "loggedIn": "Logged in",
+        "online": "online",
+        "empty": "This host did not report any accounts."
+      },
+      "network": {
+        "interfaces": "Interfaces",
+        "name": "Interface",
+        "state": "State",
+        "addresses": "Addresses",
+        "traffic": "Sent / received",
+        "routes": "Routes",
+        "direct": "direct",
+        "dns": "DNS resolvers",
+        "noDns": "No resolver was reported.",
+        "empty": "This host did not report any interfaces.",
+        "noRoutes": "This host did not report any routes."
+      },
+      "journal": {
+        "tail": "The last {count} lines",
+        "more": "Read more",
+        "empty": "The journal has nothing to show.",
+        "unavailable": "This host has no readable journal — a container without systemd answers nothing here."
+      },
+      "serviceActions": {
+        "start": "Start",
+        "restart": "Restart",
+        "stop": "Stop",
+        "enable": "Enable at boot",
+        "disable": "Disable at boot",
+        "issued": "Asked the machine to {verb} {unit}.",
+        "stopTitle": "Stop {unit}?",
+        "stopMessage": "The service stops now, and whatever it was serving stops with it. The policy decision for this machine applies.",
+        "stopConfirm": "Stop service",
+        "actionFailed": "The machine did not accept that."
+      }
     }
   }
 }
