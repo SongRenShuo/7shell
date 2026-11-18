@@ -1420,7 +1420,16 @@ function disconnect(): void {
         stops the click on its way up. A drop on the wallpaper is where a dragged icon goes when it
         is not dropped onto another one: the end of the grid.
       -->
-      <div data-workbench-desktop class="absolute inset-0 overflow-y-auto">
+      <!--
+        The icons' container reserves the widgets' column when widgets are on the desk: a door that
+        wraps into the right edge would sit under the cards, a door under glass is a door nobody
+        can press, and the reservation is what keeps every door pressable however narrow the desk.
+      -->
+      <div
+        data-workbench-desktop
+        class="absolute inset-0 overflow-y-auto"
+        :class="connected && widgetIds.length > 0 ? 'pr-[14.5rem]' : undefined"
+      >
         <div
           class="grid content-start justify-start gap-1 p-2"
           :class="

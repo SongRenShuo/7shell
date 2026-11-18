@@ -264,6 +264,29 @@ describe("the workbench desktop", () => {
     ).toBe("");
   });
 
+  it("reserves the widgets' column on the desktop, so no door wraps under the cards", async () => {
+    // Caught on the real machine: on a narrow desk (the monitor panel open beside it), the door
+    // grid wrapped into the right edge and the system card covered a door — a door under glass is
+    // a door nobody can press, and nothing on the page looks wrong.
+    await render();
+    expect(
+      host.querySelector<HTMLElement>("[data-workbench-desktop]")?.className,
+      "a connected desk with widgets reserves their column",
+    ).toContain("pr-[14.5rem]");
+
+    // Turn every widget off in the settings and the reservation goes with them.
+    localStorage.setItem("sevenshell-workbench-widgets:" + desk.id, "[]");
+    app?.unmount();
+    host.remove();
+    document.body.innerHTML = "";
+    await render();
+    expect(
+      host.querySelector<HTMLElement>("[data-workbench-desktop]")?.className,
+      "a desk without widgets needs no reservation",
+    ).not.toContain("pr-[14.5rem]");
+    localStorage.clear();
+  });
+
   it("opens the trash panel from its icon, and the panel reads the machine's trash once", async () => {
     trashListMock.mockResolvedValue([
       { id: "notes.txt", name: "notes.txt", originalPath: "/root/notes.txt", deletedAt: 1, isDir: false },
