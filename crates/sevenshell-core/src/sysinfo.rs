@@ -17,8 +17,8 @@
 //! 2. **The commands are read-only.** No redirection that writes, nothing that starts, stops or
 //!    changes a unit. The panel can be left open on a production host without the panel being the
 //!    reason anything happened.
-//! 3. **One round trip for the overview.** Seventeen cheap commands over one connection cost far
-//!    less than seventeen waits, and the panel that opens with seventeen spinning rows reads as
+//! 3. **One round trip for the overview.** Eighteen cheap commands over one connection cost far
+//!    less than eighteen waits, and the panel that opens with eighteen spinning rows reads as
 //!    broken before it reads as thorough. The markers that split the output are the parse, exactly
 //!    as in [`crate::monitor`].
 //!
@@ -32,7 +32,7 @@ use serde_json::Value;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
     AccountEntry, DiskDevice, FirewallStatus, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, LoginRecord,
-    PolicyAction, Protocol, RouteEntry, ServiceEntry, SystemOverview,
+    PolicyAction, Protocol, RouteEntry, ServiceEntry, SystemListener, SystemOverview,
 };
 
 use crate::Core;
@@ -105,6 +105,14 @@ pub(crate) const INTERFACE_COMMAND: &str = "ip -j addr show";
 /// The route table, as JSON: the default gateway and everything beside it.
 pub(crate) const ROUTE_COMMAND: &str = "ip -j route show";
 
+/// The TCP ports the host is listening on, with whatever process holds each.
+///
+/// `-H` drops the header the parser would otherwise have to recognise, and `-tlnp` asks exactly
+/// the listener question: TCP, listening, with owning processes. A process under another account
+/// is not named without root — the row arrives with its address and port and an empty name, which
+/// is what the field's empty value means rather than an error to fix.
+pub(crate) const LISTEN_COMMAND: &str = "ss -H -tlnp";
+
 /// The resolver's own file: the nameservers are what "can this machine resolve a name" asks.
 pub(crate) const RESOLVER_COMMAND: &str = "cat /etc/resolv.conf";
 
@@ -167,6 +175,8 @@ echo '@@interfaces'
 {INTERFACE_COMMAND} 2>/dev/null
 echo '@@routes'
 {ROUTE_COMMAND} 2>/dev/null
+echo '@@listeners'
+{LISTEN_COMMAND} 2>/dev/null
 echo '@@resolver'
 {RESOLVER_COMMAND} 2>/dev/null
 echo '@@os'
@@ -334,6 +344,7 @@ pub(crate) fn parse_overview(stdout: &str) -> SystemOverview {
     overview.accounts = parse_accounts(&section("accounts"), &section("who"));
     overview.interfaces = parse_interfaces(&section("interfaces"));
     overview.routes = parse_routes(&section("routes"));
+    overview.listeners = parse_listeners(&section("listeners"));
     overview.dns = parse_resolv(&section("resolver"));
     overview.crontab = parse_crontab(&section("crontab"));
     overview.logins = parse_logins(&section("logins"));
@@ -369,6 +380,7 @@ pub(crate) fn parse_overview_sections(stdout: &str) -> SystemOverview {
         accounts: Vec::new(),
         interfaces: Vec::new(),
         routes: Vec::new(),
+        listeners: Vec::new(),
         dns: Vec::new(),
         crontab: Vec::new(),
         logins: Vec::new(),
@@ -841,6 +853,68 @@ fn route(value: &Value) -> Option<RouteEntry> {
     })
 }
 
+/// The listeners `ss -H -tlnp` listed.
+///
+/// The columns before the process are space-free — state, both queues, the local and the peer
+/// `address:port` — so the first five fields split on whitespace without risk, and everything
+/// after the fifth is the process column, which may carry a name with a space in it. A row that
+/// is not a listener is skipped by its state word rather than trusted: a header from an `ss` that
+/// ignored `-H` begins with `State`, and a line pasted in from a fuller listing begins with
+/// something else again.
+pub(crate) fn parse_listeners(text: &str) -> Vec<SystemListener> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let mut fields = line.split_whitespace();
+            if fields.next() != Some("LISTEN") {
+                return None;
+            }
+            let _recv = fields.next()?;
+            let _send = fields.next()?;
+            let local = fields.next()?;
+            let _peer = fields.next()?;
+            let process = fields.collect::<Vec<_>>().join(" ");
+
+            let (address, port) = local_address_port(local)?;
+            Some(SystemListener {
+                port,
+                address,
+                process: process_name(&process),
+            })
+        })
+        .collect()
+}
+
+/// Splits a listener's local column into the address and the port, from the last colon.
+///
+/// The last colon is the split that works for every shape `ss` prints: `0.0.0.0:22`,
+/// `127.0.0.1:631`, `[::]:22`, `[::ffff:10.0.0.1]:8080` all keep their address whole on the left
+/// of it. The IPv6 brackets come off — they are the printer's quoting, not part of the address —
+/// and anything whose tail is not a port is not a listener row at all.
+fn local_address_port(local: &str) -> Option<(String, u16)> {
+    let (address, port) = local.rsplit_once(':')?;
+    let port = port.parse::<u16>().ok()?;
+    let address = address.trim_matches(['[', ']']).to_owned();
+    Some((address, port))
+}
+
+/// The first process name in a `users:(("sshd",pid=918,fd=3))` column.
+///
+/// The column can name several holders, comma-separated inside one `users:`; the first is what
+/// the row shows, and the `pid`/`fd` stay behind on purpose — they are the kernel's bookkeeping,
+/// not what a person picks out of a services window. A column that names nobody — a process under
+/// another account, `ss` without the sight — stays empty rather than becoming a guess.
+fn process_name(column: &str) -> String {
+    let Some(start) = column.find("(\"") else {
+        return String::new();
+    };
+    let after = &column[start + 2..];
+    match after.find('"') {
+        Some(end) => after[..end].to_owned(),
+        None => String::new(),
+    }
+}
+
 /// The nameservers `/etc/resolv.conf` names.
 ///
 /// Comments are stripped by field rather than by line, because the file's own grammar puts a
@@ -1192,6 +1266,70 @@ search lan
 
         assert_eq!(parse_resolv(text), ["192.168.1.1", "8.8.8.8", "2001:4860:4860::8888"]);
         assert!(parse_resolv("").is_empty());
+    }
+
+    /// A real `ss -H -tlnp`: an IPv4 listener with a named process, the IPv6 twin of the same
+    /// port, one listener whose holder the reading account cannot see, one whose name has a space
+    /// in it — and a header and a non-listening row the parser has to leave where they are.
+    const LISTENERS: &str = "\
+LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:((\"sshd\",pid=918,fd=3))
+LISTEN 0      128             [::]:22            [::]:*    users:((\"sshd\",pid=918,fd=4))
+LISTEN 0      5        127.0.0.1:631      0.0.0.0:*    users:((\"cupsd\",pid=950,fd=7))
+LISTEN 0      4096        0.0.0.0:4225       0.0.0.0:*
+LISTEN 0      511       127.0.0.1:8080     0.0.0.0:*    users:((\"Web Content\",pid=2043,fd=31))
+State  Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+ESTAB  0       0       192.168.1.20:22     192.168.1.5:52344
+";
+
+    #[test]
+    fn the_listeners_are_read_with_the_process_behind_each() {
+        let listeners = parse_listeners(LISTENERS);
+
+        assert_eq!(listeners.len(), 5, "the header and the ESTAB row are not listeners");
+
+        assert_eq!(listeners[0].port, 22);
+        assert_eq!(listeners[0].address, "0.0.0.0");
+        assert_eq!(listeners[0].process, "sshd");
+
+        assert_eq!(listeners[1].port, 22);
+        assert_eq!(listeners[1].address, "::", "the brackets are the printer's, not the address's");
+        assert_eq!(listeners[1].process, "sshd");
+
+        assert_eq!(listeners[2].address, "127.0.0.1");
+        assert_eq!(listeners[2].process, "cupsd");
+
+        assert_eq!(listeners[3].port, 4225);
+        assert_eq!(listeners[3].process, "", "a process the account cannot see is not a name");
+
+        assert_eq!(listeners[4].port, 8080);
+        assert_eq!(listeners[4].process, "Web Content", "a name with a space stays whole");
+    }
+
+    #[test]
+    fn an_empty_or_failed_listener_answer_is_no_listeners() {
+        assert!(parse_listeners("").is_empty());
+        assert!(parse_listeners("ss: invalid option -- 'x'\n").is_empty());
+    }
+
+    /// The listener section rides the overview like the others: present in the joined text, read
+    /// into the field, and left empty when the host answered nothing.
+    #[test]
+    fn the_overview_reads_the_listener_section() {
+        let text = "\
+@@listeners
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=918,fd=3))
+@@resolver
+nameserver 192.168.1.1
+";
+
+        let overview = parse_overview(text);
+
+        assert_eq!(overview.listeners.len(), 1);
+        assert_eq!(overview.listeners[0].port, 22);
+        assert_eq!(overview.listeners[0].process, "sshd");
+
+        let no_answer = parse_overview("@@resolver\nnameserver 192.168.1.1\n");
+        assert!(no_answer.listeners.is_empty(), "no section is an empty list, not a failed read");
     }
 
     /// A journal tail with the tool's own header, an ordinary entry, a message that ran over two
