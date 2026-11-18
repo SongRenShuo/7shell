@@ -84,6 +84,71 @@ impl Core {
             stop();
         }
         self.containers.remove(connection_id);
+        // A desktop engine is mapped by the session that opened it; dropping the connection forgets
+        // the mapping, so the next open cannot resurrect a dead id.
+        self.desktop_engines
+            .lock()
+            .await
+            .retain(|_, mapped| mapped != connection_id);
+    }
+
+    /// Opens the Docker engine of a Linux desktop session on the connection that session holds.
+    ///
+    /// The desktop's Docker manager rides the same SSH carrier the session's file windows and
+    /// trash use — one connection per session, not one per panel. Everything after the open (list,
+    /// inspect, logs, exec, actions) is the container workspace's own surface, addressed by the id
+    /// this answers.
+    ///
+    /// The call is idempotent per session: opening again answers the id the first open handed out,
+    /// as long as that connection still answers. A mapping whose connection is gone — disconnected
+    /// here, which also clears the mapping, or retired any other way — is forgotten rather than
+    /// resurrected, and a fresh connection opens in its place.
+    pub async fn desktop_engine_open(&self, session_id: &str) -> Result<String, ShellError> {
+        let session = self.session(session_id)?;
+        if session.protocol != Protocol::LinuxDesk {
+            return Err(ShellError::app_unsupported(
+                "a desktop Docker engine was asked for a session that is not a Linux desktop session",
+            ));
+        }
+
+        if let Some(id) = self.desktop_engine_to_reuse(session_id).await {
+            return Ok(id);
+        }
+
+        let runner = match self.open_carrier(&session).await? {
+            ConnectionOutcome::Ready(carrier) => Runner::Ssh(carrier.connection),
+            // The desktop has no host-key prompt of its own, for the same reason a container
+            // workspace does not: opening that SSH session once is how the decision is made, and
+            // every later engine open reuses the trust.
+            ConnectionOutcome::Decision(decision) => return Err(decision_error(*decision)),
+        };
+
+        // Docker takes no namespace; that flag is a nerdctl concern (see `container_connect`).
+        let id = format!("desktop-{}", uuid::Uuid::new_v4());
+        self.containers
+            .connect(id.clone(), ContainerRuntime::Docker, "", runner)?;
+        self.desktop_engines
+            .lock()
+            .await
+            .insert(session_id.to_owned(), id.clone());
+        Ok(id)
+    }
+
+    /// The connection id a session's desktop engine may be reused under, if its mapping is alive.
+    ///
+    /// A mapping whose connection no longer resolves is dropped here: the stale-check on open is
+    /// the contract for a mapping that outlived its manager entry, and `container_disconnect` is
+    /// the first line of defence for the ordinary path.
+    async fn desktop_engine_to_reuse(&self, session_id: &str) -> Option<String> {
+        let mut engines = self.desktop_engines.lock().await;
+        match engines.get(session_id).cloned() {
+            Some(id) if self.containers.provider(&id).is_ok() => Some(id),
+            Some(_) => {
+                engines.remove(session_id);
+                None
+            }
+            None => None,
+        }
     }
 
     pub async fn container_list(&self, connection_id: &str) -> Result<Vec<ContainerSummary>, ShellError> {
@@ -459,5 +524,115 @@ mod tests {
         let events = journal.events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "container.image-remove");
+    }
+
+    /// A vault holding one session of `protocol`, plus the core and the temp dir that owns the file.
+    fn core_with_session(protocol: Protocol) -> (tempfile::TempDir, Arc<Core>) {
+        use sevenshell_types::{AuthMethod, Session, SessionAuth, TerminalSettings};
+
+        let directory = tempdir().expect("temp dir");
+        let vault = Arc::new(Vault::open_at(directory.path().join("vault.json")));
+        vault.create("correct horse battery staple").expect("create");
+        let session = Session {
+            id: "session-under-test".to_owned(),
+            name: "under test".to_owned(),
+            group_id: None,
+            protocol,
+            host: "127.0.0.1".to_owned(),
+            port: 2222,
+            user: "someone".to_owned(),
+            auth: SessionAuth::with_password(AuthMethod::Password),
+            terminal: TerminalSettings::default(),
+            desktop: sevenshell_types::DesktopSettings::default(),
+            workbench: sevenshell_types::WorkbenchSettings::default(),
+            telnet: sevenshell_types::TelnetSettings::default(),
+            serial: sevenshell_types::SerialSettings::default(),
+            local: sevenshell_types::LocalSettings::default(),
+            wsl: sevenshell_types::WslSettings::default(),
+            container: sevenshell_types::ContainerSettings::default(),
+            kubernetes: sevenshell_types::KubernetesSettings::default(),
+            webdav: sevenshell_types::WebDavSettings::default(),
+            ftp: sevenshell_types::FtpSettings::default(),
+            jump: Vec::new(),
+            forwards: Vec::new(),
+            updated_at: 0,
+        };
+        vault.save_session(session, None).expect("save");
+        let (core, _events) = Core::new(vault);
+        (directory, core)
+    }
+
+    #[tokio::test]
+    async fn a_session_that_is_not_a_linux_desktop_is_refused_a_desktop_engine() {
+        for protocol in [Protocol::Ssh, Protocol::Container, Protocol::LinuxDesk] {
+            let (_directory, core) = core_with_session(protocol);
+            let result = core.desktop_engine_open("session-under-test").await;
+            if protocol == Protocol::LinuxDesk {
+                // A desktop session with no stored password is refused before any network use —
+                // the gate itself passed, which is what this loop is here to separate.
+                let error = result.expect_err("no password stored");
+                assert_eq!(error.code(), sevenshell_error::ErrorCode::SshAuthFailed);
+            } else {
+                let error = result.expect_err("the protocol gate refuses");
+                assert_eq!(error.code(), sevenshell_error::ErrorCode::AppUnsupported);
+                assert!(
+                    format!("{error:?}").contains("not a Linux desktop session"),
+                    "the refusal names the kind of session it was given: {error:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_desktop_engine_mapping_that_still_answers_is_reused_and_a_dead_one_is_forgotten() {
+        let (_directory, core) = core_with_session(Protocol::LinuxDesk);
+
+        core.desktop_engines
+            .lock()
+            .await
+            .insert("session-under-test".to_owned(), "desktop-live".to_owned());
+        core.containers
+            .connect("desktop-live", ContainerRuntime::Docker, "", Runner::Local)
+            .expect("the mapped engine answers");
+
+        assert_eq!(
+            core.desktop_engine_to_reuse("session-under-test").await.as_deref(),
+            Some("desktop-live"),
+            "a live mapping is the id the next open answers"
+        );
+
+        // The manager entry is gone (disconnected, retired); the mapping must not resurrect it.
+        core.containers.remove("desktop-live");
+        assert_eq!(core.desktop_engine_to_reuse("session-under-test").await, None);
+        assert!(
+            core.desktop_engines.lock().await.get("session-under-test").is_none(),
+            "the dead mapping was dropped, not kept for the next open to trip over"
+        );
+    }
+
+    #[tokio::test]
+    async fn disconnecting_a_connection_clears_the_desktop_mapping_it_answered() {
+        let (_directory, core) = core_with_session(Protocol::LinuxDesk);
+
+        core.containers
+            .connect("desktop-one", ContainerRuntime::Docker, "", Runner::Local)
+            .expect("first engine");
+        core.containers
+            .connect("desktop-two", ContainerRuntime::Docker, "", Runner::Local)
+            .expect("second engine");
+        let mut engines = core.desktop_engines.lock().await;
+        engines.insert("session-a".to_owned(), "desktop-one".to_owned());
+        engines.insert("session-b".to_owned(), "desktop-two".to_owned());
+        drop(engines);
+
+        core.container_disconnect("desktop-one").await;
+
+        let engines = core.desktop_engines.lock().await;
+        assert!(engines.get("session-a").is_none(), "the dropped engine is forgotten");
+        assert_eq!(
+            engines.get("session-b").map(String::as_str),
+            Some("desktop-two"),
+            "an engine on another session is untouched"
+        );
     }
 }

@@ -1117,6 +1117,10 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let session_id: String = from_args(&args, "sessionId")?;
             to_value(state.core.container_connect(&session_id).await?)
         }
+        "desktop_engine_open" => {
+            let session_id: String = from_args(&args, "sessionId")?;
+            to_value(state.core.desktop_engine_open(&session_id).await?)
+        }
         "container_disconnect" => {
             let connection_id: String = from_args(&args, "connectionId")?;
             state.core.container_disconnect(&connection_id).await;
