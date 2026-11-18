@@ -139,6 +139,11 @@
           "comfortable": "舒适",
           "compact": "紧凑"
         },
+        "hidden": "隐藏系统图标",
+        "hiddenHelp": "被隐藏的门在别处仍可使用——隐藏只是把它的图标从桌面移走。主目录与回收站始终保留。",
+        "taskbarAlign": "任务栏对齐",
+        "taskbarAlignLeft": "左",
+        "taskbarAlignCenter": "中",
         "saved": "背景已保存。"
       }
     },

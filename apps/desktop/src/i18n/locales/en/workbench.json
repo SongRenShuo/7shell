@@ -139,6 +139,11 @@
           "comfortable": "Comfortable",
           "compact": "Compact"
         },
+        "hidden": "Hidden doors",
+        "hiddenHelp": "A door you hide keeps working everywhere else — hiding only takes its icon off the desktop. Home and the trash always stay.",
+        "taskbarAlign": "Taskbar alignment",
+        "taskbarAlignLeft": "Left",
+        "taskbarAlignCenter": "Center",
         "saved": "Backdrop saved."
       }
     },

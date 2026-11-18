@@ -83,6 +83,7 @@ import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
 import { useFilesStore } from "@/stores/files";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
+import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
 import {
   addShortcut,
   isValidShortcutPath,
@@ -214,25 +215,43 @@ interface DesktopIcon {
 }
 
 /**
- * The doors every desktop has, in the order the grid draws them.
+ * The doors this desktop has been set to hide, read out of the WebView's own storage when the
+ * desktop is drawn — the same reasoning, and the same place, as the arrangement. Hiding takes the
+ * door's icon off the grid and out of the starter and nothing else: the open paths behind the doors
+ * stay intact, so putting a door back returns it to exactly where the arrangement says it goes.
+ */
+const hiddenDoors = ref<string[]>(readHiddenDoors(session.value.id));
+
+/** Writes the choice down after the checkboxes have changed it. */
+function persistHiddenDoors(): void {
+  writeHiddenDoors(session.value.id, hiddenDoors.value);
+}
+
+/**
+ * The doors every desktop has, in the order the grid draws them, minus the ones this desktop hides.
  *
  * The monitor door and the system-information door lead to the same page on purpose: the readings
  * the first release drew on cards live on the monitor's system page, and both names are ways of
- * asking for it.
+ * asking for it. Home and the trash are never hidden: a desktop without a home, or without a
+ * trash, is not a desktop.
  */
-const systemIcons = computed<DesktopIcon[]>(() => [
-  { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
-  { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
-  { id: "system-docker", kind: "docker", label: t("workbench.desktop.icons.docker"), icon: Container },
-  { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
-  { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
-  { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
-  { id: "system-transfers", kind: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown },
-  { id: "system-forwards", kind: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network },
-  { id: "system-tail", kind: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText },
-  { id: "system-batch", kind: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks },
-  { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
-]);
+const systemIcons = computed<DesktopIcon[]>(() => {
+  const hidden = new Set(hiddenDoors.value);
+  const doors: DesktopIcon[] = [
+    { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
+    { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
+    { id: "system-docker", kind: "docker", label: t("workbench.desktop.icons.docker"), icon: Container },
+    { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
+    { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
+    { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
+    { id: "system-transfers", kind: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown },
+    { id: "system-forwards", kind: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network },
+    { id: "system-tail", kind: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText },
+    { id: "system-batch", kind: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks },
+    { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
+  ];
+  return doors.filter((icon) => !hidden.has(icon.id));
+});
 
 /**
  * The shortcuts this session's desktop carries, read out of the WebView's own storage when the
@@ -704,20 +723,27 @@ interface StarterApp {
   readonly tone: string;
 }
 
-/** The applications the starter offers: the same doors the desktop has, plus the settings. */
-const starterApps = computed<StarterApp[]>(() => [
-  { id: "home", label: t("workbench.desktop.icons.home"), icon: House, tone: "bg-amber-500/85" },
-  { id: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal, tone: "bg-emerald-500/85" },
-  { id: "docker", label: t("workbench.desktop.icons.docker"), icon: Container, tone: "bg-sky-600/85" },
-  { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
-  { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
-  { id: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown, tone: "bg-cyan-600/85" },
-  { id: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network, tone: "bg-indigo-600/85" },
-  { id: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText, tone: "bg-teal-600/85" },
-  { id: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks, tone: "bg-orange-600/85" },
-  { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
-  { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
-]);
+/**
+ * The applications the starter offers: the same doors the desktop has, minus the ones it hides, plus
+ * the settings. A door hidden from the grid is hidden from the sheet too — two places saying one
+ * thing is a lie about the desktop, whichever of them is looked at.
+ */
+const starterApps = computed<StarterApp[]>(() => {
+  const hidden = new Set(hiddenDoors.value);
+  return [
+    { id: "home", label: t("workbench.desktop.icons.home"), icon: House, tone: "bg-amber-500/85" },
+    { id: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal, tone: "bg-emerald-500/85" },
+    { id: "docker", label: t("workbench.desktop.icons.docker"), icon: Container, tone: "bg-sky-600/85" },
+    { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
+    { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
+    { id: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown, tone: "bg-cyan-600/85" },
+    { id: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network, tone: "bg-indigo-600/85" },
+    { id: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText, tone: "bg-teal-600/85" },
+    { id: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks, tone: "bg-orange-600/85" },
+    { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
+    { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
+  ].filter((app) => !hidden.has(`system-${app.id}`));
+});
 
 function launch(appId: string): void {
   starterOpen.value = false;
@@ -1038,6 +1064,48 @@ function setDensity(next: "comfortable" | "compact"): void {
     // A WebView that refuses storage costs the preference, not the desktop.
   }
 }
+
+const TASKBAR_ALIGN_KEY = "sevenshell-workbench-taskbar-align";
+
+/**
+ * Where the taskbar sits: at the reference's insets on either side, or shrunk to its contents and
+ * centred. A preference of this window rather than of the session, like the density above it.
+ */
+const taskbarAlign = ref<"left" | "center">(
+  (() => {
+    try {
+      return localStorage.getItem(TASKBAR_ALIGN_KEY) === "center" ? "center" : "left";
+    } catch {
+      return "left";
+    }
+  })(),
+);
+
+function setTaskbarAlign(next: "left" | "center"): void {
+  taskbarAlign.value = next;
+  try {
+    localStorage.setItem(TASKBAR_ALIGN_KEY, next);
+  } catch {
+    // A WebView that refuses storage costs the preference, not the desktop.
+  }
+}
+
+/**
+ * The doors the settings may hide, as the icon-grid ids that name them and the icon names they go
+ * by. The storage module owns the canonical list; this is the names the dialog draws beside their
+ * checkboxes.
+ */
+const HIDEABLE_DOOR_LABEL_KEYS: Readonly<Record<string, string>> = {
+  "system-terminal": "terminal",
+  "system-docker": "docker",
+  "system-monitor": "monitor",
+  "system-info": "systemInfo",
+  "system-panel": "system",
+  "system-transfers": "transfers",
+  "system-forwards": "forwards",
+  "system-tail": "tail",
+  "system-batch": "batch",
+};
 
 async function chooseWallpaper(id: string | null): Promise<void> {
   chosenWallpaper.value = id;
@@ -1387,6 +1455,7 @@ function disconnect(): void {
     <WorkbenchTaskbar
       :entries="taskbarEntries"
       :clock="clockTime"
+      :align="taskbarAlign"
       :power="t('workbench.power.title')"
       :labels="{
         starter: t('workbench.desktop.shell.starter'),
@@ -1598,6 +1667,59 @@ function disconnect(): void {
               @click="setDensity(density)"
             >
               {{ t(`workbench.desktop.settings.densities.${density}`) }}
+            </button>
+          </div>
+
+          <!--
+            The doors this desktop hides, checked off one by one. A checked box is a door taken off
+            the wall — its icon leaves the grid and the starter, and its open path stays intact, so
+            unchecking it puts it back exactly where the arrangement says it goes.
+          -->
+          <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.desktop.settings.hidden") }}
+          </h3>
+          <p class="mb-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            {{ t("workbench.desktop.settings.hiddenHelp") }}
+          </p>
+          <div class="grid grid-cols-2 gap-0.5">
+            <label
+              v-for="(labelKey, id) in HIDEABLE_DOOR_LABEL_KEYS"
+              :key="id"
+              class="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] transition-colors hover:bg-accent/50"
+            >
+              <input
+                v-model="hiddenDoors"
+                type="checkbox"
+                class="size-3 shrink-0"
+                :value="id"
+                data-workbench-setting-door
+                :data-door-id="id"
+                :aria-label="t(`workbench.desktop.icons.${labelKey}`)"
+                @change="persistHiddenDoors()"
+              />
+              {{ t(`workbench.desktop.icons.${labelKey}`) }}
+            </label>
+          </div>
+
+          <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.desktop.settings.taskbarAlign") }}
+          </h3>
+          <div class="flex gap-1.5">
+            <button
+              v-for="align in ['left', 'center'] as const"
+              :key="align"
+              type="button"
+              class="rounded-md border px-2 py-1 text-[11px] transition-colors"
+              :class="
+                taskbarAlign === align
+                  ? 'border-border bg-accent text-foreground'
+                  : 'border-border/60 text-muted-foreground hover:bg-accent/50'
+              "
+              data-workbench-setting-align
+              :data-align="align"
+              @click="setTaskbarAlign(align)"
+            >
+              {{ t(`workbench.desktop.settings.${align === "left" ? "taskbarAlignLeft" : "taskbarAlignCenter"}`) }}
             </button>
           </div>
 

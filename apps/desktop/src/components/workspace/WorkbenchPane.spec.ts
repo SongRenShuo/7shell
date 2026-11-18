@@ -49,6 +49,7 @@ import {
   type DesktopShortcut,
 } from "@/lib/workbench/desktopIcons";
 import { iconOrderKey } from "@/lib/workbench/iconOrder";
+import { hiddenDoorsKey } from "@/lib/workbench/hiddenDoors";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
@@ -106,7 +107,7 @@ function iconLabels(): (string | undefined)[] {
   return icons().map((entry) => entry.textContent?.trim());
 }
 
-/** The order this desktop draws before anybody arranges it. */
+/** The order this desktop draws before anybody arranges or hides anything: every door visible. */
 const DEFAULT_ICON_LABELS = [
   "Home",
   "Terminal",
@@ -131,6 +132,29 @@ function iconByLabel(label: string): HTMLElement {
 
 function taskbarEntries(): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")];
+}
+
+/** The application ids the starter offers, closed or not: the sheet keeps its tiles in the DOM. */
+function starterAppIds(): string[] {
+  return [...host.querySelectorAll<HTMLElement>("[data-workbench-starter-app]")].map(
+    (entry) => entry.dataset.appId ?? "",
+  );
+}
+
+/** Opens the desktop's own settings dialog the way its menu does, and waits for it to draw. */
+async function openSettings(): Promise<void> {
+  fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+  await runMenuEntry(lastMenu(), "desktop-settings");
+  await nextTick();
+}
+
+/** The settings checkbox of one hideable door, pressed the way a person presses it. */
+function settingDoor(id: string): HTMLInputElement {
+  const found = document.body.querySelector<HTMLInputElement>(`[data-workbench-setting-door][data-door-id="${id}"]`);
+  if (!found) {
+    throw new Error(`the settings dialog has no checkbox for ${id}`);
+  }
+  return found;
 }
 
 /** The context menu the pane last opened, read where the composable keeps it. */
@@ -658,6 +682,110 @@ describe("the workbench desktop", () => {
     localStorage.setItem(iconOrderKey(desk.id), JSON.stringify({ order: ["system-trash"] }));
     await render();
     expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+  });
+
+  it("hides a door from the grid and the starter when the settings ask, and remembers the choice", async () => {
+    await render();
+
+    await openSettings();
+    expect(
+      document.body.querySelectorAll("[data-workbench-setting-door]").length,
+      "the mutable doors can be checked off; home and the trash are not anybody's to hide",
+    ).toBe(9);
+
+    settingDoor("system-docker").click();
+    await nextTick();
+
+    const withoutDocker = DEFAULT_ICON_LABELS.filter((label) => label !== "Docker");
+    expect(iconLabels(), "the door is off the grid").toEqual(withoutDocker);
+    expect(starterAppIds(), "and off the starter — two places saying one thing").not.toContain("docker");
+    expect(iconByLabel("Trash"), "home and the trash stay, whatever else leaves").toBeDefined();
+    expect(localStorage.getItem(hiddenDoorsKey(desk.id)), "and the choice is written down").toBe(
+      JSON.stringify(["system-docker"]),
+    );
+
+    unmount();
+    await render();
+    expect(iconLabels(), "the next visit opens a desktop without it too").toEqual(withoutDocker);
+    expect(starterAppIds()).not.toContain("docker");
+  });
+
+  it("falls back to every door visible when the stored choice is unreadable", async () => {
+    localStorage.setItem(hiddenDoorsKey(desk.id), "not json at all");
+    await render();
+    expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+
+    unmount();
+    localStorage.setItem(hiddenDoorsKey(desk.id), JSON.stringify({ hidden: ["system-docker"] }));
+    await render();
+    expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+
+    unmount();
+    localStorage.setItem(hiddenDoorsKey(desk.id), JSON.stringify(["system-gone", "system-docker"]));
+    await render();
+    expect(iconLabels(), "an id this build cannot hide is dropped; the rest of the choice stands").toEqual(
+      DEFAULT_ICON_LABELS.filter((label) => label !== "Docker"),
+    );
+  });
+
+  it("puts a hidden door back where the arrangement left it when it is shown again", async () => {
+    await render();
+
+    // The arrangement first: Batch takes Home's slot, and the stored order keeps every id it saw,
+    // whether the door is on the wall or not.
+    drag(iconByLabel("Batch"), iconByLabel("Home"));
+    await nextTick();
+    const arranged = [
+      "Batch",
+      "Home",
+      "Terminal",
+      "Docker",
+      "Monitor",
+      "System information",
+      "System panel",
+      "Transfers",
+      "Forwards",
+      "Logs",
+      "Trash",
+    ];
+    expect(iconLabels()).toEqual(arranged);
+
+    await openSettings();
+    settingDoor("system-docker").click();
+    await nextTick();
+    expect(iconLabels(), "the door leaves the grid, the arrangement untouched").toEqual(
+      arranged.filter((label) => label !== "Docker"),
+    );
+
+    settingDoor("system-docker").click();
+    await nextTick();
+    expect(
+      iconLabels(),
+      "shown again, it is exactly where somebody dragged it to be — not appended at the end",
+    ).toEqual(arranged);
+  });
+
+  it("moves the taskbar to the middle when the settings ask, and remembers the choice", async () => {
+    await render();
+    expect(host.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered")).toBe(false);
+
+    await openSettings();
+    const center = document.body.querySelector<HTMLElement>('[data-workbench-setting-align][data-align="center"]');
+    if (!center) {
+      throw new Error("the settings dialog has no centre choice for the taskbar");
+    }
+    center.click();
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered")).toBe(true);
+    expect(localStorage.getItem("sevenshell-workbench-taskbar-align")).toBe("center");
+
+    unmount();
+    await render();
+    expect(
+      host.querySelector("[data-workbench-taskbar]")?.classList.contains("is-centered"),
+      "the next visit draws it centred too",
+    ).toBe(true);
   });
 
   it("puts the default order back from the desktop's menu, and forgets the arrangement", async () => {
