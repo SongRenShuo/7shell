@@ -21,7 +21,12 @@ export interface DiskDevice {
   readonly mount?: string;
   readonly model?: string;
   readonly filesystem?: string;
-  readonly children: readonly DiskDevice[];
+  /**
+   * Partitions and holders. **Absent** rather than empty when there are none — the Rust side omits
+   * an empty vector on the wire, and a mirror that insists it is always there is a mirror that
+   * throws "not iterable" the first time a leaf device is drawn.
+   */
+  readonly children?: readonly DiskDevice[];
 }
 
 export interface AccountEntry {
