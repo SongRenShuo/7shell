@@ -33,6 +33,7 @@
         "docker": "Docker",
         "transfers": "传输",
         "forwards": "转发",
+        "services": "服务",
         "tail": "日志",
         "batch": "批量"
       },
@@ -92,6 +93,16 @@
         }
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
+      "services": {
+        "listTitle": "这台机器正在监听的端口",
+        "refresh": "刷新",
+        "empty": "主机没有返回任何监听端口。",
+        "unnamed": "未知进程",
+        "openTunnel": "开隧道",
+        "openBrowser": "浏览器打开",
+        "tunnelOpened": "隧道已建立：本地 {bind}，转发到 {target}。",
+        "browserOpened": "浏览器已打开 {url}。"
+      },
       "menu": {
         "open": "打开",
         "remove": "移除",
@@ -119,6 +130,7 @@
           "monitor": "这台主机的监控系统页。",
           "system": "这台机器的系统面板。",
           "trash": "这台机器的回收站。",
+          "services": "这台机器正在监听的端口，每个都带着一条到达它的路。",
           "shortcut": "下方路径处的文件浏览器。"
         }
       },
