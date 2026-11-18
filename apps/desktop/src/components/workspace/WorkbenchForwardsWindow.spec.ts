@@ -26,6 +26,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 
 import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWindow.vue";
 import { i18n } from "@/i18n";
+import { ShellError } from "@/lib/backend/errors";
 import { tunnelRuntimeOpen, tunnelRuntimeStop, tunnelsOpen } from "@/lib/backend/tauri";
 import { useSessionsStore } from "@/stores/sessions";
 import { useTerminalsStore } from "@/stores/terminals";
@@ -213,13 +214,17 @@ describe("the desktop's forwards window", () => {
       .querySelector<HTMLFormElement>("[data-workbench-forwards-add]")
       ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
-      expect(openMock).toHaveBeenCalledWith("session-1", {
-        mode: "local",
-        bindHost: "127.0.0.1",
-        bindPort: 25432,
-        targetHost: "127.0.0.1",
-        targetPort: 25433,
-      });
+      expect(openMock).toHaveBeenCalledWith(
+        "session-1",
+        {
+          mode: "local",
+          bindHost: "127.0.0.1",
+          bindPort: 25432,
+          targetHost: "127.0.0.1",
+          targetPort: 25433,
+        },
+        false,
+      );
     });
     await vi.waitFor(() => {
       expect(rows().some((row) => row.textContent?.includes("25432"))).toBe(true);
@@ -259,13 +264,17 @@ describe("the desktop's forwards window", () => {
       .querySelector<HTMLFormElement>("[data-workbench-forwards-add]")
       ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
-      expect(openMock).toHaveBeenCalledWith("session-1", {
-        mode: "local",
-        bindHost: "127.0.0.1",
-        bindPort: 0,
-        targetHost: "127.0.0.1",
-        targetPort: 25433,
-      });
+      expect(openMock).toHaveBeenCalledWith(
+        "session-1",
+        {
+          mode: "local",
+          bindHost: "127.0.0.1",
+          bindPort: 0,
+          targetHost: "127.0.0.1",
+          targetPort: 25433,
+        },
+        false,
+      );
     });
     // What is up is the port that was actually bound, not the 0 that asked for it.
     await vi.waitFor(() => {
@@ -365,17 +374,102 @@ describe("the desktop's forwards window", () => {
       .querySelector<HTMLFormElement>("[data-workbench-forwards-add]")
       ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
-      expect(openMock).toHaveBeenCalledWith("session-1", {
+      expect(openMock).toHaveBeenCalledWith(
+        "session-1",
+        {
+          mode: "remote",
+          bindHost: "127.0.0.1",
+          bindPort: 18080,
+          targetHost: "127.0.0.1",
+          targetPort: 8080,
+        },
+        false,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(rows().some((row) => row.dataset.forwardMode === "remote")).toBe(true);
+    });
+  });
+
+  it("a forward the gate stops for is asked about here, and the answer rides the resend", async () => {
+    await mount("ssh");
+    await nextTick();
+
+    await chooseMode("Remote");
+    const [bindHost, bindPort, targetHost, targetPort] = [
+      ...windowBody().querySelectorAll<HTMLInputElement>("input[type='text']"),
+    ];
+    if (!bindHost || !bindPort || !targetHost || !targetPort) {
+      throw new Error("the add form was not drawn in full");
+    }
+    bindHost.value = "127.0.0.1";
+    type(bindPort, "18080");
+    type(targetHost, "127.0.0.1");
+    type(targetPort, "8080");
+    await nextTick();
+
+    // The gate's refusal, shaped the way the shell sends it: the rule that fired named in the
+    // action parameter. Under the default matrix a remote forward always stops here.
+    const wantsAPerson = new ShellError({
+      version: 1,
+      code: "POLICY-APPROVAL-REQUIRED",
+      messageKey: "errors.policy.approvalRequired",
+      messageParams: { action: "tunnel.remote" },
+      origin: { subsystem: "policy" },
+      outcome: "rejected",
+    });
+    openMock.mockRejectedValueOnce(wantsAPerson);
+    openMock.mockResolvedValue({
+      id: "t-remote-2",
+      handle: "handle-1",
+      sessionId: "session-1",
+      bindHost: "127.0.0.1",
+      bindPort: 18080,
+      mode: "remote",
+      targetHost: "127.0.0.1",
+      targetPort: 8080,
+      connections: 0,
+    });
+
+    windowBody()
+      .querySelector<HTMLFormElement>("[data-workbench-forwards-add]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => {
+      expect(openMock).toHaveBeenCalledTimes(1);
+    });
+    // The question is on screen, nothing further has been sent, and the list has not grown.
+    await vi.waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    });
+    expect(document.body.textContent).toContain("remote forward");
+    expect(rows().length).toBe(0);
+
+    // The answer travels: the resend carries the acknowledgement, and the forward joins the list.
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (candidate) => candidate.textContent?.trim() === "Open",
+    );
+    if (!confirm) {
+      throw new Error("the open question had no confirm button");
+    }
+    confirm.click();
+    await vi.waitFor(() => {
+      expect(openMock).toHaveBeenCalledTimes(2);
+    });
+    expect(openMock).toHaveBeenLastCalledWith(
+      "session-1",
+      {
         mode: "remote",
         bindHost: "127.0.0.1",
         bindPort: 18080,
         targetHost: "127.0.0.1",
         targetPort: 8080,
-      });
-    });
+      },
+      true,
+    );
     await vi.waitFor(() => {
-      expect(rows().some((row) => row.dataset.forwardMode === "remote")).toBe(true);
+      expect(rows().length).toBe(1);
     });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("re-reads the list when forwards change elsewhere, without anybody pressing refresh", async () => {
