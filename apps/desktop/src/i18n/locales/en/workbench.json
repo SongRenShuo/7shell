@@ -73,14 +73,22 @@
         "modeLabel": "Kind",
         "modeLocal": "Local",
         "modeDynamic": "Dynamic (SOCKS5)",
+        "modeRemote": "Remote",
+        "modeRemoteTag": "remote",
+        "remoteDirection": "Exposed by this machine",
         "bindHost": "Listen on",
         "bindPort": "Port",
+        "bindHostServer": "Listen on (server)",
+        "bindPortServer": "Port (server)",
         "targetHost": "Destination host",
         "targetPort": "Destination port",
+        "targetHostLocal": "This machine's host",
+        "targetPortLocal": "This machine's port",
         "add": "Add forward",
         "hint": {
           "local": "A local forward maps a service inside the machine onto a port here: listen on 127.0.0.1, destination 127.0.0.1:25433, and that port here is the machine's database.",
-          "dynamic": "A dynamic forward turns the machine into a SOCKS5 door: listen on 127.0.0.1, choose port 1080, and anything pointed at it goes out from the machine."
+          "dynamic": "A dynamic forward turns the machine into a SOCKS5 door: listen on 127.0.0.1, choose port 1080, and anything pointed at it goes out from the machine.",
+          "remote": "A remote forward turns it around: the port opens on the server, answered by this machine. Whoever can reach the server reaches that service, which is why the policy matrix always stops to be asked about a remote forward — and where it is set to ask, the desktop is refused rather than questioned, so a refused remote forward needs the matrix loosened, not a second try."
         }
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
