@@ -78,7 +78,13 @@ impl K8sClient {
     pub async fn connect(config: &Kubeconfig, context: Option<&str>) -> Result<Self, ShellError> {
         let selected = config.select(context)?;
         let transport = transport_of(&selected)?;
-        let http = http_client(&transport.tls, None)?;
+        // A cluster the kubeconfig names as the machine itself is reached directly. The client is
+        // built with the system proxy on purpose — a cluster behind a corporate proxy is a real
+        // shape — but a proxy on the same machine cannot reach *this* machine's loopback: asking
+        // it to would send a request for 127.0.0.1:6443 to the proxy's own idea of the network,
+        // and the answer would be the proxy's, not the cluster's (usually a 502).
+        let direct = is_loopback(&transport.server);
+        let http = http_client(&transport.tls, None, direct)?;
 
         Ok(Self { transport, http })
     }
@@ -104,7 +110,7 @@ impl K8sClient {
             endpoint: address,
             target: prepared.target.clone(),
         });
-        let http = http_client(&transport.tls, Some(address))?;
+        let http = http_client(&transport.tls, Some(address), false)?;
         let tunnel = TunnelEndpoint::start(listener, prepared.target, dialer);
         Ok((Self { transport, http }, tunnel))
     }
@@ -655,13 +661,37 @@ fn normalized_key(key: &[u8]) -> Result<Vec<u8>, ShellError> {
         .map_err(|error| ShellError::k8s_kubeconfig_invalid(format!("the client key could not be converted: {error}")))
 }
 
-fn http_client(tls: &native_tls::TlsConnector, endpoint: Option<SocketAddr>) -> Result<reqwest::Client, ShellError> {
+/// Whether a kubeconfig host names the machine this client runs on.
+///
+/// The two spellings a kubeconfig uses for it are `localhost` and a loopback literal (`127.0.0.1`,
+/// `::1`, or any other address in 127/8). A host name that is not an address is not this machine,
+/// even if it resolves to one: the system proxy is the only thing that would ever see it.
+fn is_loopback(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|address| address.is_loopback())
+            .unwrap_or(false)
+}
+
+fn http_client(
+    tls: &native_tls::TlsConnector,
+    endpoint: Option<SocketAddr>,
+    direct: bool,
+) -> Result<reqwest::Client, ShellError> {
     // No total timeout on the client: a watch is supposed to stay open, and a client-wide deadline
     // would cut it off after five minutes. Ordinary requests apply their own deadline instead.
     let mut builder = reqwest::Client::builder()
         .tls_backend_preconfigured(tls.clone())
         .connect_timeout(CONNECT_TIMEOUT)
         .user_agent(concat!("7Shell/", env!("CARGO_PKG_VERSION")));
+
+    // `direct` is the loopback case: the system proxy is for the network, and this connection is
+    // not on it. It is set before the tunnel proxy below, which needs a proxy and always provides
+    // its own.
+    if direct {
+        builder = builder.no_proxy();
+    }
 
     if let Some(endpoint) = endpoint {
         // A proxy rather than a DNS override: an address written as an IP literal is connected to
@@ -1285,5 +1315,22 @@ users:
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(closed, "the listener outlived the endpoint");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_loopback;
+
+    /// The spellings a kubeconfig actually uses for a cluster on this machine, and the ones that
+    /// are somebody else's machine even when DNS says otherwise.
+    #[test]
+    fn loopback_is_recognised_in_the_spellings_a_kubeconfig_uses() {
+        for host in ["localhost", "LOCALHOST", "127.0.0.1", "127.1.2.3", "::1"] {
+            assert!(is_loopback(host), "{host} is this machine");
+        }
+        for host in ["api.cluster.local", "10.0.0.10", "::2", "localhost.example.com"] {
+            assert!(!is_loopback(host), "{host} is not this machine");
+        }
     }
 }

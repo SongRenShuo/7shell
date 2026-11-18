@@ -350,6 +350,38 @@ describe("the workbench desktop", () => {
     ).toBe(true);
   });
 
+  it("keeps the panel standing when the host answers an older shape without the newer lists", async () => {
+    // A browser host older than this build answers the overview without `crontab`, `logins` or
+    // `mounts`. That is not a contract violation to crash over: the sections say they have nothing
+    // to show. `overview?.crontab.length` reads `crontab` before it is known to exist, and Vue
+    // unmounts the subtree when that throws — the panel disappears with no other symptom.
+    systemOverviewMock.mockResolvedValue({
+      services: [],
+      disks: [],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      uptimeSeconds: 60,
+    } as never);
+    await render();
+
+    iconByLabel("System panel").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(host.querySelector("[data-workbench-system]"), "the panel opened").not.toBeNull();
+
+    for (const label of ["Scheduled jobs", "Logins", "Disks"]) {
+      const button = [...host.querySelectorAll("[data-workbench-system-tabs] button")].find(
+        (tab) => tab.textContent?.trim() === label,
+      );
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await nextTick();
+      expect(host.querySelector("[data-workbench-system]"), `the panel survives ${label}`).not.toBeNull();
+    }
+  });
+
   it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {
     await render(deskWithWallpaper);
     expect(host.firstElementChild?.getAttribute("style")).toContain("linear-gradient");

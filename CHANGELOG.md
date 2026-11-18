@@ -56,6 +56,21 @@ All notable changes to 7Shell are documented in this file. The format is
   wallpaper for the end of the grid — and the arrangement is remembered per session, with "Reset
   icon layout" in the desktop's own menu putting the default order back. The taskbar now ends in a
   clock, and clicking it opens the system panel (ab096c1).
+- The desktop is now an operating-system shell, modelled on the reference product this round
+  studied: a 23px status bar over the wallpaper, sticker-like icons, a full-screen application
+  starter, floating windows that move, resize, minimise and maximise with the maximised one filling
+  the desk, and a floating taskbar with one cell per open window and a running dot under the one in
+  front. A terminal opened from the desktop lives in a window on it rather than in the tab strip,
+  a file browser window opens a browser of its own and closes it with the window, and the monitor,
+  system panel and trash are drawn inside windows (fdb5dd8, 00f9d80, f1f4a25).
+- The system panel reads further: each service's boot state with a switch to enable or disable it
+  (the states a unit file refuses are shown rather than offered), the account's crontab, the last
+  twenty logins including the machine's own reboots, the firewall's state from ufw or firewalld,
+  and a usage ring per mounted file system (1e7a147). A browser host older than this build answers
+  the overview without the newer lists, and those sections say so instead of blanking the panel.
+- A Kubernetes cluster whose address is the machine itself is reached directly rather than through
+  the system proxy, which cannot reach this machine's loopback and answered instead with its own
+  error (f1f4a25).
 
 ## [0.2.0] - 2026-11-17
 

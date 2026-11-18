@@ -656,7 +656,7 @@ watch(
           >
             {{ job }}
           </p>
-          <p v-if="(overview?.crontab.length ?? 0) === 0" class="text-xs text-muted-foreground">
+          <p v-if="(overview?.crontab?.length ?? 0) === 0" class="text-xs text-muted-foreground">
             {{ t("workbench.system.crontab.empty") }}
           </p>
         </div>
@@ -703,7 +703,7 @@ watch(
               {{ login.duration }}
             </td>
           </tr>
-          <tr v-if="(overview?.logins.length ?? 0) === 0">
+          <tr v-if="(overview?.logins?.length ?? 0) === 0">
             <td :colspan="5" :class="TABLE.page.emptyCell">{{ t("workbench.system.logins.empty") }}</td>
           </tr>
         </tbody>
