@@ -66,6 +66,7 @@ import {
   type TerminalTab,
   type WorkbenchTab,
   containerFilesSessionId,
+  isWindowedTab,
   podFilesSessionId,
   tunnelFailureKey,
   useTerminalsStore,
@@ -1308,6 +1309,97 @@ describe("pages about a host", () => {
 
     const tab = store.tabs[0];
     expect(tab && store.browserHandleOf(tab)).toBeNull();
+  });
+});
+
+/**
+ * The desktop's windowed tabs: a container engine opened as a window on the desktop, beside the
+ * windowed terminal that already worked this way.
+ *
+ * The connection itself is the container pane's to open on mount — what is checked here is only
+ * what the strip depends on: a windowed tab exists without taking the application's active tab,
+ * the predicate that leaves it out of the strip answers about it, and an engine that is already
+ * open is answered with the tab that shows it rather than a second connection.
+ */
+describe("the desktop's windowed tabs", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    usePreferencesStore().sessionLayout = "terminal";
+    localStorage.clear();
+    sessionOpenMock.mockReset();
+    sessionSystemMock.mockReset().mockResolvedValue({ name: null, kernel: null, distro: null, distroLike: [] });
+    tunnelsOpenMock.mockReset().mockResolvedValue([]);
+  });
+
+  const desktop: Session = {
+    id: "desktop-1",
+    name: "desk",
+    protocol: "linuxDesk",
+    host: "desk.test",
+    port: 22,
+    user: "root",
+    auth: { method: "password", hasSecret: true },
+    terminal: { terminalType: "xterm-256color", keepaliveSeconds: 0, forwardAgent: false, record: false },
+    updatedAt: 0,
+  };
+
+  const engine: Session = {
+    id: "engine-1",
+    name: "lab engine",
+    protocol: "container",
+    host: "",
+    port: 0,
+    user: "",
+    auth: { method: "password", hasSecret: false },
+    terminal: { terminalType: "xterm-256color", keepaliveSeconds: 0, forwardAgent: false, record: false },
+    updatedAt: 0,
+  };
+
+  it("opens a windowed container tab without taking the active tab", async () => {
+    const store = useTerminalsStore();
+    const id = await store.openContainerTab(desktop, { windowed: true });
+
+    expect(id).not.toBeNull();
+    const tab = store.tabs.find((entry) => entry.id === id);
+    expect(tab?.kind).toBe("container");
+    expect(tab && isWindowedTab(tab)).toBe(true);
+    expect(store.activeTabId).toBeNull();
+  });
+
+  it("an ordinary container tab is still drawn in the strip, and still takes the active tab", async () => {
+    const store = useTerminalsStore();
+    const id = await store.openContainerTab(engine);
+
+    const tab = store.tabs.find((entry) => entry.id === id);
+    expect(tab && isWindowedTab(tab)).toBe(false);
+    expect(store.activeTabId).toBe(id);
+  });
+
+  it("answers an engine that is already open with the tab that shows it, not a second connection", async () => {
+    const store = useTerminalsStore();
+    const first = await store.openContainerTab(desktop, { windowed: true });
+    const again = await store.openContainerTab(desktop, { windowed: true });
+
+    expect(again).toBe(first);
+    expect(store.tabs.filter((tab) => tab.kind === "container")).toHaveLength(1);
+    expect(store.activeTabId).toBeNull();
+  });
+
+  it("the predicate answers about a windowed terminal too, and not about a strip terminal", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    const store = useTerminalsStore();
+    open();
+    await store.openTerminalTab(session, { windowed: true });
+    expect(store.tabs).toHaveLength(1);
+    expect(store.tabs[0] && isWindowedTab(store.tabs[0])).toBe(true);
+    expect(store.activeTabId).toBeNull();
+
+    setActivePinia(createPinia());
+    sessionOpenMock.mockResolvedValue(opened());
+    const strip = useTerminalsStore();
+    open();
+    await strip.openTerminalTab(session);
+    expect(strip.tabs[0] && isWindowedTab(strip.tabs[0])).toBe(false);
   });
 });
 

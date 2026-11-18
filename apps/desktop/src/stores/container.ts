@@ -595,7 +595,13 @@ export const useContainerStore = defineStore("container", () => {
     }
 
     try {
-      const connectionId = await backend.containers.connect(tab.session.id);
+      // A desktop session's engine is the Docker of that very machine: it is opened on the
+      // connection the session already holds, not asked to connect again as a container session
+      // is. The rest of the flow — the id written back, the refusal kept, the reads after it — is
+      // the same either way, because a desktop engine answers with a connection id like any other.
+      const connectionId = await (tab.session.protocol === "linuxDesk"
+        ? backend.containers.connectDesktop(tab.session.id)
+        : backend.containers.connect(tab.session.id));
       if (sessions.value[tab.id] !== session) {
         // Closed while connecting: no tab can show this engine, so let it go.
         await backend.containers.disconnect(connectionId).catch(() => {

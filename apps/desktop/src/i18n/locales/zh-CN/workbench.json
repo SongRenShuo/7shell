@@ -29,7 +29,13 @@
         "monitor": "监控",
         "systemInfo": "系统信息",
         "trash": "回收站",
-        "system": "系统面板"
+        "system": "系统面板",
+        "docker": "Docker",
+        "transfers": "传输"
+      },
+      "apps": {
+        "dockerHint": "这台机器的容器与镜像，在一个独立的窗口里。",
+        "transfersHint": "正在传输的文件，无论它们从哪里开始。"
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
       "menu": {

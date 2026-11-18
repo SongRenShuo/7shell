@@ -29,7 +29,13 @@
         "monitor": "Monitor",
         "systemInfo": "System information",
         "trash": "Trash",
-        "system": "System panel"
+        "system": "System panel",
+        "docker": "Docker",
+        "transfers": "Transfers"
+      },
+      "apps": {
+        "dockerHint": "The containers and images of this machine, in a window of their own.",
+        "transfersHint": "The files that are moving, wherever they were started."
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
       "menu": {
