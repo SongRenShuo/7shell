@@ -293,7 +293,7 @@ describe("the desktop's keep-alive budget", () => {
     const nodesAtOpen = host.querySelectorAll("[data-workbench-window] *").length;
 
     // Minimise every one of them, in the order they stand.
-    for (const button of [...host.querySelectorAll<HTMLElement>("[data-workbench-window-min]")]) {
+    for (const button of host.querySelectorAll<HTMLElement>("[data-workbench-window-min]")) {
       button.click();
       await nextTick();
     }
@@ -354,7 +354,7 @@ describe("the desktop's keep-alive budget", () => {
     });
 
     for (const line of ["first", "second"]) {
-      for (const handler of [...lineListeners]) {
+      for (const handler of lineListeners) {
         handler({ payload: { tailId: "tail-1", line } });
       }
     }
@@ -374,7 +374,7 @@ describe("the desktop's keep-alive budget", () => {
     });
 
     for (let index = 0; index < 5; index += 1) {
-      for (const handler of [...lineListeners]) {
+      for (const handler of lineListeners) {
         handler({ payload: { tailId: "tail-1", line: `arrived while hidden ${index}` } });
       }
     }
