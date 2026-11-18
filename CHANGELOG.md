@@ -47,6 +47,11 @@ All notable changes to 7Shell are documented in this file. The format is
   stop a service, with stopping behind a question and the policy matrix (8bdbdfd, a7310b4).
 - Icon chrome on a wallpaper no longer follows the interface theme: white with a soft shadow, so
   a light theme's dark labels are never drawn on a dark picture (a7310b4).
+- The system panel's disk section no longer goes blank on a machine whose disk has no partitions:
+  the shell leaves an empty `children` list off the wire, and the panel now reads its absence as
+  "no partitions" rather than failing to draw (73eb01c).
+- The desktop's own settings, from its right-click menu: a backdrop choice that is written back to
+  the session, and an icon density that stays with this window (4d1ce31).
 
 ## [0.2.0] - 2026-11-17
 
