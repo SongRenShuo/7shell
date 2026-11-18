@@ -98,8 +98,19 @@ All notable changes to 7Shell are documented in this file. The format is
 - A Kubernetes cluster whose address is the machine itself is reached directly rather than through
   the system proxy, which cannot reach this machine's loopback and answered instead with its own
   error (f1f4a25).
+- The desktop's own settings grow the parts a desktop actually has: doors that can be checked out
+  of the icon grid (home and the trash stay — they are not anybody's to hide), a taskbar that sits
+  at the bottom or the middle of the desk as chosen, and screen-reader labels on every taskbar
+  control (a14acc7).
 
 ### Fixed
+
+- Deleting one trash entry for good no longer runs straight from its icon: the question emptying
+  already asks is there for this verb too, naming the entry, and only the answer carries the
+  acknowledgement the policy matrix needs (928b67e).
+- The system panel no longer answers a stricter matrix's question for people: start, restart,
+  enable and disable travel unacknowledged, so a layer raised to Ask is met with the shell's
+  refusal naming the rule rather than a silent yes (928b67e).
 
 - The desktop's icons answer the mouse again: the layer that holds the application starter covered
   the whole desk and took every click even while the sheet inside it was closed and inert. The
