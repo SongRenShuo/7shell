@@ -191,6 +191,30 @@ function fire(element: HTMLElement, type: string): void {
 }
 
 /**
+ * A desk jsdom has no layout for, so the work area measures 0x0 and the desk's own geometry —
+ * snapping, the zones — would answer "no room" to everything. Tests that need the geometry give
+ * the elements the desk's own 800x600 for the duration; the pane measures on mount, so the patch
+ * has to be in place before the first render. {@link takeTheDeskBack} must run afterwards, and
+ * every user of these registers it in an afterEach.
+ */
+function giveTheDeskItsSize(): void {
+  for (const property of ["clientWidth", "clientHeight"] as const) {
+    Object.defineProperty(HTMLElement.prototype, property, {
+      configurable: true,
+      get() {
+        return property === "clientWidth" ? 800 : 600;
+      },
+    });
+  }
+}
+
+function takeTheDeskBack(): void {
+  for (const property of ["clientWidth", "clientHeight"] as const) {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property];
+  }
+}
+
+/**
  * Drags one icon onto another — or onto the wallpaper, when `onto` is left out — the way a browser
  * does it: dragstart on the source, dragover and drop on the target, then dragend on the source.
  *
@@ -1184,28 +1208,6 @@ describe("the workbench desktop", () => {
  * the preview away.
  */
 describe("the snap preview", () => {
-  /**
-   * A desk jsdom has no layout for, so the work area measures 0x0 and every zone answer would be
-   * "no room". These tests give the elements the desk's own 800x600 for the duration — the pane
-   * measures on mount, so the patch has to be in place before the first render.
-   */
-  function giveTheDeskItsSize(): void {
-    for (const property of ["clientWidth", "clientHeight"] as const) {
-      Object.defineProperty(HTMLElement.prototype, property, {
-        configurable: true,
-        get() {
-          return property === "clientWidth" ? 800 : 600;
-        },
-      });
-    }
-  }
-
-  function takeTheDeskBack(): void {
-    for (const property of ["clientWidth", "clientHeight"] as const) {
-      delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property];
-    }
-  }
-
   function pointer(type: string, clientX: number, clientY: number): PointerEvent {
     return new PointerEvent(type, { clientX, clientY, button: 0, pointerId: 1, bubbles: true, cancelable: true });
   }
@@ -1263,5 +1265,113 @@ describe("the snap preview", () => {
     expect(preview?.className, "the ghost itself is click-through").toContain("pointer-events-none");
     const atGhost = document.elementFromPoint(5, 300);
     expect(atGhost, "nothing answers a press at the ghost but what sits under it").not.toBe(preview);
+  });
+});
+
+/*
+ * The desktop's own keys. The starter answers the launcher key, the windows answer Alt+Tab, and
+ * neither answers anything while this desktop is not the tab on screen. A terminal that holds the
+ * focus is the one place the desktop must stay out of: its keystrokes belong to the shell.
+ */
+describe("the desktop's own keys", () => {
+  function key(type: "keydown" | "keyup", init: KeyboardEventInit): void {
+    window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
+  }
+
+  /** Whether the starter sheet is open, by whether it is still inert. */
+  function starterOpen(): boolean {
+    const sheet = host.querySelector("[data-workbench-starter]");
+    return sheet !== null && sheet.getAttribute("inert") === null;
+  }
+
+  /** Opens two windows and leaves the second one in front, the way two clicks would. */
+  async function twoWindows(): Promise<void> {
+    await render();
+    fire(iconByLabel("Trash"), "dblclick");
+    await nextTick();
+    fire(iconByLabel("Monitor"), "dblclick");
+    await nextTick();
+  }
+
+  afterEach(() => {
+    takeTheDeskBack();
+  });
+
+  it("opens the starter on the launcher key, and closes it on the next one", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+    expect(starterOpen(), "Meta alone is the launcher").toBe(true);
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+    expect(starterOpen(), "Meta again is the way out").toBe(false);
+  });
+
+  it("does not open the starter when the key was part of a chord", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Meta" });
+    key("keydown", { key: "s" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+
+    expect(starterOpen()).toBe(false);
+  });
+
+  it("cycles the windows on Alt+Tab, and walks back with Shift", async () => {
+    giveTheDeskItsSize();
+    await twoWindows();
+
+    key("keydown", { key: "Tab", altKey: true });
+    await nextTick();
+    const active = () =>
+      [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+        (entry) => entry.dataset.active === "true",
+      )?.dataset.entryId;
+    expect(active(), "the window focused just before the front one takes over").not.toBe(undefined);
+
+    const afterForward = active();
+    key("keydown", { key: "Tab", altKey: true, shiftKey: true });
+    await nextTick();
+    expect(active(), "Shift walks the other way, back to the front window").not.toBe(afterForward);
+  });
+
+  it("stays out of a terminal that holds the focus", async () => {
+    giveTheDeskItsSize();
+    await twoWindows();
+
+    const surface = document.createElement("div");
+    surface.className = "terminal-surface";
+    surface.tabIndex = 0;
+    host.append(surface);
+    surface.focus();
+
+    const before = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+      (entry) => entry.dataset.active === "true",
+    )?.dataset.entryId;
+    key("keydown", { key: "Tab", altKey: true });
+    await nextTick();
+    const after = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+      (entry) => entry.dataset.active === "true",
+    )?.dataset.entryId;
+
+    expect(after, "the keystroke belonged to the shell, not to the desk").toBe(before);
+  });
+
+  it("answers nothing while this desktop is not the tab on screen", async () => {
+    giveTheDeskItsSize();
+    await render(undefined, "w1", false);
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+
+    expect(starterOpen()).toBe(false);
   });
 });
