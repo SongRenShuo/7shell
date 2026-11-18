@@ -36,6 +36,13 @@ async function main() {
       read: readJsonVersion,
       apply: replaceJsonVersion,
     },
+    // A private package is never published on its own, but it is the manifest a future extract
+    // would carry, so it rides the same sync rather than keeping a number of its own.
+    {
+      file: path.join(REPO_ROOT, "packages", "app-tests", "package.json"),
+      read: readJsonVersion,
+      apply: replaceJsonVersion,
+    },
     { file: path.join(REPO_ROOT, "Cargo.toml"), read: readWorkspaceVersion, apply: replaceWorkspaceVersion },
   ];
 
