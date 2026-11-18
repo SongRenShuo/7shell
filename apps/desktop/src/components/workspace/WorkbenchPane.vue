@@ -1172,7 +1172,14 @@ function disconnect(): void {
       in, and a sheet that could be covered by the twenty-first click would be a sheet that stops
       working after a while.
     -->
-    <div class="absolute inset-x-0 top-0 bottom-[57px] z-40">
+    <!--
+      The wrapper is a layer, not a surface: it carries no pixels of its own and must not catch a
+      click when the sheet is closed. Without `pointer-events-none` this transparent rectangle sits
+      above the whole desktop and eats every press meant for an icon — the sheet inside is
+      `display: none`, but the box around it is still there. The sheet itself turns pointer events
+      back on while it is open.
+    -->
+    <div class="pointer-events-none absolute inset-x-0 top-0 bottom-[57px] z-40" data-workbench-starter-layer>
       <WorkbenchStarter
         :open="starterOpen"
         :apps="starterApps"

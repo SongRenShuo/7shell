@@ -209,6 +209,21 @@ describe("the workbench desktop", () => {
     expect(trash.getAttribute("title"), "a door needs no apology in its title").toBeNull();
   });
 
+  it("keeps the closed starter's layer out of the way of every icon", async () => {
+    await render();
+
+    const layer = host.querySelector<HTMLElement>("[data-workbench-starter-layer]");
+    expect(layer, "the sheet is mounted in a layer of its own").not.toBeNull();
+    // The layer sits above the desktop so the sheet can cover it; while the sheet is closed it must
+    // pass presses through. A transparent box covering the desk that answers clicks is invisible and
+    // total: every icon stops working, and nothing on the page looks wrong.
+    expect(layer!.className, "a closed sheet's layer is click-through").toContain("pointer-events-none");
+    expect(
+      layer!.querySelector("[data-workbench-starter]")?.getAttribute("inert"),
+      "and the closed sheet is inert as well",
+    ).toBe("");
+  });
+
   it("opens the trash panel from its icon, and the panel reads the machine's trash once", async () => {
     trashListMock.mockResolvedValue([
       { id: "notes.txt", name: "notes.txt", originalPath: "/root/notes.txt", deletedAt: 1, isDir: false },
