@@ -11,7 +11,9 @@
  *
  * The bar reads in three segments — getting around, what is open, the system end — with a hairline
  * between each, and the window in front is marked the way a launch dock marks it: a short bar at
- * the cell's left edge, not a dot under it.
+ * the cell's left edge, not a dot under it. The system end's bell opens the notification centre;
+ * its badge is the reference's unread count, capped at 9+, because a two-digit count on a 49px cell
+ * is a number nobody reads.
  *
  * The metrics are the reference's, not the theme's: a 57px pill inset 73px from either side and 15px
  * off the floor, a 12px radius, a 5px blur under a black wash, and 49px cells. The wash and the
@@ -21,7 +23,7 @@
  * through without making the labels unreadable, which is the whole reason the bar is glass rather
  * than a solid strip.
  */
-import { LayoutGrid, Monitor, Power } from "@lucide/vue";
+import { Bell, LayoutGrid, Monitor, Power } from "@lucide/vue";
 import type { Component } from "vue";
 
 defineProps<{
@@ -41,6 +43,8 @@ defineProps<{
   align?: "left" | "center";
   /** What the power control is called. */
   power: string;
+  /** How many notifications this session has not read; the badge is drawn only above zero. */
+  unread?: number;
   labels: {
     /** What the grid button is called. */
     starter: string;
@@ -48,6 +52,8 @@ defineProps<{
     desktop: string;
     /** What the clock button is called, since the time alone does not say what it opens. */
     clock: string;
+    /** What the bell is called. */
+    notices: string;
   };
 }>();
 
@@ -62,6 +68,8 @@ const emit = defineEmits<{
   starter: [];
   /** The desktop cell was clicked: empty the desk, or bring everything back. */
   desktop: [];
+  /** The bell was clicked: open the notification centre. */
+  notices: [];
 }>();
 </script>
 
@@ -121,6 +129,24 @@ const emit = defineEmits<{
       <span class="taskbar-spacer"></span>
 
       <span class="taskbar-divider" aria-hidden="true"></span>
+
+      <button
+        type="button"
+        data-workbench-taskbar-notices
+        class="taskbar-cell taskbar-bell"
+        :title="labels.notices"
+        :aria-label="labels.notices"
+        @click="emit('notices')"
+      >
+        <Bell :size="26" />
+        <!--
+          The unread badge, the reference's own: a count over the bell, capped at 9+ — a two-digit
+          count on a 49px cell is a number nobody reads.
+        -->
+        <span v-if="unread !== undefined && unread > 0" data-workbench-taskbar-notices-badge class="taskbar-badge">
+          {{ unread > 9 ? "9+" : unread }}
+        </span>
+      </button>
 
       <button
         type="button"
@@ -225,6 +251,27 @@ const emit = defineEmits<{
 
 .taskbar-entry {
   position: relative;
+}
+
+/* The bell's cell carries the badge, so it is the positioning parent for it. */
+.taskbar-bell {
+  position: relative;
+}
+
+.taskbar-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--workbench-on-wallpaper);
+  background: var(--workbench-danger);
 }
 
 /* The plate is the entry's 32px picture: the icon inside it is smaller so the colour still reads. */

@@ -38,6 +38,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   onDesktopResized: vi.fn(async () => () => {}),
   onDesktopClosed: vi.fn(async () => () => {}),
   onDesktopFailed: vi.fn(async () => () => {}),
+  onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
 import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
@@ -53,6 +54,7 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import { iconOrderKey } from "@/lib/workbench/iconOrder";
 import { hiddenDoorsKey } from "@/lib/workbench/hiddenDoors";
+import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
@@ -1373,5 +1375,107 @@ describe("the desktop's own keys", () => {
     await nextTick();
 
     expect(starterOpen()).toBe(false);
+  });
+});
+
+/*
+ * The notification centre. The store's suite says what joins the ledger; the panel's says how the
+ * rows are read. What can only be seen here is the wiring — that the bell wears the session's
+ * unread count, that opening the panel is the act of reading it, that a transfer row's click is
+ * the jump it promises, and that a closed centre is nothing in the DOM at all (the wrapper lesson:
+ * an empty layer that could catch a click would eat the desk under it).
+ */
+describe("the notification centre", () => {
+  /** Two notices the store holds, as a transfer finishing and a tail ending would leave them. */
+  function seedNotices(centre: ReturnType<typeof useNotificationsStore>): void {
+    const first: Omit<WorkbenchNotice, "id" | "at"> = {
+      source: "transfer",
+      titleKey: "workbench.notices.transfer.doneUpload",
+      bodyKey: "workbench.notices.transfer.detail",
+      params: { name: "backup.tar" },
+      target: "transfers",
+    };
+    centre.push(first);
+    centre.push({ source: "tail", titleKey: "workbench.notices.tail.ended" });
+  }
+
+  /** Opens the bell's panel the way a person does, and hands back the store behind it. */
+  async function openCentre(): Promise<ReturnType<typeof useNotificationsStore>> {
+    await render();
+    const centre = useNotificationsStore();
+    seedNotices(centre);
+    const bell = host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]");
+    if (!bell) {
+      throw new Error("the taskbar has no bell");
+    }
+    fire(bell, "click");
+    await nextTick();
+    return centre;
+  }
+
+  it("is nothing in the DOM while it is closed", async () => {
+    await render();
+
+    expect(host.querySelector("[data-workbench-notices-layer]")).toBeNull();
+  });
+
+  it("wears the unread count on the bell, and opening the panel is the act of reading it", async () => {
+    await render();
+    const centre = useNotificationsStore();
+    seedNotices(centre);
+    await nextTick();
+
+    const badge = host.querySelector<HTMLElement>("[data-workbench-taskbar-notices-badge]");
+    expect(badge?.textContent?.trim(), "two unread, said on the badge").toBe("2");
+
+    fire(host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices]")).not.toBeNull();
+    expect(host.querySelector("[data-workbench-taskbar-notices-badge]"), "an open centre has no badge").toBeNull();
+    expect(centre.unreadCount("desk-1")).toBe(0);
+  });
+
+  it("groups the rows by source with the count at each head", async () => {
+    await openCentre();
+
+    const heads = [...host.querySelectorAll<HTMLElement>(".notices-group-head")];
+    expect(heads.length).toBeGreaterThanOrEqual(2);
+    expect(host.querySelectorAll("[data-notice-id]").length).toBe(2);
+  });
+
+  it("says nothing has happened when the ledger is empty, in the shared empty drawing", async () => {
+    await render();
+    fire(host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-wb-empty]")?.getAttribute("data-scenario")).toBe("noData");
+    expect(host.textContent).toContain("Nothing has happened.");
+  });
+
+  it("jumps a transfer notice to the transfers window, and takes the panel away", async () => {
+    await openCentre();
+    const row = host.querySelector<HTMLElement>('[data-notice-source="transfer"]');
+    if (!row) {
+      throw new Error("the panel has no transfer row");
+    }
+    fire(row, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices-layer]"), "the panel went with the jump").toBeNull();
+    const entries = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")];
+    expect(
+      entries.some((entry) => entry.dataset.entryId === "transfers"),
+      "the transfers window is open",
+    ).toBe(true);
+  });
+
+  it("closes from the mask, the way a sheet over the desk closes", async () => {
+    await openCentre();
+
+    fire(host.querySelector<HTMLElement>("[data-workbench-notices-mask]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices-layer]")).toBeNull();
   });
 });

@@ -212,6 +212,43 @@
       "emptyTitle": "Empty the trash?",
       "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone."
     },
+    "notices": {
+      "title": "Notifications",
+      "bell": "Notifications",
+      "empty": "Nothing has happened.",
+      "clear": "Clear all",
+      "clearTitle": "Clear all notifications?",
+      "clearMessage": "Every notice is removed from the list. What this desktop has already read stays read.",
+      "clearConfirm": "Clear",
+      "group": {
+        "transfer": "Transfers",
+        "container": "Containers",
+        "tail": "Log tracking",
+        "power": "System"
+      },
+      "transfer": {
+        "doneUpload": "Upload finished",
+        "doneDownload": "Download finished",
+        "failedUpload": "Upload failed",
+        "failedDownload": "Download failed",
+        "detail": "{name}"
+      },
+      "tail": {
+        "ended": "Log tracking ended",
+        "failed": "Log tracking ended with an error",
+        "detail": "{path}",
+        "error": "{path}: {error}"
+      },
+      "container": {
+        "ended": "Container task finished",
+        "failed": "Container task failed",
+        "error": "{error}"
+      },
+      "power": {
+        "issuedReboot": "{name} was asked to reboot.",
+        "issuedShutdown": "{name} was asked to shut down."
+      }
+    },
     "system": {
       "title": "System panel",
       "refresh": "Read the machine again",
