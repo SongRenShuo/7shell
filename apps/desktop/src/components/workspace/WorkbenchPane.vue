@@ -118,6 +118,17 @@ import {
 import type { MenuEntry } from "@/lib/menu/types";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
 import { memorableRect, rememberedRect, writeWindowMemory } from "@/lib/workbench/windowMemory";
+import {
+  DEFAULT_DRAFT_COLOR,
+  DEFAULT_DRAFT_OPACITY,
+  encodeColor,
+  encodeImage,
+  fileToBackdrop,
+  parseBackdrop,
+  readStoredImage,
+  writeStoredImage,
+  type WorkbenchBackdrop,
+} from "@/lib/workbench/wallpaperImage";
 import { useTerminalsStore, type ContainerTab, type TerminalTab, type WorkbenchTab } from "@/stores/terminals";
 
 const props = defineProps<{
@@ -147,12 +158,16 @@ const connected = computed(() => props.tab.handle !== null && props.tab.failure 
  * name this version has never heard of, and guessing a picture would be drawing something the
  * person who saved it did not choose.
  */
-const wallpaper = computed(() => {
-  const wanted = chosenWallpaper.value ?? session.value.workbench?.wallpaper;
-  if (wanted === undefined || !WORKBENCH_WALLPAPER_IDS.includes(wanted as WorkbenchWallpaperId)) {
+const wallpaper = computed<WorkbenchBackdrop | undefined>(() => {
+  const wanted = chosenWallpaper.value ?? session.value.workbench?.wallpaper ?? null;
+  const parsed = parseBackdrop(wanted);
+  // A picture whose bytes this device does not hold (the session moved, the storage refused) is
+  // the interface's own background, not a picture with nothing behind the words: white chrome on
+  // a light surface is the "nothing is legible" state the first release actually shipped.
+  if (parsed?.kind === "image" && readStoredImage(session.value.id) === undefined) {
     return undefined;
   }
-  return wanted;
+  return parsed;
 });
 
 /**
@@ -177,20 +192,35 @@ const WALLPAPER_BACKDROPS: Readonly<Record<string, string>> = {
 };
 
 const wallpaperStyle = computed(() => {
-  const id = wallpaper.value;
-  if (id === undefined) {
+  const shape = wallpaper.value;
+  if (shape === undefined) {
     return undefined;
   }
-  return { background: WALLPAPER_BACKDROPS[id] };
+  if (shape.kind === "gradient") {
+    return { background: WALLPAPER_BACKDROPS[shape.id] };
+  }
+  if (shape.kind === "color") {
+    return { background: shape.css };
+  }
+  const url = readStoredImage(session.value.id);
+  if (url === undefined) {
+    return undefined;
+  }
+  return {
+    backgroundImage: `url(${url})`,
+    backgroundSize: shape.fill,
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+  };
 });
 
 /**
  * Whether the desktop is drawn on a picture rather than on the interface's own surface.
  *
  * It decides one thing, and it decides it for every icon: on a wallpaper the chrome stops
- * following the theme. A wallpaper is a picture — the four this build ships are all dark washes —
- * and a light theme's near-black labels on one of them are the "nothing is legible" state the
- * first release actually shipped. White with a soft shadow reads on all four and needs no
+ * following the theme. A wallpaper is a picture — the gradients this build ships are all dark
+ * washes, and a light theme's near-black labels on one of them are the "nothing is legible" state
+ * the first release actually shipped. White with a soft shadow reads on all of them and needs no
  * per-wallpaper bookkeeping; on the plain surface the theme's own foreground is right, so that
  * path is unchanged.
  */
@@ -1212,7 +1242,7 @@ async function chooseWallpaper(id: string | null): Promise<void> {
       ...session.value,
       workbench: { ...session.value.workbench, wallpaper: id ?? undefined },
     });
-    if (saved.workbench?.wallpaper === undefined) {
+    if ((saved.workbench?.wallpaper ?? null) !== id) {
       chosenWallpaper.value = null;
     }
   } catch (error) {
@@ -1221,6 +1251,48 @@ async function chooseWallpaper(id: string | null): Promise<void> {
     chosenWallpaper.value = null;
   }
 }
+
+/** The colour and opacity the settings' colour row is drafting; applying encodes both. */
+const draftColor = ref(DEFAULT_DRAFT_COLOR);
+const draftOpacity = ref(DEFAULT_DRAFT_OPACITY);
+
+function applyColor(): void {
+  const value = encodeColor(draftColor.value, draftOpacity.value);
+  if (value !== undefined) {
+    void chooseWallpaper(value);
+  }
+}
+
+/**
+ * Turns a picked file into this desk's picture and makes the session carry the decision.
+ *
+ * The bytes are scaled and encoded first — a refused save must not leave the vault carrying a
+ * decision the picture cannot honour — and the picture lands in this device's storage, keyed by
+ * session. A pick the browser cannot decode is said, not swallowed.
+ */
+async function chooseImage(file: File): Promise<void> {
+  try {
+    const url = await fileToBackdrop(file);
+    writeStoredImage(session.value.id, url);
+    await chooseWallpaper(encodeImage("cover"));
+  } catch {
+    toast(t("workbench.desktop.settings.imageFailed"), "failure");
+  }
+}
+
+/** Changes how the picture fills the desk, on the session's own string. */
+function setBackdropFill(fill: "cover" | "contain"): void {
+  void chooseWallpaper(encodeImage(fill));
+}
+
+/** Takes the picture off this device and puts the session back on the plain surface. */
+function removeImage(): void {
+  writeStoredImage(session.value.id, undefined);
+  void chooseWallpaper(null);
+}
+
+/** Whether the settings' image row is the backdrop the session currently wears. */
+const backdropIsImage = computed(() => wallpaper.value?.kind === "image");
 
 // -- the power actions -------------------------------------------------------
 
@@ -1758,7 +1830,7 @@ function disconnect(): void {
               type="button"
               class="rounded-md border px-2 py-1 text-[11px] transition-colors"
               :class="
-                wallpaper === id
+                wallpaper?.kind === 'gradient' && wallpaper.id === id
                   ? 'border-border bg-accent text-foreground'
                   : 'border-border/60 text-muted-foreground hover:bg-accent/50'
               "
@@ -1766,6 +1838,88 @@ function disconnect(): void {
             >
               {{ t(`workbench.desktop.settings.wallpapers.${id}`) }}
             </button>
+          </div>
+
+          <!--
+            A solid colour, with the opacity the washes get: a colour the wallpaper shows at is a
+            decision about how much of it to let through, and the slider is that decision.
+          -->
+          <div class="mt-2 flex items-center gap-2">
+            <input
+              v-model="draftColor"
+              type="color"
+              class="size-6 shrink-0 cursor-pointer rounded border border-border"
+              data-workbench-setting-color
+              :aria-label="t('workbench.desktop.settings.wallpaperColor')"
+              @change="applyColor()"
+            />
+            <input
+              v-model.number="draftOpacity"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              class="h-1 flex-1 cursor-pointer accent-primary"
+              data-workbench-setting-opacity
+              :aria-label="t('workbench.desktop.settings.wallpaperOpacity')"
+              @change="applyColor()"
+            />
+            <span class="w-9 text-right text-[11px] tabular-nums text-muted-foreground">
+              {{ Math.round(draftOpacity * 100) }}%
+            </span>
+          </div>
+
+          <!--
+            A picture of the person's own, scaled to the desk and kept on this device (the session
+            carries only the decision). The fill modes are the two a backdrop can have; removing it
+            puts the session back on the plain surface.
+          -->
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <label
+              class="cursor-pointer rounded-md border px-2 py-1 text-[11px] transition-colors hover:bg-accent/50"
+              :class="
+                backdropIsImage ? 'border-border bg-accent text-foreground' : 'border-border/60 text-muted-foreground'
+              "
+              data-workbench-setting-image
+            >
+              {{ t("workbench.desktop.settings.wallpaperImage") }}
+              <input
+                type="file"
+                accept="image/*"
+                class="hidden"
+                :aria-label="t('workbench.desktop.settings.wallpaperImage')"
+                @change="
+                  chooseImage(($event.target as HTMLInputElement).files?.[0] as File);
+                  ($event.target as HTMLInputElement).value = '';
+                "
+              />
+            </label>
+            <template v-if="backdropIsImage">
+              <button
+                v-for="fill in ['cover', 'contain'] as const"
+                :key="fill"
+                type="button"
+                class="rounded-md border px-2 py-1 text-[11px] transition-colors"
+                :class="
+                  wallpaper?.kind === 'image' && wallpaper.fill === fill
+                    ? 'border-border bg-accent text-foreground'
+                    : 'border-border/60 text-muted-foreground hover:bg-accent/50'
+                "
+                data-workbench-setting-fill
+                :data-fill="fill"
+                @click="setBackdropFill(fill)"
+              >
+                {{ t(`workbench.desktop.settings.wallpaperFill.${fill}`) }}
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-destructive/40 px-2 py-1 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
+                data-workbench-setting-image-remove
+                @click="removeImage()"
+              >
+                {{ t("workbench.desktop.settings.wallpaperImageRemove") }}
+              </button>
+            </template>
           </div>
 
           <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">

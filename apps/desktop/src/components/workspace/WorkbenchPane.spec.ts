@@ -448,6 +448,22 @@ describe("the workbench desktop", () => {
     expect(host.firstElementChild?.getAttribute("style") ?? "").not.toContain("var(--workbench-wallpaper-");
   });
 
+  it("draws a colour backdrop at the opacity the session carries", async () => {
+    const coloured: Session = { ...desk, workbench: { wallpaper: "color:1e293bd9" } };
+    await render(coloured);
+    expect(host.firstElementChild?.getAttribute("style")).toContain("rgba(30, 41, 59, 0.851)");
+  });
+
+  it("falls back to the surface when the session names a picture this device does not hold", async () => {
+    const pictured: Session = { ...desk, workbench: { wallpaper: "img:cover" } };
+    await render(pictured);
+    // The bytes live on the device that picked the picture; a session that moved without them
+    // must not draw white chrome on a light surface, so it draws the interface's own surface.
+    const style = host.firstElementChild?.getAttribute("style") ?? "";
+    expect(style).not.toContain("background-image");
+    expect(host.firstElementChild?.classList.contains("bg-background")).toBe(true);
+  });
+
   it("dresses its chrome from the workbench tokens, with no literal colour left in the pane", () => {
     // The pane is the assembler of the desktop's chrome; the wallpaper gradients, the icon labels'
     // shadow and every surface colour are named in globals.css. The probe is the source itself.

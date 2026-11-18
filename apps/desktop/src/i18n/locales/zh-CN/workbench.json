@@ -148,6 +148,15 @@
         "taskbarAlignLeft": "左",
         "taskbarAlignCenter": "中",
         "widgets": "桌面小部件",
+        "wallpaperColor": "背景颜色",
+        "wallpaperOpacity": "背景不透明度",
+        "wallpaperImage": "自定义图片",
+        "wallpaperImageRemove": "移除图片",
+        "wallpaperFill": {
+          "cover": "填满",
+          "contain": "完整显示"
+        },
+        "imageFailed": "图片无法读取。",
         "saved": "背景已保存。"
       },
       "widgets": {
