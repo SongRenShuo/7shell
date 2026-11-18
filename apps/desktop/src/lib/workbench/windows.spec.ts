@@ -34,9 +34,15 @@ import {
 /** The reference desktop the numbers are checked against. */
 const DESK: WorkbenchBounds = { width: 800, height: 600 };
 
-/** The room between the two bars on that desk: 23px down, 57px up off the floor. */
-const WORK_TOP = STATUS_BAR_HEIGHT;
-const WORK_BOTTOM = DESK.height - TASKBAR_HEIGHT;
+/**
+ * The room a window may use.
+ *
+ * The caller measures the work area — the region between the desktop's status bar and taskbar —
+ * and hands that in, so for this arithmetic the bounds *are* the room: no chrome is subtracted
+ * twice.
+ */
+const WORK_TOP = 0;
+const WORK_BOTTOM = DESK.height;
 const WORK_HEIGHT = WORK_BOTTOM - WORK_TOP;
 
 function windowAt(overrides: Partial<WorkbenchWindowState> = {}): WorkbenchWindowState {
@@ -141,12 +147,12 @@ describe("openWindow", () => {
     const narrow: WorkbenchBounds = { width: 500, height: 400 };
     const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: narrow });
 
-    // Width shrinks to the desk; the height shrinks to the room between the bars.
+    // Width shrinks to the desk; the height shrinks to the room the caller measured.
     expect(opened).toMatchObject({
       left: 0,
       top: WORK_TOP,
       width: 500,
-      height: 400 - STATUS_BAR_HEIGHT - TASKBAR_HEIGHT,
+      height: 400,
     });
   });
 
@@ -271,7 +277,8 @@ describe("resizeWindow", () => {
       tiny,
     );
 
-    expect(resized[0]).toMatchObject({ width: 150, height: 70 });
+    // The desk is the smaller of the two on both axes, so it is what the window becomes.
+    expect(resized[0]).toMatchObject({ width: 150, height: 150 });
   });
 });
 
@@ -477,6 +484,6 @@ describe("the work area boundary", () => {
     const small: WorkbenchBounds = { width: 400, height: 300 };
     const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: small });
 
-    expect(opened).toMatchObject({ left: 0, top: WORK_TOP, width: 400, height: 300 - WORK_TOP - TASKBAR_HEIGHT });
+    expect(opened).toMatchObject({ left: 0, top: WORK_TOP, width: 400, height: 300 });
   });
 });

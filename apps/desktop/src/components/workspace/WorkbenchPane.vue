@@ -13,34 +13,36 @@ export type WorkbenchWallpaperId = (typeof WORKBENCH_WALLPAPER_IDS)[number];
 /**
  * The desktop workbench: what a Linux desktop session opens as, instead of a terminal.
  *
- * This is a desktop, in the ordinary sense of the word: a backdrop the session chose covers the
- * whole tab, a grid of icons sits on it from the top left, a right-click offers what the thing
- * under the pointer can do, and a thin bar along the bottom holds the tabs this session has open.
- * The icons are doors, not pages — double-clicking one opens the thing it names somewhere else in
- * the workspace, and what is left on screen is still this desktop.
+ * This is an operating-system desktop, in the sense the reference product means: a status bar along
+ * the top, a backdrop the session chose, a column of icons on it, a full-screen application starter,
+ * floating windows that can be moved, resized, minimised and maximised, and a floating taskbar along
+ * the bottom that holds what is open. Everything on the desktop is chrome over a picture — white
+ * label, translucent dark plate — and does not follow the interface's light theme; the applications
+ * inside the windows are ordinary interface surfaces and do.
+ *
+ * The windows are the workspace's own: a terminal is still a terminal tab underneath (the same open
+ * order, the same handle, the same close), a file browser is the same browser the panels use, and
+ * the system panel and the trash are the same components. What changes is where they are drawn, and
+ * that is the whole point of a desktop — the thing you opened stays on this screen, in a frame you
+ * can push around, instead of taking the tab strip away.
  *
  * The connection underneath is an ordinary SSH one, and every door leads somewhere that connection
- * already reaches: the file browser over SFTP, a second terminal, the monitor's pages. The one
- * thing this desktop can ask the machine to *do* is the power action, carried by the taskbar, and
+ * already reaches. The one thing this desktop can ask the machine to *do* is the power action, and
  * it is asked about first: the buttons open the same plain confirmation every destructive action
  * here uses, and the acknowledgement that a person answered it is what travels with the command.
- *
- * The desktop asks for no samples of its own. The readings the first release drew on cards live on
- * the monitor's system page now, and the pages poll by their own rule — a poll nobody can see is
- * somebody else's machine paying for a feature nobody is looking at.
  */
 import {
+  Boxes,
   Cpu,
   ExternalLink,
   Folder,
-  Boxes,
   FolderPlus,
+  Globe,
+  HardDrive,
   House,
   Info,
   LayoutGrid,
-  List,
   ListTree,
-  Network,
   Power,
   RotateCw,
   Settings,
@@ -49,18 +51,28 @@ import {
   X,
 } from "@lucide/vue";
 import type { Component } from "vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
-import { useContextMenu } from "@/composables/useContextMenu";
-import { useToast } from "@/composables/useToast";
+import FileBrowser from "@/components/files/FileBrowser.vue";
+import HostPage from "@/components/inspect/HostPage.vue";
+import SystemReport from "@/components/inspect/SystemReport.vue";
+import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
+import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
+import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
+import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
+import WorkbenchWindow from "@/components/workspace/WorkbenchWindow.vue";
+import { useContextMenu } from "@/composables/useContextMenu";
+import { useToast } from "@/composables/useToast";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
+import { useFilesStore } from "@/stores/files";
+import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import {
   addShortcut,
   isValidShortcutPath,
@@ -70,32 +82,33 @@ import {
   writeDesktopShortcuts,
   type DesktopShortcut,
 } from "@/lib/workbench/desktopIcons";
-import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
-import type { MenuEntry } from "@/lib/menu/types";
-import type { Session } from "@/types/session";
-import { sessionTabTitle } from "@/lib/sessions/reopen";
 import {
-  useTerminalsStore,
-  type FilesTab,
-  type InspectTab,
-  type InspectView,
-  type TerminalTab,
-  type WorkbenchTab,
-} from "@/stores/terminals";
+  closeWindow as closeWindowRecord,
+  focusWindow,
+  minimizeWindow,
+  moveWindow,
+  openWindow,
+  resizeWindow,
+  restoreWindow,
+  setMaximized,
+  showWindow,
+  type WorkbenchBounds,
+  type WorkbenchWindowState,
+} from "@/lib/workbench/windows";
+import type { MenuEntry } from "@/lib/menu/types";
+import { sessionTabTitle } from "@/lib/sessions/reopen";
+import { useTerminalsStore, type TerminalTab, type WorkbenchTab } from "@/stores/terminals";
 
 const props = defineProps<{
   /** The tab this pane draws; its session is what everything here is about. */
   tab: WorkbenchTab;
-  /**
-   * Whether this pane is the tab on screen. The desktop asks for no samples of its own — the
-   * readings live on the monitor's pages, which poll by their own rule — so nothing here reads it
-   * today, and the frame keeps handing it over so a later reader does not re-plumb the workspace.
-   */
+  /** Whether this pane is the tab on screen. A hidden desktop reads nothing and ticks nothing. */
   active: boolean;
 }>();
 
 const { t, locale } = useI18n();
 const terminals = useTerminalsStore();
+const files = useFilesStore();
 const { openMenu } = useContextMenu();
 const { toast } = useToast();
 
@@ -183,26 +196,15 @@ interface DesktopIcon {
  *
  * The monitor door and the system-information door lead to the same page on purpose: the readings
  * the first release drew on cards live on the monitor's system page, and both names are ways of
- * asking for it — `openInspect` answers a second ask with the tab that is already there rather than
- * a second copy of it.
+ * asking for it.
  */
 const systemIcons = computed<DesktopIcon[]>(() => [
   { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
   { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
   { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
   { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
-  {
-    id: "system-panel",
-    kind: "system",
-    label: t("workbench.desktop.icons.system"),
-    icon: Boxes,
-  },
-  {
-    id: "system-trash",
-    kind: "trash",
-    label: t("workbench.desktop.icons.trash"),
-    icon: Trash2,
-  },
+  { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
+  { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
 ]);
 
 /**
@@ -223,54 +225,43 @@ const userIcons = computed<DesktopIcon[]>(() =>
   })),
 );
 
-/**
- * Every icon this desktop has, in the order it would draw them before anybody arranges them: the
- * fixed doors first, then the shortcuts in the order they were added.
- */
 const defaultIcons = computed<DesktopIcon[]>(() => [...systemIcons.value, ...userIcons.value]);
 
 /**
- * The arrangement this session's desktop was left in, or null while nobody has moved anything.
+ * The arrangement somebody dragged into place, and the list the grid actually draws.
  *
- * Read once, when the pane is drawn: an arrangement is written by this pane and by nothing else, so
- * there is no second writer to keep up with. The ids are the icons' own — `system-…` for the fixed
- * doors, `shortcut:<shortcutId>` for a shortcut — because an id keeps meaning the same icon when
- * the list around it grows, while a position would not.
+ * The stored order is ids, not positions: an icon added later must not shift the ones after it.
+ * `normalizeIconOrder` drops ids whose icon is gone and appends icons the order has not heard of,
+ * which is what makes an older arrangement survive a new build.
  */
 const iconOrder = ref<string[] | null>(readIconOrder(session.value.id));
 
-/** The icons in the order the grid draws them: the recorded arrangement with the defaults filled in. */
 const icons = computed<DesktopIcon[]>(() => {
-  const byId = new Map(defaultIcons.value.map((icon) => [icon.id, icon]));
-  const ordered: DesktopIcon[] = [];
-  for (const id of normalizeIconOrder(
-    iconOrder.value,
-    defaultIcons.value.map((icon) => icon.id),
-  )) {
-    const icon = byId.get(id);
-    if (icon !== undefined) {
-      ordered.push(icon);
-    }
+  const all = defaultIcons.value;
+  if (iconOrder.value === null) {
+    return all;
   }
-  return ordered;
+  const order = normalizeIconOrder(
+    iconOrder.value,
+    all.map((icon) => icon.id),
+  );
+  const byId = new Map(all.map((icon) => [icon.id, icon]));
+  return order.flatMap((id) => {
+    const icon = byId.get(id);
+    return icon === undefined ? [] : [icon];
+  });
 });
 
-/** Which icon is being dragged, and which one the pointer is over — the second is for the highlight. */
+/** The icon being dragged, and the icon it is currently over. */
 const draggingId = ref<string | null>(null);
 const dragOverId = ref<string | null>(null);
 
-/**
- * Picks an icon up without touching the selection.
- *
- * A drag is not a click, and the browser suppresses the click that would normally follow one; this
- * handler deliberately does not select what it picks up either. Somebody arranging the desktop is
- * not asking to open anything, and a desktop that opened what a drag passed over would be one
- * nobody dares tidy.
- */
 function beginDrag(event: DragEvent, icon: DesktopIcon): void {
+  if (icon.disabled) {
+    event.preventDefault();
+    return;
+  }
   draggingId.value = icon.id;
-  dragOverId.value = null;
-  // A drag that carries nothing is not started at all in some engines, so the id rides along.
   event.dataTransfer?.setData("text/plain", icon.id);
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
@@ -278,10 +269,11 @@ function beginDrag(event: DragEvent, icon: DesktopIcon): void {
 }
 
 function dragOver(icon: DesktopIcon): void {
-  dragOverId.value = draggingId.value !== null && draggingId.value !== icon.id ? icon.id : null;
+  if (draggingId.value !== null && draggingId.value !== icon.id) {
+    dragOverId.value = icon.id;
+  }
 }
 
-/** The wallpaper between the icons: a drop here means the end of the grid, so no icon is lit. */
 function dragOverDesktop(): void {
   dragOverId.value = null;
 }
@@ -291,97 +283,232 @@ function endDrag(): void {
   dragOverId.value = null;
 }
 
-/**
- * Puts the dragged icon where the drop landed, and writes the result down.
- *
- * Dropping onto nothing — the wallpaper between the icons — is the end of the grid, the way it is
- * on any desktop. A drop that changes nothing writes nothing, so a mis-aimed drag does not leave an
- * arrangement behind that is the default order spelled out.
- */
 function dropIcon(target: DesktopIcon | null): void {
-  const from = draggingId.value;
+  const dragged = draggingId.value;
   endDrag();
-  if (from === null) {
+  if (dragged === null) {
     return;
   }
-  const current = icons.value.map((icon) => icon.id);
-  const next = moveIcon(current, from, target?.id ?? null);
-  if (next.every((id, index) => id === current[index])) {
-    return;
-  }
+  const next = moveIcon(
+    icons.value.map((icon) => icon.id),
+    dragged,
+    target?.id ?? null,
+  );
   iconOrder.value = next;
   writeIconOrder(session.value.id, next);
 }
 
-/** Puts the grid back in its default order for this session, forgetting the arrangement. */
 function resetIconOrder(): void {
-  iconOrder.value = null;
   clearIconOrder(session.value.id);
+  iconOrder.value = null;
 }
 
 /** The icon somebody has clicked, which the Enter key opens and a click on the wallpaper clears. */
 const selectedId = ref<string | null>(null);
 
+// -- the windows -------------------------------------------------------------
+
 /**
- * Whether the trash panel is open over the desktop.
+ * What a window carries beyond its rectangle: the tab a terminal window holds, and the place a file
+ * window opened onto.
  *
- * A panel rather than a tab: the trash is a place inside this machine's desktop — the same machine
- * the desktop is about — and opening it in a tab of its own would be a second window onto one
- * session. The panel closes with its own cross and goes with the tab.
+ * The rectangle arithmetic lives in `lib/workbench/windows` and knows nothing about either, which is
+ * why the window record's `kind` is a plain string and this record is the caller's own vocabulary.
  */
-const trashOpen = ref(false);
+interface WindowPayload {
+  readonly tabId?: string;
+  /** The SFTP browser the window draws, once `files.open` answered with one. */
+  readonly fileHandle?: string;
+  readonly path?: string;
+}
+
+const windows = ref<WorkbenchWindowState[]>([]);
+const payloads = ref<Record<string, WindowPayload>>({});
+
+/** The work area — everything between the status bar and the taskbar — as the geometry's frame. */
+const workArea = ref<HTMLElement | null>(null);
+const bounds = ref<WorkbenchBounds>({ width: 1024, height: 700 });
+let areaObserver: ResizeObserver | undefined;
+
+function measure(): void {
+  const element = workArea.value;
+  if (element === null) {
+    return;
+  }
+  bounds.value = { width: element.clientWidth, height: element.clientHeight };
+}
 
 /**
- * Whether the system panel is open over the desktop. Like the trash, it is a place inside this
- * machine's desktop rather than a tab of its own — and the two share the floor: a desktop with
- * two panels stacked would be a window manager, which this is not.
- */
-const systemOpen = ref(false);
-
-/** Whether the desktop's own settings are open: the two choices a desktop has here. */
-const settingsOpen = ref(false);
-
-/**
- * How wide the icon cells are, which is the desktop's density.
+ * Keeps a maximised window filling the desk when the desk itself changes size.
  *
- * A device preference rather than a session one: the same machine looks right at the same density
- * on both of somebody's computers, and this is a window that may be small. It lives in the same
- * storage as the shortcuts — the WebView's own — and defaults to comfortable.
+ * `setMaximized` deliberately does nothing to a window that is already maximised, so the library's
+ * geometry stays whatever it was when the button was pressed. The shell owns the live rectangle,
+ * and a window resized by the person dragging the application's edge should still fill it.
  */
-const ICON_DENSITY_KEY = "sevenshell-workbench-density";
-const iconDensity = ref<"comfortable" | "compact">(
-  (() => {
-    try {
-      return localStorage.getItem(ICON_DENSITY_KEY) === "compact" ? "compact" : "comfortable";
-    } catch {
-      return "comfortable";
-    }
-  })(),
-);
+watch(bounds, (next) => {
+  if (!windows.value.some((window) => window.mode === "max")) {
+    return;
+  }
+  windows.value = windows.value.map((window) =>
+    window.mode === "max" ? { ...window, left: 0, top: 0, width: next.width, height: next.height } : window,
+  );
+});
 
-function setDensity(next: "comfortable" | "compact"): void {
-  iconDensity.value = next;
-  try {
-    localStorage.setItem(ICON_DENSITY_KEY, next);
-  } catch {
-    // A window that cannot remember the choice still honours it for this run.
+/**
+ * Opens a window, or raises the one already carrying this id.
+ *
+ * A desktop's applications are mostly single-instance — the machine's system panel is one place,
+ * not several — so the id is the caller's decision about that: the fixed surfaces use a fixed id,
+ * and the ones a person may want twice (a file browser onto two directories) carry a fresh one.
+ */
+function openRecord(id: string, title: string, kind: string, payload: WindowPayload = {}): void {
+  measure();
+  windows.value = openWindow(windows.value, { id, title, kind, bounds: bounds.value });
+  if (payload.tabId !== undefined || payload.path !== undefined || payload.fileHandle !== undefined) {
+    payloads.value = { ...payloads.value, [id]: payload };
   }
 }
 
-/** Picks a backdrop (or none) and writes the session back, leaving the old one on a failure. */
-async function chooseWallpaper(id: string | null): Promise<void> {
-  const next: Session = {
-    ...session.value,
-    workbench: { ...session.value.workbench, wallpaper: id ?? undefined },
-  };
-  try {
-    await backend.sessions.save(next);
-    chosenWallpaper.value = id;
-    toast(t("workbench.desktop.settings.saved"), "receipt");
-  } catch (error) {
-    toast(describeShellError(translate as Translate, asShellError(error, "session_save")).message, "failure");
+function focus(id: string): void {
+  windows.value = focusWindow(windows.value, id);
+}
+
+function minimize(id: string): void {
+  windows.value = minimizeWindow(windows.value, id);
+}
+
+function maximize(id: string): void {
+  windows.value = setMaximized(windows.value, id, bounds.value);
+}
+
+function restore(id: string): void {
+  windows.value = restoreWindow(windows.value, id);
+}
+
+function move(id: string, next: { left: number; top: number }): void {
+  windows.value = moveWindow(windows.value, id, next, bounds.value);
+}
+
+function resize(id: string, next: { width: number; height: number }): void {
+  windows.value = resizeWindow(windows.value, id, next, bounds.value);
+}
+
+function raise(id: string): void {
+  windows.value = showWindow(windows.value, id);
+}
+
+/**
+ * Closes a window and, when it was holding a terminal, the tab underneath it.
+ *
+ * The window is the tab's surface here, so a closed window that left a connection running would be
+ * a connection nobody can see or close. A terminal that ended is still a tab — it is where its
+ * reason and its reconnect live — so this closes it through the store like any other tab.
+ */
+function close(id: string): void {
+  const payload = payloads.value[id];
+  windows.value = closeWindowRecord(windows.value, id);
+  const next = { ...payloads.value };
+  delete next[id];
+  payloads.value = next;
+  if (payload?.tabId !== undefined) {
+    terminals.closeTab(payload.tabId);
+  }
+  if (payload?.fileHandle !== undefined) {
+    // The browser was this window's own; closing it is what releases the channel it opened.
+    void files.close(payload.fileHandle);
   }
 }
+
+const windowLabels = computed(() => ({
+  minimize: t("workbench.desktop.shell.minimize"),
+  maximize: t("workbench.desktop.shell.maximize"),
+  restore: t("workbench.desktop.shell.restore"),
+  close: t("workbench.desktop.shell.close"),
+}));
+
+function terminalOf(id: string): TerminalTab | null {
+  const tabId = payloads.value[id]?.tabId;
+  if (tabId === undefined) {
+    return null;
+  }
+  const tab = terminals.tabs.find((entry) => entry.id === tabId);
+  return tab?.kind === "terminal" ? tab : null;
+}
+
+/** The handle a terminal window draws, or null while there is no shell to draw. */
+function terminalHandle(id: string): string | null {
+  return terminalOf(id)?.handle ?? null;
+}
+
+/** Whether the terminal a window holds can still take keystrokes. */
+function terminalInteractive(id: string): boolean {
+  return terminalOf(id)?.status === "open";
+}
+
+/** Asks the store to reconnect the terminal under a window, which is its tab's own offer. */
+function reconnectWindow(id: string): void {
+  const tab = terminalOf(id);
+  if (tab !== null) {
+    terminals.reconnect(tab.id);
+  }
+}
+
+function homeOf(id: string): string | undefined {
+  return payloads.value[id]?.path;
+}
+
+/** The SFTP browser a file window draws, or null before its open answered. */
+function fileHandleOf(id: string): string | null {
+  return payloads.value[id]?.fileHandle ?? null;
+}
+
+/** The window icon, drawn beside its title: the same door the desktop icon draws. */
+function iconOf(kind: string): Component {
+  switch (kind) {
+    case "terminal":
+      return Terminal;
+    case "files":
+      return Folder;
+    case "monitor":
+      return Cpu;
+    case "system":
+      return HardDrive;
+    case "trash":
+      return Trash2;
+    default:
+      return Globe;
+  }
+}
+
+/**
+ * The colour of an icon's plate.
+ *
+ * The reference desktop's icons are app stickers — a coloured square with a bright glyph — rather
+ * than line drawings, and a plate is what gives a lucide glyph the same weight at desktop size
+ * without copying the reference's artwork. One tone per door, the same in the grid, the starter and
+ * the taskbar, so the same application is the same colour wherever it is named.
+ */
+function toneOf(kind: string): string {
+  switch (kind) {
+    case "terminal":
+      return "bg-emerald-500/90";
+    case "files":
+    case "home":
+    case "shortcut":
+      return "bg-amber-500/90";
+    case "monitor":
+    case "systemInfo":
+      return "bg-sky-500/90";
+    case "system":
+      return "bg-violet-500/90";
+    case "trash":
+      return "bg-rose-500/90";
+    default:
+      return "bg-slate-500/90";
+  }
+}
+
+// -- opening things ----------------------------------------------------------
 
 function select(icon: DesktopIcon): void {
   selectedId.value = icon.id;
@@ -392,11 +519,11 @@ function clearSelection(): void {
 }
 
 /**
- * Opens what an icon names, somewhere else in the workspace.
+ * Opens what an icon names, in a window on this desktop.
  *
- * A path handed to the file browser is a place to be: a browser that is already up walks there
- * through the navigation it already uses, and one that is not opens on it — the store owns both
- * shapes, and the icon does not care which it gets.
+ * A path handed to the file browser is a place to be: the window opens there, and the browser's own
+ * navigation walks from it — the same browser the panels use, with the workbench's connection under
+ * it, so nothing is opened twice and no connection is made for a window.
  */
 function openIcon(icon: DesktopIcon): void {
   if (icon.disabled) {
@@ -405,44 +532,182 @@ function openIcon(icon: DesktopIcon): void {
   selectedId.value = icon.id;
   switch (icon.kind) {
     case "home":
-      void terminals.openFiles(session.value);
+      void openFilesWindow(undefined, t("workbench.desktop.icons.home"));
       return;
     case "terminal":
-      // Not `open`: the fork that mounts the workbench is what a session's open *is* here, and the
-      // store's terminal-only path exists for exactly this ask.
-      void terminals.openTerminalTab(session.value);
+      void openTerminalWindow();
       return;
     // Two names, one destination: see `systemIcons`.
     case "monitor":
     case "systemInfo":
-      terminals.openInspect("system", session.value);
+      openRecord("monitor", t("workbench.desktop.icons.monitor"), "monitor");
       return;
     case "system":
-      // Opening, not toggling: a desktop icon is a door, and a door that closed when somebody
-      // opened it twice in one gesture is a door that looks broken. The panel's own cross closes it.
-      openSystemPanel();
+      openRecord("system", t("workbench.desktop.icons.system"), "system");
       return;
     case "trash":
-      trashOpen.value = true;
-      systemOpen.value = false;
+      openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
       return;
     case "shortcut":
-      void terminals.openFiles(session.value, icon.path);
+      void openFilesWindow(icon.path, icon.label);
       return;
   }
 }
 
 /**
- * Opens the system panel over the desktop, closing the trash.
+ * Opens a file browser in a window, on a browser of its own.
  *
- * The two panels share one floor — a desktop with two of them stacked would be a window manager,
- * which this is not — so every door to one closes the other. The clock is the second door to this
- * one: a clock on a desktop opens the machine's own panel, which is exactly what this panel is.
+ * The workbench's own connection is not an SFTP browser: the file surfaces are handed a *browser*
+ * handle, which is what `files.open` creates. So a window asks for one, the way a files tab does,
+ * and keeps it until the window closes — the listing, the editor and the transfers all hang off
+ * that handle, and a window that borrowed another surface's would close it from under that surface.
  */
-function openSystemPanel(): void {
-  systemOpen.value = true;
-  trashOpen.value = false;
+async function openFilesWindow(path: string | undefined, title: string): Promise<void> {
+  if (props.tab.handle === null) {
+    return;
+  }
+  const outcome = await files.open(session.value.id);
+  if (outcome.kind !== "opened") {
+    // A host-key decision is the store's to raise and the workspace's to show; there is no window
+    // to draw until it is answered.
+    return;
+  }
+  openRecord(`files:${crypto.randomUUID()}`, title, "files", { path, fileHandle: outcome.handle });
 }
+
+/**
+ * Opens a terminal window.
+ *
+ * The tab is asked for first: the window draws a tab, so a window opened before there is one would
+ * be an empty frame. A refused open — a host key still being decided, a connection that failed —
+ * produces no tab and therefore no window, and the store has already said why.
+ */
+async function openTerminalWindow(): Promise<void> {
+  const tabId = await terminals.openTerminalTab(session.value, { windowed: true });
+  if (tabId === null) {
+    return;
+  }
+  openRecord(`terminal:${tabId}`, sessionTabTitle(session.value.name, terminals.copyOf(tabId)), "terminal", { tabId });
+}
+
+// -- the starter -------------------------------------------------------------
+
+const starterOpen = ref(false);
+
+interface StarterApp {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: Component;
+  readonly tone: string;
+}
+
+/** The applications the starter offers: the same doors the desktop has, plus the settings. */
+const starterApps = computed<StarterApp[]>(() => [
+  { id: "home", label: t("workbench.desktop.icons.home"), icon: House, tone: "bg-amber-500/85" },
+  { id: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal, tone: "bg-emerald-500/85" },
+  { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
+  { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
+  { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
+  { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
+]);
+
+function launch(appId: string): void {
+  starterOpen.value = false;
+  switch (appId) {
+    case "home":
+      void openFilesWindow(undefined, t("workbench.desktop.icons.home"));
+      return;
+    case "terminal":
+      void openTerminalWindow();
+      return;
+    case "monitor":
+      openRecord("monitor", t("workbench.desktop.icons.monitor"), "monitor");
+      return;
+    case "system":
+      openRecord("system", t("workbench.desktop.icons.system"), "system");
+      return;
+    case "trash":
+      openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
+      return;
+    case "settings":
+      settingsOpen.value = true;
+      return;
+  }
+}
+
+// -- the taskbar -------------------------------------------------------------
+
+interface TaskbarEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: Component;
+  /** The plate behind the icon, the same tone the desktop grid gives that door. */
+  readonly tone: string;
+  readonly active: boolean;
+}
+
+/**
+ * The taskbar's cells: one per window, in the order the windows were opened.
+ *
+ * Minimised windows keep their cell — that is what a taskbar is for — and the dot under the icon
+ * says which one is in front. The window ids are the cell ids, so pressing a cell raises exactly
+ * the window it names.
+ */
+const taskbarEntries = computed<TaskbarEntry[]>(() =>
+  windows.value.map((window) => ({
+    id: window.id,
+    label: window.title,
+    icon: iconOf(window.kind),
+    tone: toneOf(window.kind),
+    active: window.focused && window.mode !== "min",
+  })),
+);
+
+function pressTaskbar(id: string): void {
+  raise(id);
+}
+
+// -- the clock ---------------------------------------------------------------
+
+/**
+ * The time the taskbar shows, refreshed once a minute.
+ *
+ * One interval, started when the pane is drawn and cleared when it goes: a clock that kept ticking
+ * behind a closed tab would be this window paying for a reading nobody can see. A minute is the
+ * whole resolution of what the bar says, so nothing faster would be visible anyway.
+ */
+const now = ref(new Date());
+let clockTicker: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  measure();
+  if (typeof ResizeObserver !== "undefined" && workArea.value !== null) {
+    areaObserver = new ResizeObserver(() => measure());
+    areaObserver.observe(workArea.value);
+  }
+  clockTicker = setInterval(() => {
+    now.value = new Date();
+  }, 60_000);
+});
+
+onUnmounted(() => {
+  if (clockTicker !== undefined) {
+    clearInterval(clockTicker);
+    clockTicker = undefined;
+  }
+  areaObserver?.disconnect();
+  areaObserver = undefined;
+});
+
+/** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
+const clockTime = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { hour: "2-digit", minute: "2-digit", hour12: false }).format(now.value),
+);
+
+/** The date, shown only when the bar has room for it — the month and day a desktop clock adds. */
+const clockDate = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { month: "short", day: "numeric" }).format(now.value),
+);
 
 // -- the menus ---------------------------------------------------------------
 
@@ -455,8 +720,7 @@ function persistShortcuts(): void {
  *
  * Refresh re-reads what storage holds — the icons are memory, not a live view of the machine, so
  * that is the whole of what refreshing can mean. Reset layout forgets the arrangement this session
- * was left in, which is how somebody gets the default order back without clearing storage by hand.
- * The settings entry opens the desktop's own two choices: a backdrop and a density.
+ * was left in. The settings entry opens the desktop's own two choices: a backdrop and a density.
  */
 function openDesktopMenu(event: MouseEvent): void {
   openMenu(event, { key: "workbench.desktop.title" }, [
@@ -481,7 +745,6 @@ function openDesktopMenu(event: MouseEvent): void {
       icon: LayoutGrid,
       run: resetIconOrder,
     },
-    { kind: "separator", id: "desktop-sep" },
     {
       kind: "action",
       id: "desktop-settings",
@@ -576,96 +839,54 @@ function createShortcut(): void {
   creating.value = false;
 }
 
-// -- the taskbar -------------------------------------------------------------
+// -- the desktop's own settings ----------------------------------------------
 
-/** One entry of the taskbar: a tab this session has open, named the way the strip names it. */
-interface TaskbarEntry {
-  readonly id: string;
-  readonly label: string;
-  readonly icon: Component;
-}
+const settingsOpen = ref(false);
 
-function inspectTitleKey(view: InspectView): string {
-  switch (view) {
-    case "system":
-      return "inspect.system.title";
-    case "processes":
-      return "inspect.processes.title";
-    default:
-      return "inspect.network.title";
-  }
-}
-
-function taskbarLabel(tab: TerminalTab | FilesTab | InspectTab): string {
-  if (tab.kind === "inspect") {
-    // A page names the machine it is about, the way the strip names it.
-    return `${t(inspectTitleKey(tab.view))} · ${tab.session.host}`;
-  }
-  // A session opened twice is drawn twice, and the copy number tells them apart.
-  return sessionTabTitle(tab.session.name, terminals.copyOf(tab.id));
-}
-
-function taskbarIcon(tab: TerminalTab | FilesTab | InspectTab): Component {
-  switch (tab.kind) {
-    case "terminal":
-      return Terminal;
-    case "files":
-      return Folder;
-    case "inspect":
-      return tab.view === "system" ? Cpu : tab.view === "processes" ? List : Network;
-    default:
-      return Terminal;
-  }
-}
+const ICON_DENSITY_KEY = "sevenshell-workbench-density";
 
 /**
- * The tabs of this session only: a shell, a browser, or a page about this host. The workbench tab
- * itself is the desktop these sit behind, so it is not an entry of its own.
- */
-const taskbarEntries = computed<TaskbarEntry[]>(() =>
-  terminals.tabs
-    .filter(
-      (tab): tab is TerminalTab | FilesTab | InspectTab =>
-        (tab.kind === "terminal" || tab.kind === "files" || tab.kind === "inspect") &&
-        tab.session.id === session.value.id,
-    )
-    .map((tab) => ({ id: tab.id, label: taskbarLabel(tab), icon: taskbarIcon(tab) })),
-);
-
-// -- the clock ---------------------------------------------------------------
-
-/**
- * The time the taskbar shows, refreshed once a minute.
+ * How large an icon cell is drawn.
  *
- * One interval, started when the pane is drawn and cleared when it goes: a clock that kept ticking
- * behind a closed tab would be this window paying for a reading nobody can see. A minute is the
- * whole resolution of what the bar says, so nothing faster would be visible anyway.
+ * The reference desktop's cell is 85px with a 40px picture; compact is the same grid with less air,
+ * for a small window. It is a preference of this window rather than of the session: two monitors
+ * showing different machines may be different sizes.
  */
-const now = ref(new Date());
-let clockTicker: ReturnType<typeof setInterval> | undefined;
+const iconDensity = ref<"comfortable" | "compact">(
+  (() => {
+    try {
+      return localStorage.getItem(ICON_DENSITY_KEY) === "compact" ? "compact" : "comfortable";
+    } catch {
+      return "comfortable";
+    }
+  })(),
+);
 
-onMounted(() => {
-  clockTicker = setInterval(() => {
-    now.value = new Date();
-  }, 60_000);
-});
-
-onUnmounted(() => {
-  if (clockTicker !== undefined) {
-    clearInterval(clockTicker);
-    clockTicker = undefined;
+function setDensity(next: "comfortable" | "compact"): void {
+  iconDensity.value = next;
+  try {
+    localStorage.setItem(ICON_DENSITY_KEY, next);
+  } catch {
+    // A WebView that refuses storage costs the preference, not the desktop.
   }
-});
+}
 
-/** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
-const clockTime = computed(() =>
-  new Intl.DateTimeFormat(locale.value, { hour: "2-digit", minute: "2-digit", hour12: false }).format(now.value),
-);
-
-/** The date, shown only when the bar has room for it — the month and day a desktop clock adds. */
-const clockDate = computed(() =>
-  new Intl.DateTimeFormat(locale.value, { month: "short", day: "numeric" }).format(now.value),
-);
+async function chooseWallpaper(id: string | null): Promise<void> {
+  chosenWallpaper.value = id;
+  try {
+    const saved = await backend.sessions.save({
+      ...session.value,
+      workbench: { ...session.value.workbench, wallpaper: id ?? undefined },
+    });
+    if (saved.workbench?.wallpaper === undefined) {
+      chosenWallpaper.value = null;
+    }
+  } catch (error) {
+    const failure = asShellError(error, "session_save");
+    toast(describeShellError(translate as Translate, failure).message, "failure");
+    chosenWallpaper.value = null;
+  }
+}
 
 // -- the power actions -------------------------------------------------------
 
@@ -708,170 +929,260 @@ async function issuePower(): Promise<void> {
     toast(describeShellError(translate as Translate, failure).message, "failure");
   }
 }
+
+/**
+ * Opens the power menu at the taskbar's end.
+ *
+ * The bar hands over no pointer coordinate — it is a strip of buttons, and the reference product's
+ * power control opens at the same place every time. The synthetic position is the bottom-right
+ * corner, which is where this menu is drawn from; the menu itself does the hit-testing.
+ */
+function openPowerMenu(): void {
+  const at = {
+    clientX: window.innerWidth - 24,
+    clientY: window.innerHeight - 24,
+    preventDefault: () => {},
+    stopPropagation: () => {},
+  } as unknown as MouseEvent;
+  openMenu(at, { key: "workbench.power.title" }, [
+    {
+      kind: "action",
+      id: "power-reboot",
+      labelKey: "workbench.power.reboot",
+      icon: RotateCw,
+      disabled: !connected.value,
+      run: () => {
+        confirming.value = "reboot";
+      },
+    },
+    {
+      kind: "action",
+      id: "power-shutdown",
+      labelKey: "workbench.power.shutdown",
+      icon: Power,
+      danger: true,
+      disabled: !connected.value,
+      run: () => {
+        confirming.value = "shutdown";
+      },
+    },
+  ]);
+}
+
+/**
+ * Disconnects this desktop: closing the workbench tab closes the connection under it, which is what
+ * the status bar's power button does. It is a real close, and the session is reachable again from
+ * the sidebar like any other.
+ */
+function disconnect(): void {
+  terminals.closeTab(props.tab.id);
+}
 </script>
 
 <template>
-  <!--
-    The backdrop is the desktop's own, and it covers the whole tab — icons, taskbar and all, the way
-    a wallpaper on any desktop stops nowhere in particular. Without one the interface's own surface
-    is the backdrop, which is the elevation the tokens already speak.
-  -->
   <section
-    class="flex min-h-0 flex-1 flex-col overflow-hidden"
+    class="relative flex min-h-0 flex-1 flex-col overflow-hidden"
     :class="wallpaper === undefined ? 'bg-background' : undefined"
     :style="wallpaperStyle"
+    data-workbench-shell
   >
-    <!--
-      The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
-      clears the selection, because on a desktop that is what clicking nowhere means; an icon stops
-      the click on its way up, because selecting it is not clicking nowhere. A drop on the wallpaper
-      is where a dragged icon goes when it is not dropped onto another one: the end of the grid.
-    -->
+    <WorkbenchStatusBar
+      :host="session.host"
+      :user="session.user"
+      :clock="`${clockTime} · ${clockDate}`"
+      :connected="connected"
+      :labels="{ disconnect: t('workbench.desktop.shell.disconnect') }"
+      @disconnect="disconnect()"
+    />
+
     <div
-      data-workbench-desktop
-      class="min-h-0 flex-1 overflow-y-auto"
+      ref="workArea"
+      class="relative z-0 min-h-0 flex-1 overflow-hidden"
       @click="clearSelection()"
       @contextmenu="openDesktopMenu"
       @dragover.prevent="dragOverDesktop()"
       @drop.prevent="dropIcon(null)"
     >
-      <div
-        class="grid max-w-full content-start justify-start gap-1 p-3"
-        :class="
-          iconDensity === 'compact' ? 'grid-cols-[repeat(auto-fill,4.5rem)]' : 'grid-cols-[repeat(auto-fill,6rem)]'
-        "
-        data-workbench-icons
-      >
-        <button
-          v-for="icon in icons"
-          :key="icon.id"
-          type="button"
-          data-workbench-icon
-          :data-icon-id="icon.id"
-          :disabled="icon.disabled"
-          draggable="true"
-          :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
-          class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors"
-          :class="[
-            onPicture
-              ? selectedId === icon.id
-                ? 'border-white/35 bg-white/15 text-white'
-                : 'border-transparent text-white/95 hover:bg-white/10'
-              : selectedId === icon.id
-                ? 'border-border/60 bg-accent text-foreground'
-                : 'border-transparent text-foreground hover:bg-accent/50',
-            dragOverId === icon.id ? (onPicture ? 'ring-2 ring-white/70' : 'ring-2 ring-primary/60') : undefined,
-          ]"
-          @click.stop="select(icon)"
-          @dblclick.stop="openIcon(icon)"
-          @keydown.enter.prevent="openIcon(icon)"
-          @contextmenu.stop="openIconMenu($event, icon)"
-          @dragstart.stop="beginDrag($event, icon)"
-          @dragover.prevent.stop="dragOver(icon)"
-          @drop.stop.prevent="dropIcon(icon)"
-          @dragend="endDrag()"
+      <!--
+        The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
+        clears the selection, because on a desktop that is what clicking nowhere means; an icon
+        stops the click on its way up. A drop on the wallpaper is where a dragged icon goes when it
+        is not dropped onto another one: the end of the grid.
+      -->
+      <div data-workbench-desktop class="absolute inset-0 overflow-y-auto">
+        <div
+          class="grid content-start justify-start gap-1 p-2"
+          :class="
+            iconDensity === 'compact' ? 'grid-cols-[repeat(auto-fill,4.5rem)]' : 'grid-cols-[repeat(auto-fill,5.5rem)]'
+          "
+          data-workbench-icons
         >
-          <component
-            :is="icon.icon"
-            :size="28"
-            class="shrink-0"
-            :class="onPicture ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]' : undefined"
-            :stroke-width="1.5"
-          />
-          <span
-            class="w-full truncate text-center leading-tight"
-            :class="onPicture ? '[text-shadow:0_1px_2px_rgba(0,0,0,0.6)]' : undefined"
-            >{{ icon.label }}</span
+          <button
+            v-for="icon in icons"
+            :key="icon.id"
+            type="button"
+            data-workbench-icon
+            :data-icon-id="icon.id"
+            :disabled="icon.disabled"
+            draggable="true"
+            :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
+            class="flex h-[5.25rem] w-[5.25rem] flex-col items-center justify-start gap-1.5 rounded-lg px-1 py-2 text-center transition-colors"
+            :class="[
+              onPicture
+                ? selectedId === icon.id
+                  ? 'bg-white/20 text-white'
+                  : 'text-white/95 hover:bg-white/10'
+                : selectedId === icon.id
+                  ? 'bg-accent text-foreground'
+                  : 'text-foreground hover:bg-accent/50',
+              dragOverId === icon.id ? (onPicture ? 'ring-2 ring-white/70' : 'ring-2 ring-primary/60') : undefined,
+            ]"
+            @click.stop="select(icon)"
+            @dblclick.stop="openIcon(icon)"
+            @keydown.enter.prevent="openIcon(icon)"
+            @contextmenu.stop="openIconMenu($event, icon)"
+            @dragstart.stop="beginDrag($event, icon)"
+            @dragover.prevent.stop="dragOver(icon)"
+            @drop.stop.prevent="dropIcon(icon)"
+            @dragend="endDrag()"
           >
-        </button>
-      </div>
-    </div>
-
-    <!--
-      The trash, when its icon has opened it: a panel over the desktop rather than a tab, because
-      it is a place inside this machine's desktop and a tab would be a second window onto one
-      session. A session with no connection has nothing to read, so the icon does nothing there.
-    -->
-    <SystemPanel
-      v-if="systemOpen && tab.handle !== null"
-      :session-id="session.id"
-      :handle="tab.handle"
-      :active="active"
-      class="h-[58%] shrink-0 border-t border-border bg-card"
-      @close="systemOpen = false"
-    />
-
-    <TrashWindow
-      v-if="trashOpen && tab.handle !== null"
-      :session-id="session.id"
-      :handle="tab.handle"
-      :active="active"
-      class="h-[58%] shrink-0 border-t border-border bg-card"
-      @close="trashOpen = false"
-    />
-    <footer
-      data-workbench-taskbar
-      class="flex shrink-0 items-center gap-1 border-t border-border bg-card px-2 py-1 select-none"
-    >
-      <button
-        v-for="entry in taskbarEntries"
-        :key="entry.id"
-        type="button"
-        data-workbench-taskbar-entry
-        :data-tab-id="entry.id"
-        class="flex max-w-40 shrink items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors"
-        :class="
-          entry.id === terminals.activeTabId
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-        "
-        :title="entry.label"
-        @click="terminals.activateTab(entry.id)"
-      >
-        <component :is="entry.icon" :size="12" class="shrink-0" />
-        <span class="truncate">{{ entry.label }}</span>
-      </button>
-
-      <span class="min-w-0 flex-1"></span>
-
-      <div class="flex shrink-0 items-center gap-1 border-l border-border pl-2" data-workbench-power>
-        <button
-          type="button"
-          :disabled="!connected"
-          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-          @click="confirming = 'reboot'"
-        >
-          <RotateCw :size="12" />
-          {{ t("workbench.power.reboot") }}
-        </button>
-        <button
-          type="button"
-          :disabled="!connected"
-          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-          @click="confirming = 'shutdown'"
-        >
-          <Power :size="12" />
-          {{ t("workbench.power.shutdown") }}
-        </button>
+            <!--
+              The picture sits on a coloured plate: the reference desktop's icons are app stickers,
+              not line drawings, and a coloured tile is what gives a lucide glyph the same weight at
+              desktop size without copying any of its artwork.
+            -->
+            <span
+              class="grid size-10 shrink-0 place-items-center rounded-[0.6rem] text-white shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
+              :class="toneOf(icon.kind)"
+            >
+              <component :is="icon.icon" :size="22" :stroke-width="1.8" />
+            </span>
+            <span
+              class="w-full truncate text-[13px] leading-tight"
+              :class="onPicture ? '[text-shadow:0_1px_2px_rgba(0,0,0,0.6)]' : undefined"
+              >{{ icon.label }}</span
+            >
+          </button>
+        </div>
       </div>
 
       <!--
-        The clock, at the far end of the bar. Clicking it opens the system panel — the same door the
-        system-information icon opens — because on a desktop a clock is usually the quickest way to
-        what the machine is doing. The date rides beside it only when the bar is wide enough.
+        The windows, in the order the store keeps them. A window is drawn while it exists, whether it
+        is minimised or not: the component scales it away, so a terminal keeps its screen and its
+        scrollback rather than being torn down and rebuilt.
       -->
-      <button
-        type="button"
-        data-workbench-clock
-        :title="t('workbench.desktop.clock.title')"
-        :aria-label="t('workbench.desktop.clock.title')"
-        class="flex shrink-0 items-baseline gap-1.5 rounded-md border-l border-border py-1 pr-1 pl-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        @click="openSystemPanel()"
+      <WorkbenchWindow
+        v-for="window in windows"
+        :key="window.id"
+        :id="window.id"
+        :title="window.title"
+        :icon="iconOf(window.kind)"
+        :state="window.mode"
+        :focused="window.focused"
+        :left="window.left"
+        :top="window.top"
+        :width="window.width"
+        :height="window.height"
+        :labels="windowLabels"
+        :style="{ zIndex: window.z }"
+        class="absolute"
+        @contextmenu.stop
+        @focus="focus(window.id)"
+        @close="close(window.id)"
+        @minimize="minimize(window.id)"
+        @maximize="maximize(window.id)"
+        @restore="restore(window.id)"
+        @move="move(window.id, $event)"
+        @resize="resize(window.id, $event)"
       >
-        <span data-workbench-clock-time class="tabular-nums">{{ clockTime }}</span>
-        <span data-workbench-clock-date class="hidden sm:inline">{{ clockDate }}</span>
-      </button>
-    </footer>
+        <!-- The terminal the window holds: an ordinary terminal tab drawn here instead of in the strip. -->
+        <template v-if="window.kind === 'terminal'">
+          <TerminalPane
+            v-if="terminalHandle(window.id) !== null"
+            :handle="terminalHandle(window.id) ?? ''"
+            :active="window.focused"
+            :interactive="terminalInteractive(window.id)"
+            class="h-full"
+          />
+          <div v-else class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+            <p class="text-xs text-muted-foreground">{{ t("workbench.tab.ended") }}</p>
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+              @click="reconnectWindow(window.id)"
+            >
+              <RotateCw :size="12" />
+              {{ t("workbench.tab.retry") }}
+            </button>
+          </div>
+        </template>
+
+        <!-- The file browser, on the workbench's own connection: no tab, no second connection. -->
+        <FileBrowser
+          v-else-if="window.kind === 'files' && fileHandleOf(window.id) !== null"
+          :handle="fileHandleOf(window.id) ?? ''"
+          :protocol="session.protocol"
+          :initial-path="homeOf(window.id)"
+          class="h-full"
+        />
+
+        <!-- The monitor's system page, about this host rather than connected to it. -->
+        <HostPage v-else-if="window.kind === 'monitor'" :session="session" :active="window.focused" class="h-full">
+          <template #default="{ live }">
+            <SystemReport :live="live" />
+          </template>
+        </HostPage>
+
+        <!-- The machine's own details, and the trash: the same panels, in a frame now. -->
+        <SystemPanel
+          v-else-if="window.kind === 'system' && tab.handle !== null"
+          :session-id="session.id"
+          :handle="tab.handle"
+          :active="window.focused"
+          class="h-full"
+          @close="close(window.id)"
+        />
+        <TrashWindow
+          v-else-if="window.kind === 'trash' && tab.handle !== null"
+          :session-id="session.id"
+          :handle="tab.handle"
+          :active="window.focused"
+          class="h-full"
+          @close="close(window.id)"
+        />
+      </WorkbenchWindow>
+    </div>
+
+    <!--
+      The starter, over the whole work area: the reference's application grid. It is a sibling of
+      the work area rather than a child of it, so its layer sits above every window's whatever
+      number the window stack has reached — a window is drawn at the stacking order it was focused
+      in, and a sheet that could be covered by the twenty-first click would be a sheet that stops
+      working after a while.
+    -->
+    <div class="absolute inset-x-0 top-0 bottom-[57px] z-40">
+      <WorkbenchStarter
+        :open="starterOpen"
+        :apps="starterApps"
+        :labels="{ title: t('workbench.desktop.shell.starter'), close: t('common.action.close') }"
+        @close="starterOpen = false"
+        @launch="launch($event)"
+      />
+    </div>
+
+    <WorkbenchTaskbar
+      :entries="taskbarEntries"
+      :clock="clockTime"
+      :power="t('workbench.power.title')"
+      :labels="{
+        starter: t('workbench.desktop.shell.starter'),
+        clock: t('workbench.desktop.clock.title'),
+      }"
+      @starter="starterOpen = !starterOpen"
+      @launch="pressTaskbar($event)"
+      @clock="openRecord('system', t('workbench.desktop.icons.system'), 'system')"
+      @power="openPowerMenu()"
+    />
 
     <!--
       The shortcut dialog: one field, one path. The rules the input follows live with the shortcuts

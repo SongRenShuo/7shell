@@ -241,9 +241,9 @@ describe("dragging the title bar", () => {
     expect(moves).toEqual([]);
   });
 
-  it("maximises once when the pointer crosses the top line, and ends the drag", () => {
+  it("maximises once when the window's own top reaches the work area's edge, and ends the drag", () => {
     pressTitle(200, 100);
-    titleBar().dispatchEvent(pointer("pointermove", 210, 10));
+    titleBar().dispatchEvent(pointer("pointermove", 210, 0));
 
     expect(calls.maximize).toBe(1);
     expect(moves).toEqual([]);
@@ -253,6 +253,16 @@ describe("dragging the title bar", () => {
 
     expect(calls.maximize).toBe(1);
     expect(moves).toEqual([]);
+  });
+
+  it("keeps moving while the pointer is above the viewport's top but the window has not reached it", () => {
+    // The desktop is nested under the application's chrome, so a pointer at the top of the screen
+    // is not the gesture: the window's own top is what the work area's edge is measured against.
+    pressTitle(200, 100);
+    titleBar().dispatchEvent(pointer("pointermove", 210, 23));
+
+    expect(calls.maximize).toBe(0);
+    expect(moves).toEqual([{ left: 110, top: 23 }]);
   });
 
   it("does not drag a window that is not in its normal mode", async () => {

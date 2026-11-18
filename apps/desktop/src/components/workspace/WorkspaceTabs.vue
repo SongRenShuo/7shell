@@ -374,7 +374,10 @@ const atEnd = computed(() => preferences.tabPlacement === "bottom" || preference
  * interface's own language, because that is the language they are written in.
  */
 const ordered = computed(() => {
-  const tabs = terminals.tabs;
+  // A terminal a desktop opened in one of its windows is drawn there, not in this strip: the
+  // window is the tab's surface, and a tab in both places would be one connection drawn twice with
+  // two active states to keep in step.
+  const tabs = terminals.tabs.filter((tab) => !(tab.kind === "terminal" && tab.windowed));
   if (preferences.tabSortMode === "created-asc") {
     const opened = terminals.openedOrder;
     return [...tabs].sort((left, right) => opened.indexOf(left.id) - opened.indexOf(right.id));
@@ -384,6 +387,9 @@ const ordered = computed(() => {
   }
   return tabs;
 });
+
+/** The tabs whose body this frame draws — every tab except the ones a desktop window holds. */
+const bodyTabs = computed(() => terminals.tabs.filter((tab) => !(tab.kind === "terminal" && tab.windowed)));
 
 /** One line of the bar: a run's name, or a tab. */
 type StripEntry =
@@ -646,7 +652,7 @@ function tabStyle(): Record<string, string> | undefined {
     </div>
 
     <div
-      v-for="tab in terminals.tabs"
+      v-for="tab in bodyTabs"
       v-show="tab.id === terminals.activeTabId"
       :key="tab.id"
       :class="cn('flex min-h-0 flex-1 flex-col', atEnd ? 'order-1' : 'order-2')"
