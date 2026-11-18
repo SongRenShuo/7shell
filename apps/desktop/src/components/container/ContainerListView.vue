@@ -42,6 +42,7 @@ import {
 } from "@/components/container/containerStates";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
+import WbEmpty from "@/components/ui/WbEmpty.vue";
 import WbTag from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
@@ -678,7 +679,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
           </tr>
           <tr v-if="rows.length === 0">
             <td :colspan="7" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
-              {{ t("container.filters.none") }}
+              <WbEmpty scenario="noData" size="sm" :description="t('container.filters.none')" class="mx-auto" />
             </td>
           </tr>
         </tbody>
