@@ -1383,7 +1383,12 @@ function disconnect(): void {
       <WorkbenchStarter
         :open="starterOpen"
         :apps="starterApps"
-        :labels="{ title: t('workbench.desktop.shell.starter'), close: t('common.action.close') }"
+        :labels="{
+          title: t('workbench.desktop.shell.starter'),
+          close: t('common.action.close'),
+          search: t('workbench.desktop.shell.starterSearch'),
+          noResults: t('workbench.desktop.shell.starterNoResults'),
+        }"
         @close="starterOpen = false"
         @launch="launch($event)"
       />
