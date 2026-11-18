@@ -14,7 +14,7 @@
         "systemInfo": "System information",
         "trash": "Trash"
       },
-      "trashPlaceholder": "Trash will be available in a later release.",
+      "iconUnavailable": "This icon cannot be opened on this session.",
       "menu": {
         "open": "Open",
         "remove": "Remove",
@@ -42,6 +42,28 @@
       "rebootConfirm": "Restart machine",
       "shutdownConfirm": "Shut down machine",
       "issued": "The command was issued. The machine may disconnect at any moment."
+    },
+    "trash": {
+      "title": "Trash",
+      "refresh": "Read the trash again",
+      "empty": "Empty",
+      "name": "Name",
+      "origin": "Original path",
+      "size": "Size",
+      "actions": "Actions",
+      "restore": "Put back where it was",
+      "cannotRestore": "Where this came from is unknown, so it cannot be put back",
+      "deleteForever": "Delete for good",
+      "unknownOrigin": "unknown (no sidecar could be paired)",
+      "restored": "Put {name} back at {path}.",
+      "removed": "Deleted {name} for good.",
+      "emptied": "Emptied the trash: {count} item(s) deleted for good.",
+      "failed": "The trash operation failed.",
+      "reading": "Reading the trash…",
+      "emptyState": "The trash is empty.",
+      "emptyHint": "Files deleted into the trash are listed here until they are put back or deleted for good.",
+      "emptyTitle": "Empty the trash?",
+      "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone."
     }
   }
 }

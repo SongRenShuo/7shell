@@ -53,6 +53,7 @@ import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRo
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
+import TrashWindow from "@/components/workspace/TrashWindow.vue";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
@@ -168,7 +169,6 @@ const systemIcons = computed<DesktopIcon[]>(() => [
     kind: "trash",
     label: t("workbench.desktop.icons.trash"),
     icon: Trash2,
-    disabled: true,
   },
 ]);
 
@@ -194,6 +194,15 @@ const icons = computed<DesktopIcon[]>(() => [...systemIcons.value, ...userIcons.
 
 /** The icon somebody has clicked, which the Enter key opens and a click on the wallpaper clears. */
 const selectedId = ref<string | null>(null);
+
+/**
+ * Whether the trash panel is open over the desktop.
+ *
+ * A panel rather than a tab: the trash is a place inside this machine's desktop — the same machine
+ * the desktop is about — and opening it in a tab of its own would be a second window onto one
+ * session. The panel closes with its own cross and goes with the tab.
+ */
+const trashOpen = ref(false);
 
 function select(icon: DesktopIcon): void {
   selectedId.value = icon.id;
@@ -230,6 +239,7 @@ function openIcon(icon: DesktopIcon): void {
       terminals.openInspect("system", session.value);
       return;
     case "trash":
+      trashOpen.value = !trashOpen.value;
       return;
     case "shortcut":
       void terminals.openFiles(session.value, icon.path);
@@ -492,7 +502,7 @@ async function issuePower(): Promise<void> {
           data-workbench-icon
           :data-icon-id="icon.id"
           :disabled="icon.disabled"
-          :title="icon.disabled ? t('workbench.desktop.trashPlaceholder') : undefined"
+          :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
           class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors"
           :class="
             selectedId === icon.id
@@ -511,10 +521,18 @@ async function issuePower(): Promise<void> {
     </div>
 
     <!--
-      The taskbar: the tabs this session has open, one click each, and the session's power actions
-      at the far end — the entry buttons the first release drew on cards, gathered where a desktop
-      keeps its lasting controls.
+      The trash, when its icon has opened it: a panel over the desktop rather than a tab, because
+      it is a place inside this machine's desktop and a tab would be a second window onto one
+      session. A session with no connection has nothing to read, so the icon does nothing there.
     -->
+    <TrashWindow
+      v-if="trashOpen && tab.handle !== null"
+      :session-id="session.id"
+      :handle="tab.handle"
+      :active="active"
+      class="border-t border-border bg-card"
+      @close="trashOpen = false"
+    />
     <footer
       data-workbench-taskbar
       class="flex shrink-0 items-center gap-1 border-t border-border bg-card px-2 py-1 select-none"
