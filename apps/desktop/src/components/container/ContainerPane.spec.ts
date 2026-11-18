@@ -88,8 +88,8 @@ function tab(runtime: "docker" | "nerdctl"): ContainerTab {
   };
 }
 
-async function mount(engine: ContainerTab): Promise<void> {
-  app = createApp({ render: () => h(ContainerPane, { tab: engine, active: true }) });
+async function mount(engine: ContainerTab, layout?: "desktop" | "flat"): Promise<void> {
+  app = createApp({ render: () => h(ContainerPane, { tab: engine, active: true, layout }) });
   app.use(i18n);
   const pinia = createPinia();
   setActivePinia(pinia);
@@ -163,5 +163,66 @@ describe("container pane", () => {
   it("draws the namespace picker for containerd", async () => {
     await mount(tab("nerdctl"));
     expect(document.querySelector('[aria-label="Namespace"]')).not.toBeNull();
+  });
+});
+
+describe("the desktop layout", () => {
+  it("is not what an unset layout draws: the flat workspace keeps its compact rail and its overview", async () => {
+    await mount(tab("docker"));
+
+    expect(document.querySelector("aside"), "the flat workspace has no 220px rail").toBeNull();
+    // The desktop views stay mounted but hidden, exactly as the flat views do; what the flat
+    // workspace never shows is the summary visible.
+    const overview = document.querySelector("[data-docker-overview]") as HTMLElement | null;
+    expect(overview?.style.display ?? "").toBe("none");
+    expect(document.querySelector("[data-side-nav-item]")).toBeNull();
+  });
+
+  it("draws the side rail with the engine's counts, and the desktop overview", async () => {
+    await mount(tab("docker"), "desktop");
+
+    const overviewRow = document.querySelector('[data-side-nav-item="overview"]');
+    const containersRow = document.querySelector('[data-side-nav-item="containers"]');
+    expect(overviewRow).not.toBeNull();
+    expect(containersRow).not.toBeNull();
+    const overview = document.querySelector("[data-docker-overview]") as HTMLElement | null;
+    expect(overview?.style.display ?? "none").not.toBe("none");
+
+    // The engine answered with one container; the rail says so beside the word.
+    expect(containersRow?.querySelector("[data-side-nav-badge]")?.textContent?.trim()).toBe("1");
+  });
+
+  it("offers the overview only while the connection is failing, and still draws the way back", async () => {
+    connectMock.mockRejectedValue(new Error("engine down"));
+    app = createApp({ render: () => h(ContainerPane, { tab: tab("docker"), active: true, layout: "desktop" }) });
+    app.use(i18n);
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    app.use(pinia);
+    host = document.createElement("div");
+    document.body.append(host);
+    app.mount(host);
+    await vi.waitFor(() => {
+      expect(host?.textContent).toContain("engine could not be reached");
+    });
+
+    expect(document.querySelector('[data-side-nav-item="overview"]'), "the overview is there").not.toBeNull();
+    expect(document.querySelector('[data-side-nav-item="containers"]'), "no containers row").toBeNull();
+    expect(document.querySelector('[data-side-nav-item="images"]'), "no images row").toBeNull();
+    expect(host?.textContent).toContain("Try again");
+  });
+
+  it("draws the state column as tags and gathers the row's actions under the one menu", async () => {
+    await mount(tab("docker"), "desktop");
+    railButton("Containers").click();
+    await nextTick();
+
+    const tag = document.querySelector("[data-wb-tag]");
+    expect(tag, "the running container's state is a tag").not.toBeNull();
+    expect(tag?.textContent?.trim()).toBe("Running");
+
+    // The flat row's five buttons collapse to the one menu on the desktop.
+    const row = tag?.closest("tr");
+    expect(row?.querySelectorAll("button")).toHaveLength(1);
   });
 });

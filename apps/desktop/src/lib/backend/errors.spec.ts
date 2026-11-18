@@ -110,3 +110,52 @@ describe("backend facade", () => {
     vi.mocked(isDesktopRuntime).mockReturnValue(true);
   });
 });
+
+describe("the Docker window's error surface", () => {
+  /**
+   * The Docker window renders every failure through the catalog — the code's own sentence, never
+   * a raw string. This pins the codes that surface can raise: the engine's three container codes,
+   * the SSH codes an engine-over-SSH fails with, and the policy gate's two. The engine's catalog
+   * and this one are compared in both directions by the contract suite; what this adds is the
+   * Docker window's own claim — that the codes its actions actually raise are named here, and
+   * said in words in both languages.
+   */
+  const DOCKER_SURFACE: readonly [string, string][] = [
+    ["CONTAINER-UNAVAILABLE", "errors.container.unavailable"],
+    ["CONTAINER-COMMAND-FAILED", "errors.container.commandFailed"],
+    ["CONTAINER-NOT-CONNECTED", "errors.container.notConnected"],
+    ["SSH-UNREACHABLE", "errors.ssh.unreachable"],
+    ["SSH-TIMEOUT", "errors.ssh.timeout"],
+    ["SSH-CHANNEL-FAILED", "errors.ssh.channelFailed"],
+    ["SSH-AUTH-FAILED", "errors.ssh.authFailed"],
+    ["POLICY-DENIED", "errors.policy.denied"],
+    ["POLICY-APPROVAL-REQUIRED", "errors.policy.approvalRequired"],
+  ];
+
+  /** Walks a dotted message key down a locale file's nested object. */
+  function localeSentence(locale: Record<string, unknown>, key: string): unknown {
+    return key.split(".").reduce<unknown>((node, part) => {
+      if (node !== null && typeof node === "object") {
+        return (node as Record<string, unknown>)[part];
+      }
+      return undefined;
+    }, locale);
+  }
+
+  it("maps every code the Docker window can raise to its message key", async () => {
+    const { ERROR_CATALOG } = await import("./errorCodes");
+    for (const [code, key] of DOCKER_SURFACE) {
+      expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG], code).toBe(key);
+    }
+  });
+
+  it("says each of them in words in both languages", async () => {
+    const en = (await import("@/i18n/locales/en/errors.json")).default as Record<string, unknown>;
+    const zh = (await import("@/i18n/locales/zh-CN/errors.json")).default as Record<string, unknown>;
+
+    for (const [, key] of DOCKER_SURFACE) {
+      expect(typeof localeSentence(en, key), `${key} has words in en`).toBe("string");
+      expect(typeof localeSentence(zh, key), `${key} has words in zh-CN`).toBe("string");
+    }
+  });
+});
