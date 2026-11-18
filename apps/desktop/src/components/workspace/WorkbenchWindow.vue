@@ -32,7 +32,7 @@ import { Copy, Minus, Square, X } from "@lucide/vue";
 import type { Component } from "vue";
 import { computed, ref } from "vue";
 
-import { MIN_HEIGHT, MIN_WIDTH, STATUS_BAR_HEIGHT, type WindowMode } from "@/lib/workbench/windows";
+import { MIN_HEIGHT, MIN_WIDTH, type WindowMode } from "@/lib/workbench/windows";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{
@@ -131,9 +131,13 @@ function onTitlePointerMove(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
     return;
   }
-  // The top edge is the desk's status bar: crossing it is the maximise gesture, not a move. It
+  const nextTop = drag.top + (event.clientY - drag.startY);
+  // The work area's own top edge is the maximise gesture, not a move. The window's coordinates are
+  // the caller's frame — the shell measures the region between its status bar and taskbar — so the
+  // line is where this window's top would reach zero, not where the pointer is on the screen: a
+  // desktop nested under the application's chrome has no viewport edge of its own to aim at. It
   // fires once and ends the drag, so a pointer that keeps going does not keep re-maximising.
-  if (!drag.maximized && event.clientY <= STATUS_BAR_HEIGHT) {
+  if (!drag.maximized && nextTop <= 0) {
     drag.maximized = true;
     endDrag(event.pointerId);
     emit("maximize");
@@ -141,7 +145,7 @@ function onTitlePointerMove(event: PointerEvent): void {
   }
   emit("move", {
     left: drag.left + (event.clientX - drag.startX),
-    top: drag.top + (event.clientY - drag.startY),
+    top: nextTop,
   });
 }
 

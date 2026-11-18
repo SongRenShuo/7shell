@@ -20,7 +20,18 @@
  */
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Boxes, HardDrive, LoaderCircle, Network, RefreshCw, ScrollText, Users, X } from "@lucide/vue";
+import {
+  Boxes,
+  CalendarClock,
+  HardDrive,
+  History,
+  LoaderCircle,
+  Network,
+  RefreshCw,
+  ScrollText,
+  Users,
+  X,
+} from "@lucide/vue";
 
 import { describeShellError } from "@/i18n/errors";
 import { useToast } from "@/composables/useToast";
@@ -30,7 +41,8 @@ import { asShellError, type ShellError } from "@/lib/backend/errors";
 import { formatSize } from "@/lib/files/format";
 import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
-import type { DiskDevice, JournalTail, SystemOverview } from "@/types/sysinfo";
+import type { DiskUsage } from "@/types/monitor";
+import type { DiskDevice, JournalTail, ServiceEntry, SystemOverview } from "@/types/sysinfo";
 
 const props = defineProps<{
   /** The session a policy decision about a service names. */
@@ -43,7 +55,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>();
 
-type Section = "services" | "disks" | "accounts" | "network" | "journal";
+type Section = "services" | "disks" | "accounts" | "network" | "crontab" | "logins" | "journal";
 
 const { t } = useI18n();
 
@@ -70,6 +82,8 @@ const sections = computed(() => [
   { id: "disks" as const, label: t("workbench.system.sections.disks"), icon: HardDrive },
   { id: "accounts" as const, label: t("workbench.system.sections.accounts"), icon: Users },
   { id: "network" as const, label: t("workbench.system.sections.network"), icon: Network },
+  { id: "crontab" as const, label: t("workbench.system.sections.crontab"), icon: CalendarClock },
+  { id: "logins" as const, label: t("workbench.system.sections.logins"), icon: History },
   { id: "journal" as const, label: t("workbench.system.sections.journal"), icon: ScrollText },
 ]);
 
@@ -126,8 +140,54 @@ const accounts = computed(() => {
   return [...list].sort((left, right) => left.uid - right.uid);
 });
 
+/**
+ * The boot states a person may flip.
+ *
+ * `enabled` and `disabled` are the two the unit file says about a choice somebody made. `static`,
+ * `masked`, `alias`, `indirect`, `generated` and the rest describe how systemd got the unit, not
+ * what a switch could change: there is no unit file to enable, or enabling it is refused by the
+ * host. The column says the state for those and offers no switch, because a switch that cannot
+ * move is a lie about the unit.
+ */
+const BOOT_TOGGLEABLE = new Set(["enabled", "disabled"]);
+
+function canToggleBoot(service: ServiceEntry): boolean {
+  return service.enabled !== undefined && BOOT_TOGGLEABLE.has(service.enabled);
+}
+
+function bootOn(service: ServiceEntry): boolean {
+  return service.enabled === "enabled";
+}
+
+/**
+ * The mounts worth a ring: the root file system and real devices.
+ *
+ * `df` lists tmpfs, `overlay` layers and container roots as mounts, and on a machine running a
+ * container runtime that is a dozen rings with the same numbers — noise around the two that mean
+ * something. The wire still carries every row; this is only what the page draws.
+ */
+const RING_RADIUS = 18;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+const ringMounts = computed<DiskUsage[]>(() =>
+  (overview.value?.mounts ?? []).filter((mount) => mount.mountPoint === "/" || mount.filesystem.startsWith("/dev/")),
+);
+
+function usedPercent(mount: DiskUsage): number {
+  if (mount.sizeBytes === 0) {
+    return 0;
+  }
+  const used = mount.sizeBytes - Math.min(mount.availableBytes, mount.sizeBytes);
+  return Math.round((used / mount.sizeBytes) * 100);
+}
+
+function ringDash(mount: DiskUsage): string {
+  const drawn = (usedPercent(mount) / 100) * RING_CIRCUMFERENCE;
+  return `${drawn} ${RING_CIRCUMFERENCE}`;
+}
+
 /** One verb on one unit. The acknowledgement is `verb !== "stop"`, because only stop asks. */
-async function act(unit: string, verb: "start" | "restart" | "stop"): Promise<void> {
+async function act(unit: string, verb: "start" | "restart" | "stop" | "enable" | "disable"): Promise<void> {
   if (verb === "stop") {
     askingStop.value = { unit };
     return;
@@ -282,6 +342,7 @@ watch(
             <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.load") }}</th>
             <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.active") }}</th>
             <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.sub") }}</th>
+            <th :class="cn(TABLE.page.headCell, 'w-24 text-left')">{{ t("workbench.system.services.boot") }}</th>
             <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.services.description") }}</th>
             <th :class="cn(TABLE.page.headCell, 'w-32 text-right')">{{ t("workbench.system.services.actions") }}</th>
           </tr>
@@ -307,6 +368,32 @@ watch(
               {{ service.active }}
             </td>
             <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ service.sub }}</td>
+            <td :class="cn(TABLE.page.cell, 'whitespace-nowrap')">
+              <button
+                v-if="canToggleBoot(service)"
+                type="button"
+                role="switch"
+                :aria-checked="bootOn(service)"
+                :aria-label="t('workbench.system.services.boot')"
+                :title="
+                  bootOn(service)
+                    ? t('workbench.system.serviceActions.disable')
+                    : t('workbench.system.serviceActions.enable')
+                "
+                :disabled="busyUnit === service.name"
+                class="inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                :class="bootOn(service) ? 'bg-emerald-500/80' : 'bg-accent'"
+                @click="act(service.name, bootOn(service) ? 'disable' : 'enable')"
+              >
+                <span
+                  class="size-3 rounded-full bg-white shadow-sm transition-transform"
+                  :class="bootOn(service) ? 'translate-x-3' : 'translate-x-0'"
+                />
+              </button>
+              <span v-else class="font-mono text-[11px] text-muted-foreground" :title="service.enabled ?? ''">
+                {{ service.enabled ?? "-" }}
+              </span>
+            </td>
             <td :class="cn(TABLE.page.cell, 'truncate text-muted-foreground')" :title="service.description">
               {{ service.description }}
             </td>
@@ -343,49 +430,85 @@ watch(
             </td>
           </tr>
           <tr v-if="services.length === 0">
-            <td :colspan="6" :class="TABLE.page.emptyCell">{{ t("workbench.system.services.empty") }}</td>
+            <td :colspan="7" :class="TABLE.page.emptyCell">{{ t("workbench.system.services.empty") }}</td>
           </tr>
         </tbody>
       </table>
 
-      <!-- Disks: the whole block-device tree, indented by depth. -->
-      <table
-        v-else-if="section === 'disks'"
-        :class="TABLE.page.table"
-        :aria-label="t('workbench.system.sections.disks')"
-      >
-        <thead :class="TABLE.page.head">
-          <tr :class="TABLE.page.headRow">
-            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.name") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-24 text-right')">{{ t("workbench.system.disks.size") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.disks.kind") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-24 text-left')">{{ t("workbench.system.disks.filesystem") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.mount") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.model") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in diskRows" :key="row.device.name" :class="rowClass('page')">
-            <td :class="cn(TABLE.page.cell, 'font-mono text-[11px]')">
-              <span :style="{ paddingLeft: `${row.depth * 14}px` }">{{ row.device.name }}</span>
-            </td>
-            <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px]')">{{ row.device.size }}</td>
-            <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ row.device.kind }}</td>
-            <td :class="cn(TABLE.page.cell, 'font-mono text-[11px] text-muted-foreground')">
-              {{ row.device.filesystem ?? "-" }}
-            </td>
-            <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')" :title="row.device.mount ?? ''">
-              {{ row.device.mount ?? "-" }}
-            </td>
-            <td :class="cn(TABLE.page.cell, 'truncate text-muted-foreground')" :title="row.device.model ?? ''">
-              {{ row.device.model ?? "-" }}
-            </td>
-          </tr>
-          <tr v-if="diskRows.length === 0">
-            <td :colspan="6" :class="TABLE.page.emptyCell">{{ t("workbench.system.disks.empty") }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- Disks: the mount usage a person actually watches, then the whole block-device tree. -->
+      <div v-else-if="section === 'disks'" class="flex flex-col gap-3">
+        <div v-if="ringMounts.length > 0" class="flex flex-wrap gap-x-4 gap-y-2" data-workbench-system-mounts>
+          <figure
+            v-for="mount in ringMounts"
+            :key="`${mount.filesystem}-${mount.mountPoint}`"
+            class="flex items-center gap-2"
+          >
+            <svg viewBox="0 0 44 44" class="size-11 -rotate-90" aria-hidden="true">
+              <circle
+                cx="22"
+                cy="22"
+                :r="RING_RADIUS"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="4"
+                class="text-accent"
+              />
+              <circle
+                cx="22"
+                cy="22"
+                :r="RING_RADIUS"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="4"
+                stroke-linecap="round"
+                :stroke-dasharray="ringDash(mount)"
+                :class="usedPercent(mount) >= 90 ? 'text-destructive' : 'text-emerald-500'"
+              />
+            </svg>
+            <figcaption class="text-[11px] leading-tight">
+              <span class="block font-mono" :title="mount.filesystem">{{ mount.mountPoint }}</span>
+              <span class="text-muted-foreground">
+                {{ formatSize(mount.sizeBytes - mount.availableBytes) }} / {{ formatSize(mount.sizeBytes) }} ·
+                {{ usedPercent(mount) }}%
+              </span>
+            </figcaption>
+          </figure>
+        </div>
+
+        <table :class="TABLE.page.table" :aria-label="t('workbench.system.sections.disks')">
+          <thead :class="TABLE.page.head">
+            <tr :class="TABLE.page.headRow">
+              <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.name") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-24 text-right')">{{ t("workbench.system.disks.size") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.disks.kind") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-24 text-left')">{{ t("workbench.system.disks.filesystem") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.mount") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.disks.model") }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in diskRows" :key="row.device.name" :class="rowClass('page')">
+              <td :class="cn(TABLE.page.cell, 'font-mono text-[11px]')">
+                <span :style="{ paddingLeft: `${row.depth * 14}px` }">{{ row.device.name }}</span>
+              </td>
+              <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px]')">{{ row.device.size }}</td>
+              <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ row.device.kind }}</td>
+              <td :class="cn(TABLE.page.cell, 'font-mono text-[11px] text-muted-foreground')">
+                {{ row.device.filesystem ?? "-" }}
+              </td>
+              <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')" :title="row.device.mount ?? ''">
+                {{ row.device.mount ?? "-" }}
+              </td>
+              <td :class="cn(TABLE.page.cell, 'truncate text-muted-foreground')" :title="row.device.model ?? ''">
+                {{ row.device.model ?? "-" }}
+              </td>
+            </tr>
+            <tr v-if="diskRows.length === 0">
+              <td :colspan="6" :class="TABLE.page.emptyCell">{{ t("workbench.system.disks.empty") }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <!-- Accounts: who can log in, and who is logged in now. -->
       <table
@@ -500,7 +623,91 @@ watch(
             <span v-for="server in overview?.dns ?? []" :key="server" class="mr-3">{{ server }}</span>
           </p>
         </div>
+
+        <div>
+          <h3 class="mb-1 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.system.network.firewall") }}
+          </h3>
+          <p class="text-[11px]">
+            <template v-if="overview?.firewall?.installed">
+              <span class="font-mono">{{ overview.firewall.backend }}</span>
+              <span class="ml-2" :class="overview.firewall.active ? 'text-emerald-500' : 'text-muted-foreground'">
+                {{
+                  overview.firewall.active
+                    ? t("workbench.system.network.firewallOn")
+                    : t("workbench.system.network.firewallOff")
+                }}
+              </span>
+              <span class="ml-2 font-mono text-muted-foreground">{{ overview.firewall.detail }}</span>
+            </template>
+            <span v-else class="text-muted-foreground">{{ t("workbench.system.network.firewallMissing") }}</span>
+          </p>
+        </div>
       </div>
+
+      <!-- Cron: the jobs this account has scheduled, exactly as the host stores them. -->
+      <div v-else-if="section === 'crontab'" class="flex h-full flex-col gap-2">
+        <p class="text-[11px] text-muted-foreground">{{ t("workbench.system.crontab.hint") }}</p>
+        <div class="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-background/40 p-2">
+          <p
+            v-for="(job, index) in overview?.crontab ?? []"
+            :key="`${index}-${job}`"
+            class="whitespace-pre font-mono text-[11px] leading-relaxed"
+          >
+            {{ job }}
+          </p>
+          <p v-if="(overview?.crontab.length ?? 0) === 0" class="text-xs text-muted-foreground">
+            {{ t("workbench.system.crontab.empty") }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Logins: who has been on this machine lately, and who is on it now. -->
+      <table
+        v-else-if="section === 'logins'"
+        :class="TABLE.page.table"
+        :aria-label="t('workbench.system.sections.logins')"
+      >
+        <thead :class="TABLE.page.head">
+          <tr :class="TABLE.page.headRow">
+            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.logins.user") }}</th>
+            <th :class="cn(TABLE.page.headCell, 'w-32 text-left')">{{ t("workbench.system.logins.tty") }}</th>
+            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.logins.from") }}</th>
+            <th :class="cn(TABLE.page.headCell, 'w-44 text-left')">{{ t("workbench.system.logins.start") }}</th>
+            <th :class="cn(TABLE.page.headCell, 'w-40 text-left')">{{ t("workbench.system.logins.status") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(login, index) in overview?.logins ?? []"
+            :key="`${login.user}-${login.start}-${index}`"
+            :class="rowClass('page')"
+          >
+            <td :class="cn(TABLE.page.cell, 'font-mono text-[11px]')">{{ login.user }}</td>
+            <td :class="cn(TABLE.page.cell, 'font-mono text-[11px] text-muted-foreground')">{{ login.tty }}</td>
+            <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')" :title="login.from">
+              {{ login.from === "" ? "-" : login.from }}
+            </td>
+            <td :class="cn(TABLE.page.cell, 'whitespace-nowrap font-mono text-[11px] text-muted-foreground')">
+              {{ login.start }}
+            </td>
+            <td
+              :class="
+                cn(
+                  TABLE.page.cell,
+                  'whitespace-nowrap text-[11px]',
+                  login.stillLoggedIn ? 'text-emerald-500' : 'text-muted-foreground',
+                )
+              "
+            >
+              {{ login.duration }}
+            </td>
+          </tr>
+          <tr v-if="(overview?.logins.length ?? 0) === 0">
+            <td :colspan="5" :class="TABLE.page.emptyCell">{{ t("workbench.system.logins.empty") }}</td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- Journal: the tail the host keeps, growable by one ask at a time. -->
       <div v-else class="flex h-full flex-col">

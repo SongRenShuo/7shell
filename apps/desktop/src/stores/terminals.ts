@@ -166,6 +166,16 @@ export interface TerminalTab {
   failure: ShellError | null;
   /** The file panel below this terminal, or null when it is not shown. */
   panel: TerminalPanel | null;
+  /**
+   * Whether this terminal lives in a window on the desktop rather than in the tab strip.
+   *
+   * A workbench session's front page is a desktop, and the reference desktop opens its apps as
+   * floating windows — so a terminal asked for there is drawn inside one. It is still an ordinary
+   * tab underneath (the same open order, the same handle, the same close), which is why this is a
+   * flag rather than a second kind: the strip leaves it out, the desktop draws it, and closing the
+   * window closes the tab.
+   */
+  readonly windowed?: boolean;
 }
 
 /** A file browser, drawn as a tab. The session names it; the handle says which browser it is. */
@@ -526,17 +536,19 @@ export const useTerminalsStore = defineStore("terminals", () => {
    * host-key decisions, mounted as the thing the button said. A terminal a person asked for from
    * the workbench is the one tab this session opens without the fork's opinion.
    */
-  async function openTerminalTab(session: Session): Promise<void> {
+  async function openTerminalTab(session: Session, options: { windowed?: boolean } = {}): Promise<string | null> {
     if (connectingSessionIds.value.includes(session.id)) {
-      return;
+      return null;
     }
     recents.record(session.id);
     connectingSessionIds.value.push(session.id);
     try {
-      acceptTerminal(session, await backend.terminal.open(session.id));
+      const id = acceptTerminal(session, await backend.terminal.open(session.id), options);
       forgetFailure(session.id);
+      return id;
     } catch (error) {
       recordFailure(session, asShellError(error, "session_open"));
+      return null;
     } finally {
       connectingSessionIds.value = connectingSessionIds.value.filter((id) => id !== session.id);
     }
@@ -921,29 +933,32 @@ export const useTerminalsStore = defineStore("terminals", () => {
     }
   }
 
-  function acceptTerminal(session: Session, outcome: OpenOutcome): void {
+  function acceptTerminal(session: Session, outcome: OpenOutcome, options: { windowed?: boolean } = {}): string | null {
     if (outcome.kind === "opened") {
       rememberTunnels(outcome.tunnels);
       rememberTunnelFailures(outcome.tunnelFailures);
       // A terminal that died before its tab existed is shown as ended, with the reason it gave.
       const ended = endedTerminal(outcome.handle);
+      const id = crypto.randomUUID();
       addTab({
         kind: "terminal",
-        id: crypto.randomUUID(),
+        id,
         session,
         handle: outcome.handle,
         status: ended ? "ended" : "open",
         reason: ended?.reason,
         failure: null,
         panel: null,
+        windowed: options.windowed,
       });
       // Asked once the terminal is up rather than as part of opening it: which mark a row draws is
       // not worth a moment of the connection somebody is waiting for.
       void describeHost(session, outcome.handle);
-      return;
+      return id;
     }
 
     raiseDecision(session, { to: "terminal" }, outcome);
+    return null;
   }
 
   function acceptFiles(session: Session, outcome: SftpOutcome, initialPath?: string): void {
@@ -1227,7 +1242,12 @@ export const useTerminalsStore = defineStore("terminals", () => {
   function addTab(tab: WorkspaceTab): void {
     tabs.value.push(tab);
     openedOrder.value.push(tab.id);
-    activeTabId.value = tab.id;
+    // A windowed terminal is drawn on the desktop rather than in the strip, so it must not take
+    // the application's active tab with it: the desktop stays the tab on screen, and the window
+    // in front is the desktop's own idea of focus.
+    if (!("windowed" in tab && tab.windowed)) {
+      activeTabId.value = tab.id;
+    }
   }
 
   function addTerminal(

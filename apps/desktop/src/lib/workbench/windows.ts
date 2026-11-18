@@ -117,12 +117,19 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 /** The room between the two bars. A surface too small to hold both collapses to nothing. */
+/**
+ * The room a window may use: the bounds themselves.
+ *
+ * `bounds` is the work area the caller draws windows in, not the whole window of the application —
+ * the desktop shell measures the region between its status bar and its taskbar and hands that in.
+ * The reference's two chrome heights are exported above because they are the shape of that region,
+ * but subtracting them here would subtract them twice: once by the shell that measured, and once
+ * again by this arithmetic.
+ */
 function workAreaOf(bounds: WorkbenchBounds): WorkArea {
   const width = Math.max(0, finite(bounds.width, 0));
   const height = Math.max(0, finite(bounds.height, 0));
-  const top = Math.min(STATUS_BAR_HEIGHT, height);
-  const bottom = Math.max(top, height - TASKBAR_HEIGHT);
-  return { left: 0, top, right: width, bottom, width, height: bottom - top };
+  return { left: 0, top: 0, right: width, bottom: height, width, height };
 }
 
 /** A copy deep enough that a caller holding the old list cannot be surprised by a shared record. */

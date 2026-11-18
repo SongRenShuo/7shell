@@ -33,7 +33,7 @@ import WorkspaceTabs from "@/components/workspace/WorkspaceTabs.vue";
 import { i18n } from "@/i18n";
 import { filesOpen, sessionOpen } from "@/lib/backend/tauri";
 import { usePreferencesStore } from "@/stores/preferences";
-import { type TerminalPanel, type WorkbenchTab, useTerminalsStore } from "@/stores/terminals";
+import { type TerminalPanel, type TerminalTab, type WorkbenchTab, useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
 const session: Session = {
@@ -419,6 +419,37 @@ describe("the workbench in the workspace", () => {
     // The workbench is a desktop now: the icon grid and the taskbar are its face, not a page of cards.
     expect(host.querySelector("[data-workbench-desktop]"), "the workbench's own face").not.toBeNull();
     expect(host.querySelector("[data-workbench-taskbar]"), "the session's bar of tabs").not.toBeNull();
+  });
+
+  it("leaves a terminal a desktop opened in one of its windows out of the strip", async () => {
+    const terminals = useTerminalsStore();
+    const workbench: WorkbenchTab = {
+      kind: "workbench",
+      id: "tab-workbench",
+      session: desk,
+      handle: "w1",
+      failure: null,
+    };
+    const windowed: TerminalTab = {
+      kind: "terminal",
+      id: "tab-window",
+      session: desk,
+      handle: "t1",
+      status: "open",
+      failure: null,
+      panel: null,
+      windowed: true,
+    };
+    terminals.tabs = [workbench, windowed];
+    terminals.openedOrder = [workbench.id, windowed.id];
+    terminals.activeTabId = workbench.id;
+
+    app = createApp({ render: () => h(WorkspaceTabs) }).use(i18n);
+    app.mount(host);
+    await nextTick();
+
+    expect(host.querySelector('[data-tab="tab-window"]'), "the desktop draws it, not the strip").toBeNull();
+    expect(host.querySelector('[data-tab="tab-workbench"]'), "the desktop itself keeps its tab").not.toBeNull();
   });
 
   it("says why a workbench without a connection is standing there, and offers the way back", async () => {
