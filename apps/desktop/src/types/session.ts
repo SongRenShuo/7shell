@@ -89,6 +89,13 @@ export interface LocalForward {
   readonly targetPort: number;
 }
 
+/**
+ * What opening a forward at runtime asks for: the same shape as the saved one, without the id the
+ * vault would give it. The open answer is the runtime entry, which carries the id and the port that
+ * was actually bound.
+ */
+export type ForwardRequest = Omit<LocalForward, "id">;
+
 /** A saved way to reach a machine. */
 export interface Session {
   readonly id: string;
