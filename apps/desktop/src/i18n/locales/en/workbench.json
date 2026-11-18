@@ -31,11 +31,57 @@
         "trash": "Trash",
         "system": "System panel",
         "docker": "Docker",
-        "transfers": "Transfers"
+        "transfers": "Transfers",
+        "forwards": "Forwards",
+        "tail": "Logs",
+        "batch": "Batch"
       },
       "apps": {
         "dockerHint": "The containers and images of this machine, in a window of their own.",
-        "transfersHint": "The files that are moving, wherever they were started."
+        "transfersHint": "The files that are moving, wherever they were started.",
+        "forwardsHint": "What this machine is forwarding, and a place to add another.",
+        "tailHint": "Follow a log on the machine, line by line, while it is written.",
+        "batchHint": "One command, run on every host you pick."
+      },
+      "tail": {
+        "pathLabel": "File to follow",
+        "pathPlaceholder": "/var/log/syslog",
+        "pathInvalid": "Enter an absolute path on the machine, without control characters.",
+        "sizeLabel": "Read first",
+        "follow": "Follow",
+        "pause": "Pause",
+        "stop": "Stop",
+        "connecting": "Opening the stream…",
+        "ended": "The stream ended.",
+        "waiting": "Waiting for the first line…",
+        "pausedNotice": "Paused. What is written to the file while paused is missed; following again reads the file's own tail from the top.",
+        "count": "{count} lines",
+        "hint": {
+          "syslog": "Following the system log? Use /var/log/syslog — the file is written the moment anything happens, and the window keeps up.",
+          "nginx": "Watching what reaches a web service? Use /var/log/nginx/access.log — every request arrives here as it is served.",
+          "missed": "A pause stops the stream where it stands: lines written while paused are missed until you follow again."
+        }
+      },
+      "forwards": {
+        "listTitle": "Forwards that are up",
+        "refresh": "Refresh",
+        "empty": "Nothing is being forwarded right now.",
+        "stop": "Stop forward",
+        "stopTitle": "Stop forward",
+        "stopMessage": "The forward on {bind} stops listening. Connections already carried are not broken, but nothing new gets through.",
+        "notHosted": "Forwards ride a session with a connection — SSH, or the desktop session. This window cannot be hosted here.",
+        "modeLabel": "Kind",
+        "modeLocal": "Local",
+        "modeDynamic": "Dynamic (SOCKS5)",
+        "bindHost": "Listen on",
+        "bindPort": "Port",
+        "targetHost": "Destination host",
+        "targetPort": "Destination port",
+        "add": "Add forward",
+        "hint": {
+          "local": "A local forward maps a service inside the machine onto a port here: listen on 127.0.0.1, destination 127.0.0.1:25433, and that port here is the machine's database.",
+          "dynamic": "A dynamic forward turns the machine into a SOCKS5 door: listen on 127.0.0.1, choose port 1080, and anything pointed at it goes out from the machine."
+        }
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
       "menu": {

@@ -13,9 +13,9 @@
 
 use std::sync::{Arc, MutexGuard};
 
-use sevenshell_error::scrub_bounded;
+use sevenshell_error::{ShellError, scrub_bounded};
 use sevenshell_policy::{PolicyDecision, PolicyJournal, PolicyTarget, decide};
-use sevenshell_types::{PolicyMatrix, RiskAssessment};
+use sevenshell_types::{PolicyAction, PolicyMatrix, RiskAssessment};
 
 use crate::Core;
 
@@ -115,6 +115,34 @@ impl Core {
         // A panic while replacing the matrix must not turn every later decision into a crash: what
         // the poisoned snapshot holds is still a complete matrix and trail.
         self.policy.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Gates one action whose call carries no acknowledgement of its own.
+    ///
+    /// A verdict that asks is a refusal naming the rule that fired — the interface shows it and a
+    /// person loosens it by editing the matrix, not by clicking through. This is the tail's and the
+    /// runtime forwards' gate; the container gate is the same shape with an `acknowledged` flag
+    /// because the container surface has a confirmation dialog to answer with.
+    pub(crate) fn unattended_gate(
+        &self,
+        operation: &str,
+        verdict: &RiskAssessment,
+        target: PolicyTarget<'_>,
+        session_id: Option<&str>,
+        subject: Option<&str>,
+    ) -> Result<(), ShellError> {
+        let decision = self.policy_decision(operation, verdict, target, session_id, subject);
+        match decision.action {
+            PolicyAction::Deny => Err(ShellError::policy_denied(operation)),
+            PolicyAction::Ask => {
+                let rule = verdict
+                    .reasons
+                    .first()
+                    .map_or(operation, |reason| reason.rule_id.as_str());
+                Err(ShellError::policy_approval_required(rule))
+            }
+            PolicyAction::Allow => Ok(()),
+        }
     }
 }
 

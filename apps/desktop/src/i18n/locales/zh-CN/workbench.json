@@ -31,11 +31,57 @@
         "trash": "回收站",
         "system": "系统面板",
         "docker": "Docker",
-        "transfers": "传输"
+        "transfers": "传输",
+        "forwards": "转发",
+        "tail": "日志",
+        "batch": "批量"
       },
       "apps": {
         "dockerHint": "这台机器的容器与镜像，在一个独立的窗口里。",
-        "transfersHint": "正在传输的文件，无论它们从哪里开始。"
+        "transfersHint": "正在传输的文件，无论它们从哪里开始。",
+        "forwardsHint": "这台机器正在转发的端口，以及添加新转发的地方。",
+        "tailHint": "跟着看机器上的一个日志文件，一行一行，随写随到。",
+        "batchHint": "一条命令，在你选中的每台机器上执行。"
+      },
+      "tail": {
+        "pathLabel": "要跟踪的文件",
+        "pathPlaceholder": "/var/log/syslog",
+        "pathInvalid": "请输入机器上的绝对路径，且不含控制字符。",
+        "sizeLabel": "先读取",
+        "follow": "跟踪",
+        "pause": "暂停",
+        "stop": "停止",
+        "connecting": "正在打开数据流…",
+        "ended": "数据流已结束。",
+        "waiting": "等待第一行…",
+        "pausedNotice": "已暂停。暂停期间写入文件的内容会错过；重新跟踪会从头读取文件现有的末尾内容。",
+        "count": "{count} 行",
+        "hint": {
+          "syslog": "要看系统日志？用 /var/log/syslog —— 一有动静就会写入，窗口会一直跟上。",
+          "nginx": "要看 Web 服务收到什么请求？用 /var/log/nginx/access.log —— 每个请求被处理时都会出现在这里。",
+          "missed": "暂停会把数据流停在原地：暂停期间写入的行会错过，重新跟踪才能再读到。"
+        }
+      },
+      "forwards": {
+        "listTitle": "已建立的转发",
+        "refresh": "刷新",
+        "empty": "当前没有正在进行的转发。",
+        "stop": "停止转发",
+        "stopTitle": "停止转发",
+        "stopMessage": "{bind} 上的转发将不再监听。已建立的连接不受影响，但新的连接进不来。",
+        "notHosted": "转发依附于有连接的会话——SSH 或桌面会话。这个窗口不能在这里承载。",
+        "modeLabel": "类型",
+        "modeLocal": "本地转发",
+        "modeDynamic": "动态转发（SOCKS5）",
+        "bindHost": "监听地址",
+        "bindPort": "监听端口",
+        "targetHost": "目标主机",
+        "targetPort": "目标端口",
+        "add": "添加转发",
+        "hint": {
+          "local": "本地转发：把服务器里的服务映射到本地，例如监听 127.0.0.1，目标 127.0.0.1:25433，本地的这个端口就是那台机器的数据库。",
+          "dynamic": "动态转发：把服务器变成一个 SOCKS5 入口，例如监听 127.0.0.1 端口 1080，指向它的流量都从那台机器出去。"
+        }
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
       "menu": {
