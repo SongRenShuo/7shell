@@ -40,6 +40,39 @@ impl FilesLayout {
     }
 }
 
+/// Where a delete in the file browser lands.
+///
+/// The default is the trash, and that default is the point: a delete that can be undone is the
+/// safer shape for a button that sits next to "rename", and the direct delete this build did
+/// before the choice existed is one explicit switch away for the person who does not want a
+/// rename to cost them a visit to the trash.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilesDeleteMode {
+    /// A delete renames the entry into the remote machine's freedesktop trash, from where the
+    /// trash browser can put it back. Only an SFTP browser offers this; the others delete the way
+    /// they always have.
+    #[default]
+    Trash,
+    /// A delete removes the entry where it stands, as this build always did.
+    Direct,
+}
+
+impl FilesDeleteMode {
+    pub const ALL: &'static [FilesDeleteMode] = &[FilesDeleteMode::Trash, FilesDeleteMode::Direct];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trash => "trash",
+            Self::Direct => "direct",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|mode| mode.as_str() == id)
+    }
+}
+
 /// How a session opens: a terminal on its own, or a terminal with its file panel under it.
 ///
 /// The two are one tab either way — the panel draws the same file browser a file tab would, so
@@ -1395,6 +1428,13 @@ pub struct AppSettings {
     /// How the file browser is laid out.
     #[serde(default)]
     pub files_layout: FilesLayout,
+    /// Where a delete in the file browser lands: the trash, or the entry gone where it stood.
+    ///
+    /// Absent in a file written before there was a trash, which reads as the trash — the default
+    /// this build ships with, and the safer of the two. Per-protocol settings stay on the session;
+    /// this one is a habit of the person, which is what this file holds.
+    #[serde(default)]
+    pub files_delete_mode: FilesDeleteMode,
     /// How a session opens: the terminal on its own, or the terminal with its file panel under it.
     #[serde(default)]
     pub session_layout: SessionLayout,
@@ -1849,6 +1889,7 @@ impl Default for AppSettings {
             theme_palette: ThemePalette::default(),
             terminal_theme: ThemeMode::default(),
             files_layout: FilesLayout::default(),
+            files_delete_mode: FilesDeleteMode::default(),
             session_layout: SessionLayout::default(),
             session_reopen: SessionReopen::default(),
             terminal_panel_height: None,

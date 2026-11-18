@@ -900,6 +900,21 @@ export const SETTINGS_ROWS: readonly SettingsRowDefinition[] = [
     },
   },
   {
+    id: "files-delete-mode",
+    category: "files",
+    field: "filesDeleteMode",
+    titleKey: "settings.rows.filesDeleteMode.title",
+    summaryKey: "settings.rows.filesDeleteMode.summary",
+    helpKey: "settings.rows.filesDeleteMode.help",
+    control: {
+      kind: "select",
+      options: [
+        { value: "trash", labelKey: "settings.files.deleteMode.trash" },
+        { value: "direct", labelKey: "settings.files.deleteMode.direct" },
+      ],
+    },
+  },
+  {
     id: "packed-transfer",
     category: "files",
     field: "packedTransfer",
