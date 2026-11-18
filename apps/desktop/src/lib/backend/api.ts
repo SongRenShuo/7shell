@@ -982,8 +982,8 @@ export const backend = {
 
   /** Forwards a desktop opens at runtime, on the connection it already holds. */
   forwards: {
-    open: (sessionId: string, request: ForwardRequest): Promise<OpenTunnel> =>
-      forward("tunnel_runtime_open", () => desktop.tunnelRuntimeOpen(sessionId, request)),
+    open: (sessionId: string, request: ForwardRequest, acknowledged = false): Promise<OpenTunnel> =>
+      forward("tunnel_runtime_open", () => desktop.tunnelRuntimeOpen(sessionId, request, acknowledged)),
     stop: (tunnelId: string): Promise<void> =>
       forward("tunnel_runtime_stop", () => desktop.tunnelRuntimeStop(tunnelId)),
   },

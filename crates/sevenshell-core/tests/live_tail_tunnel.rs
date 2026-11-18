@@ -207,7 +207,7 @@ async fn a_followed_log_streams_lines_and_a_runtime_forward_answers_a_connect() 
 
     let open = lab
         .core
-        .tunnel_open(&lab.session_id, request)
+        .tunnel_open(&lab.session_id, request, false)
         .await
         .expect("the runtime forward opens");
     assert!(open.id.starts_with("runtime-"), "the registry named it: {}", open.id);
