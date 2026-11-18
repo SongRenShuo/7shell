@@ -535,6 +535,16 @@ fn disks(lines: &[&str]) -> Vec<DiskUsage> {
     out
 }
 
+/// The mounts a whole `df -kP` answer lists, for callers that hold the text rather than its lines.
+///
+/// [`disks`] is the parser and this is the second door onto it: the sample gets its section
+/// pre-split by [`groups`], and the system panel reads its sections as one string. Two doors, one
+/// reading of the numbers — a second parser is how the two pages come to disagree about a mount.
+pub(crate) fn mounts_from_df(output: &str) -> Vec<DiskUsage> {
+    let lines: Vec<&str> = output.lines().collect();
+    disks(&lines)
+}
+
 /// The processes `ps` listed, ordered by what was asked for and cut to fit.
 ///
 /// The processes `ps` listed, capped to what was asked for.

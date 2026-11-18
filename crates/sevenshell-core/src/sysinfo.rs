@@ -17,24 +17,26 @@
 //! 2. **The commands are read-only.** No redirection that writes, nothing that starts, stops or
 //!    changes a unit. The panel can be left open on a production host without the panel being the
 //!    reason anything happened.
-//! 3. **One round trip for the overview.** Five cheap commands over one connection cost far less
-//!    than five waits, and the panel that opens with five spinning rows reads as broken before it
-//!    reads as thorough. The markers that split the output are the parse, exactly as in
-//!    [`crate::monitor`].
+//! 3. **One round trip for the overview.** Seventeen cheap commands over one connection cost far
+//!    less than seventeen waits, and the panel that opens with seventeen spinning rows reads as
+//!    broken before it reads as thorough. The markers that split the output are the parse, exactly
+//!    as in [`crate::monitor`].
 //!
 //! A section that could not be read is an empty list rather than a failed overview: a container
 //! without systemd has no services, and that is a fact about the container, not a reason to show
 //! nothing else the host can say.
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, PolicyAction, Protocol,
-    RouteEntry, ServiceEntry, SystemOverview,
+    AccountEntry, DiskDevice, FirewallStatus, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, LoginRecord,
+    PolicyAction, Protocol, RouteEntry, ServiceEntry, SystemOverview,
 };
 
 use crate::Core;
-use crate::monitor::{SAMPLE_TIMEOUT, first, groups, os_release_value};
+use crate::monitor::{SAMPLE_TIMEOUT, first, groups, mounts_from_df, os_release_value};
 
 /// The service list: every unit, running or not.
 ///
@@ -43,6 +45,42 @@ use crate::monitor::{SAMPLE_TIMEOUT, first, groups, os_release_value};
 /// listed" footer so the parser does not have to know either wording, and `--plain` keeps the
 /// bullet and tree glyphs out of a table that is about to be read as columns.
 pub(crate) const SERVICE_COMMAND: &str = "systemctl list-units --type=service --all --no-pager --no-legend --plain";
+
+/// Which of those units start at boot, and in the host's own vocabulary.
+///
+/// A unit *file* list, which is why it is a second read rather than a column of the first: a
+/// transient unit has no file and no boot state, and merging by name is what leaves that absence a
+/// `None` instead of inventing `disabled` for it. Two columns are printed after the name — the
+/// state and the vendor preset — and only the state is the answer: `masked enabled` means "masked
+/// now, would have been enabled by the preset", and reading the preset as the state would claim a
+/// masked unit starts at boot.
+pub(crate) const UNIT_FILES_COMMAND: &str = "systemctl list-unit-files --type=service --no-pager --no-legend --plain";
+
+/// The account's crontab, as written.
+///
+/// `|| true` because an empty crontab exits non-zero on many hosts — `no crontab for root` is an
+/// answer ("nothing scheduled"), not a failure, and a read that treated it as one would turn every
+/// machine with no jobs into a machine whose cron could not be read.
+pub(crate) const CRONTAB_COMMAND: &str = "crontab -l 2>/dev/null || true";
+
+/// The login table: the last twenty sessions, wide enough that a long address is not truncated.
+///
+/// `-w` is the column width; without it `last` cuts the host column to fit an eighty-column
+/// terminal, and a cut address or a cut kernel release is a fact the page can no longer show.
+pub(crate) const LOGIN_COMMAND: &str = "last -n 20 -w";
+
+/// The firewall's own status line, for the host that runs ufw.
+pub(crate) const UFW_COMMAND: &str = "ufw status";
+
+/// The firewall's own state, for the host that runs firewalld.
+pub(crate) const FIREWALLD_COMMAND: &str = "firewall-cmd --state";
+
+/// The mounted file systems with their usage, byte-for-byte the command the monitor samples.
+///
+/// The same tool and the same flags on purpose: the panel's usage rings must agree with the
+/// monitor's disk list, and two copies of a `df` invocation is how one of them comes to count
+/// blocks differently.
+pub(crate) const MOUNT_COMMAND: &str = "df -kP";
 
 /// The block devices, as JSON.
 ///
@@ -107,8 +145,20 @@ fn overview_command() -> String {
         "\
 echo '@@services'
 {SERVICE_COMMAND} 2>/dev/null
+echo '@@unit-files'
+{UNIT_FILES_COMMAND} 2>/dev/null
+echo '@@crontab'
+{CRONTAB_COMMAND}
+echo '@@logins'
+{LOGIN_COMMAND} 2>/dev/null
+echo '@@ufw'
+{UFW_COMMAND} 2>/dev/null
+echo '@@firewalld'
+{FIREWALLD_COMMAND} 2>/dev/null
 echo '@@disks'
 {DISK_COMMAND} 2>/dev/null
+echo '@@mounts'
+{MOUNT_COMMAND} 2>/dev/null
 echo '@@accounts'
 {ACCOUNT_COMMAND} 2>/dev/null
 echo '@@who'
@@ -272,13 +322,23 @@ pub(crate) fn parse_overview(stdout: &str) -> SystemOverview {
 
     let groups = groups(stdout);
     let section = |name: &str| groups.get(name).map(|lines| lines.join("\n")).unwrap_or_default();
+    // Option-typed where "the marker never arrived" must stay distinguishable from "it arrived and
+    // said nothing": the firewall is the one read whose answer is a shape rather than a list.
+    let optional = |name: &str| groups.get(name).map(|lines| lines.join("\n"));
 
-    overview.services = parse_services(&section("services"));
+    let mut services = parse_services(&section("services"));
+    attach_enabled(&mut services, &parse_unit_files(&section("unit-files")));
+
+    overview.services = services;
     overview.disks = parse_lsblk(&section("disks"));
     overview.accounts = parse_accounts(&section("accounts"), &section("who"));
     overview.interfaces = parse_interfaces(&section("interfaces"));
     overview.routes = parse_routes(&section("routes"));
     overview.dns = parse_resolv(&section("resolver"));
+    overview.crontab = parse_crontab(&section("crontab"));
+    overview.logins = parse_logins(&section("logins"));
+    overview.firewall = parse_firewall(optional("ufw").as_deref(), optional("firewalld").as_deref());
+    overview.mounts = mounts_from_df(&section("mounts"));
     overview
 }
 
@@ -310,6 +370,10 @@ pub(crate) fn parse_overview_sections(stdout: &str) -> SystemOverview {
         interfaces: Vec::new(),
         routes: Vec::new(),
         dns: Vec::new(),
+        crontab: Vec::new(),
+        logins: Vec::new(),
+        firewall: None,
+        mounts: Vec::new(),
         distribution,
         kernel,
         uptime_seconds,
@@ -368,10 +432,223 @@ pub(crate) fn parse_services(text: &str) -> Vec<ServiceEntry> {
             active: active.to_owned(),
             sub: sub.to_owned(),
             description: fields.collect::<Vec<_>>().join(" "),
+            // Filled by [`attach_enabled`] from the unit-file list; a unit that list does not name
+            // keeps this `None`, which is the honest answer for a transient unit.
+            enabled: None,
         });
     }
 
     out
+}
+
+/// The boot state of each unit file `systemctl list-unit-files` listed, as `(name, state)` pairs.
+///
+/// The second column is the state and the third is the vendor preset, and they are different
+/// questions: `masked   enabled` is a unit that the preset would enable and an administrator
+/// masked. The name never contains a space, so splitting on whitespace is safe in this direction —
+/// and the preset is simply never read.
+///
+/// The header a systemctl that ignored `--no-legend` prints anyway, and the `N unit files listed.`
+/// footer, are skipped by shape: a unit name is not the word `UNIT` and does not begin with a
+/// count.
+pub(crate) fn parse_unit_files(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut fields = line.split_whitespace();
+        let Some(name) = fields.next() else {
+            continue;
+        };
+        if name == "UNIT" || name.parse::<u64>().is_ok() {
+            continue;
+        }
+        let Some(state) = fields.next() else {
+            continue;
+        };
+
+        out.push((name.to_owned(), state.to_owned()));
+    }
+
+    out
+}
+
+/// Sets each service's boot state from the unit-file list, by unit name.
+///
+/// A unit the file list does not mention keeps `None`. That is not a hole to fill with `disabled`:
+/// a transient or generated unit has no unit file at all, and claiming it is disabled at boot would
+/// be this side inventing a state systemd never printed.
+pub(crate) fn attach_enabled(services: &mut [ServiceEntry], states: &[(String, String)]) {
+    let states: HashMap<&str, &str> = states
+        .iter()
+        .map(|(name, state)| (name.as_str(), state.as_str()))
+        .collect();
+
+    for service in services.iter_mut() {
+        service.enabled = states.get(service.name.as_str()).map(|state| (*state).to_owned());
+    }
+}
+
+/// The crontab's job lines: comments and blank lines gone, everything else as written.
+///
+/// The schedule text is the data, so a line is only trimmed — `*/5 * * * * /usr/local/bin/job`
+/// keeps its spacing inside the line. Comments are dropped because they are addressed to whoever
+/// edits the file, not to the person reading a panel, and an empty line in a crontab means nothing.
+///
+/// An assignment such as `MAILTO=""` is kept: it is part of what the crontab says, and a page that
+/// silently filtered it would leave the reader wondering why a job mails nobody.
+pub(crate) fn parse_crontab(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The sessions `last -n 20 -w` listed, in the order it printed them.
+///
+/// Each line is `user tty from when status`, but the columns are padded, the date itself contains
+/// spaces and either column may be a phrase (`system boot`, `still logged in`), so the line is
+/// split into words first and read with what the words mean rather than by their column offsets.
+/// That is also how a console login is read: its `from` column is blank, and the date starts where
+/// the address would have been.
+pub(crate) fn parse_logins(text: &str) -> Vec<LoginRecord> {
+    text.lines().filter_map(login_record).collect()
+}
+
+/// One row of the login table, or `None` for a line that is not one.
+fn login_record(line: &str) -> Option<LoginRecord> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    let user = *tokens.first()?;
+
+    // `last` closes the table with where its records begin (`wtmp begins Thu Nov 12 …`), and a
+    // read of the failed-login table closes with `btmp`. A line that is not a record is not a row.
+    if matches!(user, "wtmp" | "btmp") {
+        return None;
+    }
+
+    // A boot record spells its terminal as two words and puts the kernel where the address would
+    // be: `reboot   system boot  5.15.0-203-generic Wed Nov 18 03:18   still running`. It is kept
+    // as a record rather than dropped, because "when did this machine last restart" is one of the
+    // questions this table is read for.
+    let (tty, mut at) = if tokens.get(1) == Some(&"system") && tokens.get(2) == Some(&"boot") {
+        ("system boot".to_owned(), 3)
+    } else {
+        ((*tokens.get(1)?).to_owned(), 2)
+    };
+
+    // A local console login leaves the host column empty, so the first word after the terminal is
+    // the weekday of the date. Anything else there is where the login came from.
+    let from = match tokens.get(at) {
+        Some(token) if is_weekday(token) => String::new(),
+        Some(token) => {
+            at += 1;
+            (*token).to_owned()
+        }
+        None => return None,
+    };
+
+    let (start, duration, still_logged_in) = login_tail(tokens.get(at..)?)?;
+
+    Some(LoginRecord {
+        user: user.to_owned(),
+        tty,
+        from,
+        start,
+        duration,
+        still_logged_in,
+    })
+}
+
+/// The date and the trailing status column of a login row, split apart.
+///
+/// The tail is one of four shapes, and none of them is normalised: a session still up says so in
+/// words (`still logged in`, or `still running` for the boot record); a session that ended carries
+/// ` - ` followed by the end time and a parenthesised duration, and the end time itself is `down`
+/// when the machine went down under it. Dropping the separator is the only edit, because it is the
+/// table's punctuation rather than part of either value.
+fn login_tail(tokens: &[&str]) -> Option<(String, String, bool)> {
+    let ends_with = |suffix: &[&str]| tokens.len() >= suffix.len() && tokens[tokens.len() - suffix.len()..] == *suffix;
+
+    for still in [&["still", "logged", "in"][..], &["still", "running"][..]] {
+        if ends_with(still) {
+            let start = tokens[..tokens.len() - still.len()].join(" ");
+            return (!start.is_empty()).then(|| (start, still.join(" "), true));
+        }
+    }
+
+    let separator = tokens.iter().position(|token| *token == "-")?;
+    let start = tokens[..separator].join(" ");
+    let duration = tokens[separator + 1..].join(" ");
+    (!start.is_empty() && !duration.is_empty()).then_some((start, duration, false))
+}
+
+/// Whether a word is one of the weekday names `last` starts a date with.
+///
+/// The check exists for the blank host column, not for the date's sake: a console login's date
+/// begins one column early, and a word that names a weekday is how that shows.
+fn is_weekday(token: &str) -> bool {
+    matches!(token, "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun")
+}
+
+/// The firewall, from whichever of the two tools answered.
+///
+/// ufw is asked first and wins when both answer: it is the simpler question (`Status: active` is
+/// the whole state), and a host that runs both is a host where one of them is the one the
+/// administrator thinks in. firewalld's `running`/`not running` is the same fact in its own words.
+///
+/// `None` means the read never asked — the marker line never arrived. A marker that arrived with
+/// nothing under it means the tool did not answer, and that is the `installed: false` row, which is
+/// a real answer the page draws as "not installed". A binary that is missing prints on stderr,
+/// which the command already sent to `/dev/null`, so its absence is an empty section rather than a
+/// failure — and so is ufw's `ERROR: You need to be root to run this script`, which is the same
+/// empty section for the same reason: this side asked and no tool would say.
+pub(crate) fn parse_firewall(ufw: Option<&str>, firewalld: Option<&str>) -> Option<FirewallStatus> {
+    if let Some(status) = ufw.and_then(firewall_from_ufw) {
+        return Some(status);
+    }
+    if let Some(status) = firewalld.and_then(firewall_from_firewalld) {
+        return Some(status);
+    }
+
+    (ufw.is_some() || firewalld.is_some()).then_some(FirewallStatus {
+        backend: String::new(),
+        installed: false,
+        active: false,
+        detail: String::new(),
+    })
+}
+
+/// ufw's answer: the `Status:` line, and whatever rules table follows it is not the state.
+fn firewall_from_ufw(text: &str) -> Option<FirewallStatus> {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| line.to_ascii_lowercase().starts_with("status:"))?;
+    let (_, state) = line.split_once(':')?;
+
+    Some(FirewallStatus {
+        backend: "ufw".to_owned(),
+        installed: true,
+        active: state.trim().eq_ignore_ascii_case("active"),
+        detail: line.to_owned(),
+    })
+}
+
+/// firewalld's answer: one word, `running` or `not running`.
+fn firewall_from_firewalld(text: &str) -> Option<FirewallStatus> {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+
+    Some(FirewallStatus {
+        backend: "firewalld".to_owned(),
+        installed: true,
+        active: line == "running",
+        detail: line.to_owned(),
+    })
 }
 
 /// The block devices `lsblk -J` described, partitions under their disks.
@@ -1054,6 +1331,291 @@ Etc/UTC
         assert_eq!(clamp_journal_lines(20), 20);
         assert_eq!(clamp_journal_lines(200), 200);
         assert_eq!(clamp_journal_lines(usize::MAX), JOURNAL_LINES_MAX);
+    }
+
+    // -- the boot state, cron, logins, the firewall and the mounts --------------------------
+
+    /// A real `systemctl list-unit-files --type=service --no-pager --no-legend --plain` answer.
+    ///
+    /// Two columns follow the name and they disagree on purpose for the masked unit: the state is
+    /// `masked`, the preset is `enabled`. Reading the third column would claim it starts at boot.
+    const UNIT_FILES: &str = "\
+apparmor.service                           enabled         enabled
+apport-autoreport.service                  static          -
+apport-forward@.service                    static          -
+apport.service                             generated       -
+autovt@.service                            alias           -
+blk-availability.service                   enabled         enabled
+kmod.service                               masked          enabled
+";
+
+    #[test]
+    fn unit_files_carry_the_state_in_the_second_column() {
+        let states = parse_unit_files(UNIT_FILES);
+
+        assert_eq!(states.len(), 7);
+        assert_eq!(states[0], ("apparmor.service".to_owned(), "enabled".to_owned()));
+        assert_eq!(states[2], ("apport-forward@.service".to_owned(), "static".to_owned()));
+        assert_eq!(
+            states[6],
+            ("kmod.service".to_owned(), "masked".to_owned()),
+            "the preset column says enabled; the state is what the unit files say"
+        );
+    }
+
+    /// The header and footer `--no-legend` suppresses are skipped when a systemctl that ignored it
+    /// prints them anyway, and an empty answer is no states rather than a state called "".
+    #[test]
+    fn a_unit_file_header_or_footer_is_not_a_unit() {
+        let text = "\
+UNIT FILE                                  STATE           PRESET
+ssh.service                                enabled         enabled
+219 unit files listed.
+";
+
+        assert_eq!(
+            parse_unit_files(text),
+            [("ssh.service".to_owned(), "enabled".to_owned())]
+        );
+        assert!(parse_unit_files("").is_empty());
+    }
+
+    /// Every service that has a unit file gets its state, and one that has none keeps `None` —
+    /// a transient unit has no file to read a boot state out of, and inventing `disabled` for it
+    /// would be this side answering a question the host never heard.
+    #[test]
+    fn a_unit_with_no_unit_file_keeps_no_boot_state() {
+        let mut services = parse_services(
+            "  ssh.service loaded active running OpenBSD Secure Shell server\n  run-r123.service loaded active running /run/current-system\n",
+        );
+        attach_enabled(&mut services, &[("ssh.service".to_owned(), "enabled".to_owned())]);
+
+        assert_eq!(services[0].enabled.as_deref(), Some("enabled"));
+        assert_eq!(services[1].enabled, None);
+    }
+
+    /// A real crontab: a comment with a name in it, a job line whose schedule text must survive,
+    /// an assignment, and a blank line. Only the comment and the blank line are gone.
+    const CRONTAB: &str = "\
+# mofang security jobs — 运维添加
+*/5 * * * * /usr/local/bin/mofang-security heartbeat >> /var/log/mofang-security.log 2>&1
+
+MAILTO=\"\"
+@daily /usr/local/bin/backup.sh
+";
+
+    #[test]
+    fn crontab_keeps_jobs_and_drops_comments() {
+        let lines = parse_crontab(CRONTAB);
+
+        assert_eq!(
+            lines,
+            [
+                "*/5 * * * * /usr/local/bin/mofang-security heartbeat >> /var/log/mofang-security.log 2>&1",
+                "MAILTO=\"\"",
+                "@daily /usr/local/bin/backup.sh",
+            ]
+        );
+        assert!(parse_crontab("").is_empty(), "an empty crontab is no jobs");
+    }
+
+    /// A real `last -n 20 -w` answer, all four row kinds: a session still up, one that ended with
+    /// a time, the machine's own boot record, and one that ended when the machine went down.
+    const LOGINS: &str = "\
+root     pts/1        125.109.50.109   Wed Nov 18 10:59   still logged in
+root     pts/0        125.109.50.109   Wed Nov 18 10:58 - 11:01  (00:03)
+reboot   system boot  5.15.0-203-generic Wed Nov 18 03:18   still running
+root     pts/3        125.109.50.109   Wed Nov 18 03:16 - down   (00:01)
+
+wtmp begins Thu Nov 12 20:38:34 2026
+";
+
+    #[test]
+    fn login_rows_read_their_kind_from_the_tail() {
+        let logins = parse_logins(LOGINS);
+
+        assert_eq!(logins.len(), 4, "the footer is not a record");
+        assert_eq!(logins[0].user, "root");
+        assert_eq!(logins[0].tty, "pts/1");
+        assert_eq!(logins[0].from, "125.109.50.109");
+        assert_eq!(logins[0].start, "Wed Nov 18 10:59");
+        assert_eq!(logins[0].duration, "still logged in");
+        assert!(logins[0].still_logged_in);
+
+        assert_eq!(logins[1].start, "Wed Nov 18 10:58");
+        assert_eq!(logins[1].duration, "11:01 (00:03)", "the end and its duration are kept");
+        assert!(!logins[1].still_logged_in);
+
+        let boot = &logins[2];
+        assert_eq!(boot.user, "reboot");
+        assert_eq!(boot.tty, "system boot", "two words, and both are the terminal");
+        assert_eq!(
+            boot.from, "5.15.0-203-generic",
+            "the kernel sits where the address would"
+        );
+        assert_eq!(boot.start, "Wed Nov 18 03:18");
+        assert_eq!(boot.duration, "still running");
+        assert!(boot.still_logged_in);
+
+        assert_eq!(logins[3].duration, "down (00:01)");
+        assert!(!logins[3].still_logged_in);
+    }
+
+    /// A console login leaves the host column blank, so its date begins where the address would —
+    /// and the weekday is how that is told from an address. A row that is only a footer, or has no
+    /// date at all, is not a login.
+    #[test]
+    fn a_console_login_has_no_host_column() {
+        let logins = parse_logins(
+            "root     tty1                          Wed Nov 18 09:00 - 09:05  (00:05)\n\
+             wtmp begins Thu Nov 12 20:38:34 2026\n\
+             root     pts/9\n",
+        );
+
+        assert_eq!(logins.len(), 1, "the footer and the truncated row are not records");
+        assert_eq!(logins[0].tty, "tty1");
+        assert_eq!(logins[0].from, "", "the column is blank, which is the row's answer");
+        assert_eq!(logins[0].start, "Wed Nov 18 09:00");
+        assert_eq!(logins[0].duration, "09:05 (00:05)");
+
+        assert!(parse_logins("").is_empty());
+    }
+
+    /// A real `ufw status` on an enabled host: the state line, then a rules table that is not the
+    /// state. The detail is the host's own line, so the page can show `Status: active` verbatim.
+    #[test]
+    fn ufw_says_its_state_in_the_status_line() {
+        let text = "\
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW IN    Anywhere
+";
+
+        let status = parse_firewall(Some(text), None).expect("ufw answered");
+
+        assert_eq!(status.backend, "ufw");
+        assert!(status.installed);
+        assert!(status.active);
+        assert_eq!(status.detail, "Status: active");
+
+        let inactive = parse_firewall(Some("Status: inactive\n"), None).expect("ufw answered");
+        assert!(inactive.installed);
+        assert!(!inactive.active, "installed but off is not the same as missing");
+        assert_eq!(inactive.detail, "Status: inactive");
+    }
+
+    /// firewalld's answer is one word, and `not running` is a tool that is there and off — which is
+    /// still an installed firewall, unlike an empty section.
+    #[test]
+    fn firewalld_answers_with_one_word() {
+        let running = parse_firewall(None, Some("running\n")).expect("firewalld answered");
+        assert_eq!(running.backend, "firewalld");
+        assert!(running.installed);
+        assert!(running.active);
+        assert_eq!(running.detail, "running");
+
+        let stopped = parse_firewall(None, Some("not running\n")).expect("firewalld answered");
+        assert!(stopped.installed);
+        assert!(!stopped.active);
+        assert_eq!(stopped.detail, "not running");
+    }
+
+    /// The two "nothing there" answers are different answers: a marker that arrived with nothing
+    /// under it means the binary is missing (a page can say "not installed"), while a marker that
+    /// never arrived means this read never asked. ufw wins when both tools answer.
+    #[test]
+    fn a_host_with_neither_firewall_tool_is_installed_false() {
+        let missing = parse_firewall(Some(""), Some("")).expect("the question was asked");
+        assert!(!missing.installed);
+        assert!(!missing.active);
+        assert_eq!(
+            missing.backend, "",
+            "no backend answered; the page reads installed instead"
+        );
+
+        assert!(
+            parse_firewall(None, None).is_none(),
+            "no marker is a read that never asked, not a host without a firewall"
+        );
+
+        let both = parse_firewall(Some("Status: inactive\n"), Some("running\n")).expect("someone answered");
+        assert_eq!(both.backend, "ufw", "the simpler question wins");
+    }
+
+    /// The mounts come from the monitor's own `df` parser, through the panel's section text — the
+    /// header is skipped, the numbers are read from the right (so a device name with spaces
+    /// survives), and the header's `1024-blocks` is not a size.
+    #[test]
+    fn mounts_are_the_rows_the_df_parser_produced() {
+        let text = "\
+@@mounts
+Filesystem     1024-blocks     Used Available Capacity Mounted on
+tmpfs              1637300     2380   1634920       1% /run
+/dev/vda1        203056560 70781636 132258540      35% /
+overlay          203056560 70781636 132258540      35% /www/server/docker/rootfs/overlayfs/2ab5c1d4e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+map -hosts              0        0         0     100% /net
+";
+
+        let overview = parse_overview(text);
+        let mounts = &overview.mounts;
+
+        assert_eq!(mounts.len(), 4, "the header is not a mount");
+        assert_eq!(mounts[1].mount_point, "/");
+        assert_eq!(mounts[1].filesystem, "/dev/vda1");
+        assert_eq!(mounts[1].size_bytes, 203_056_560 * 1024);
+        assert_eq!(mounts[1].available_bytes, 132_258_540 * 1024);
+        assert!(
+            mounts[2].mount_point.ends_with("6e7f809"),
+            "a long overlay path is kept whole"
+        );
+        assert_eq!(mounts[3].filesystem, "map -hosts", "a device name may contain a space");
+    }
+
+    /// The overview wires all five new sections from their markers, and a service's boot state is
+    /// merged onto the unit `list-units` reported rather than printed as a second row.
+    #[test]
+    fn the_overview_joins_the_new_sections_by_their_markers() {
+        let text = "\
+@@services
+  ssh.service loaded active running OpenBSD Secure Shell server
+  run-r123.service loaded active running /run/current-system
+@@unit-files
+ssh.service                                enabled         enabled
+@@crontab
+# backup
+0 3 * * * /usr/local/bin/backup.sh
+@@logins
+root     pts/1        125.109.50.109   Wed Nov 18 10:59   still logged in
+wtmp begins Thu Nov 12 20:38:34 2026
+@@ufw
+Status: inactive
+@@firewalld
+@@mounts
+Filesystem     1024-blocks     Used Available Capacity Mounted on
+/dev/vda1        203056560 70781636 132258540      35% /
+";
+
+        let overview = parse_overview(text);
+
+        assert_eq!(overview.services.len(), 2);
+        assert_eq!(overview.services[0].enabled.as_deref(), Some("enabled"));
+        assert_eq!(overview.services[1].enabled, None);
+
+        assert_eq!(overview.crontab, ["0 3 * * * /usr/local/bin/backup.sh"]);
+        assert_eq!(overview.logins.len(), 1);
+        assert_eq!(overview.logins[0].start, "Wed Nov 18 10:59");
+
+        let firewall = overview.firewall.as_ref().expect("ufw answered");
+        assert_eq!(firewall.backend, "ufw");
+        assert!(!firewall.active);
+
+        assert_eq!(overview.mounts.len(), 1);
+        assert_eq!(overview.mounts[0].mount_point, "/");
     }
 
     // -- unit names, which are the one thing a person puts into a service command ----------
