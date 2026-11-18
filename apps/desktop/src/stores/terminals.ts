@@ -1981,6 +1981,20 @@ export const useTerminalsStore = defineStore("terminals", () => {
     activeTabId.value = id;
   }
 
+  /**
+   * Brings a tab forward only when there is a tab to bring.
+   *
+   * The workbench's taskbar draws its entries from the tabs about one session, computed as the strip
+   * draws them — and a click can land just after the tab it named went away. An id with no tab behind
+   * it changes nothing, rather than moving the answer for "what is on screen" to something that is
+   * not there.
+   */
+  function activateTab(id: string): void {
+    if (tabs.value.some((entry) => entry.id === id)) {
+      activeTabId.value = id;
+    }
+  }
+
   /** Keystrokes and pastes, in the bytes the terminal produced. */
   async function send(handle: string, bytes: Uint8Array): Promise<void> {
     const tab = tabs.value.find((entry): entry is TerminalTab => entry.kind === "terminal" && entry.handle === handle);
@@ -2068,6 +2082,7 @@ export const useTerminalsStore = defineStore("terminals", () => {
     disconnect,
     closeAll,
     activate,
+    activateTab,
     send,
     resize,
     refreshTunnels,

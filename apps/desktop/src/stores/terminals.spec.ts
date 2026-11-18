@@ -1609,6 +1609,36 @@ describe("the desktop workbench", () => {
     expect(workbenchTab(store)).toBeUndefined();
   });
 
+  it("the taskbar's activateTab brings the session's tab forward when it is there", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    filesOpenMock.mockResolvedValue(filesOpened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    const workbenchId = workbenchTabOrFail(store).id;
+    await store.openFiles(desk);
+    const filesId = filesTab(store)?.id ?? "";
+
+    store.activateTab(workbenchId);
+    expect(store.activeTabId).toBe(workbenchId);
+
+    store.activateTab(filesId);
+    expect(store.activeTabId).toBe(filesId);
+  });
+
+  it("the taskbar's activateTab changes nothing for an id no tab carries any more", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+
+    const store = useTerminalsStore();
+    open();
+    await store.open(desk);
+    const workbenchId = workbenchTabOrFail(store).id;
+
+    store.activateTab("a-tab-that-is-gone");
+    expect(store.activeTabId, "the answer for what is on screen stays true").toBe(workbenchId);
+  });
+
   it("raises the host key decision for the workbench, and opens it once answered", async () => {
     sessionOpenMock.mockResolvedValueOnce({ kind: "hostKeyUnknown", key: presented }).mockResolvedValueOnce(opened());
 
