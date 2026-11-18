@@ -148,14 +148,18 @@ describe("the desktop's services window", () => {
 
     button("Open a tunnel", rows()[0] as HTMLElement)?.click();
     await vi.waitFor(() => {
-      expect(openMock).toHaveBeenCalledWith("session-1", {
-        mode: "local",
-        bindHost: "127.0.0.1",
-        bindPort: 0,
-        // The host printed 0.0.0.0; what the tunnel dials is the loopback that answers on it.
-        targetHost: "127.0.0.1",
-        targetPort: 22,
-      });
+      expect(openMock).toHaveBeenCalledWith(
+        "session-1",
+        {
+          mode: "local",
+          bindHost: "127.0.0.1",
+          bindPort: 0,
+          // The host printed 0.0.0.0; what the tunnel dials is the loopback that answers on it.
+          targetHost: "127.0.0.1",
+          targetPort: 22,
+        },
+        false,
+      );
     });
     await vi.waitFor(() => {
       expect(useToast().message.value).toContain("41233");
@@ -183,13 +187,17 @@ describe("the desktop's services window", () => {
 
       button("Open in browser", rows()[1] as HTMLElement)?.click();
       await vi.waitFor(() => {
-        expect(openMock).toHaveBeenCalledWith("session-1", {
-          mode: "local",
-          bindHost: "127.0.0.1",
-          bindPort: 0,
-          targetHost: "127.0.0.1",
-          targetPort: 3000,
-        });
+        expect(openMock).toHaveBeenCalledWith(
+          "session-1",
+          {
+            mode: "local",
+            bindHost: "127.0.0.1",
+            bindPort: 0,
+            targetHost: "127.0.0.1",
+            targetPort: 3000,
+          },
+          false,
+        );
       });
       await vi.waitFor(() => {
         expect(openSpy).toHaveBeenCalledWith("http://127.0.0.1:43333", "_blank", "noopener,noreferrer");
