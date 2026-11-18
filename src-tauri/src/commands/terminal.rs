@@ -134,14 +134,19 @@ pub async fn tunnel_close(state: State<'_, ShellState>, id: String) -> Result<()
     state.core().close_tunnel(&id).await
 }
 
-/// Opens one forward at runtime, on the connection the session already holds.
+/// Opens one forward at runtime, on the connection the session already holds. The acknowledgement
+/// is the person's answer the forwards window asks for where the matrix raises a question.
 #[tauri::command]
 pub async fn tunnel_runtime_open(
     state: State<'_, ShellState>,
     session_id: String,
     forward: LocalForward,
+    acknowledged: Option<bool>,
 ) -> Result<OpenTunnel, ShellError> {
-    state.core().tunnel_open(&session_id, forward).await
+    state
+        .core()
+        .tunnel_open(&session_id, forward, acknowledged.unwrap_or(false))
+        .await
 }
 
 /// Stops a runtime forward. The engine's stop is the same one `tunnel_close` drives.
