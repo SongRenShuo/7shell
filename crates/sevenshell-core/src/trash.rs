@@ -343,7 +343,11 @@ fn parse_trashinfo(text: &str) -> ParsedTrashInfo {
             continue;
         };
         match key.trim() {
-            "Path" => parsed.path = Some(value.trim().to_owned()),
+            // The sidecar is written by whatever removed the file, which after a break-in is
+            // somebody else. Decoding and judging happen here, at the one door the value comes
+            // through, rather than at each use: a path that fails the judgement is `None`, which
+            // lists the entry but makes it unrestorable.
+            "Path" => parsed.path = sanitize_original_path(value.trim()),
             "DeletionDate" => parsed.deleted_at = parse_deletion_date(value.trim()),
             _ => {}
         }
@@ -472,10 +476,15 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 
 /// The inverse, for stamping a sidecar with today's date.
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let days = days + 719_468;
-    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
-    let day_of_era = days - era * 146_097;
-    let year_of_era = day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096;
+    // Howard Hinnant's civil-from-days, unchanged: shift to the era's epoch, take the 400-year
+    // era the shift lands in, then the year inside it. Two divisions are load-bearing and were
+    // missing in the first cut — `year_of_era` is a count of years (divided by 365), and the era
+    // contributes `era * 400` years. Without them the result is a date-shaped number that is not
+    // a date; the epoch-boundary test is what caught it.
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 { shifted } else { shifted - 146_096 } / 146_097;
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_shift = (5 * day_of_year + 2) / 153;
@@ -531,7 +540,7 @@ async fn free_target_name(files: &Arc<SftpSession>, original: &str, deleted_at: 
         return Ok(original.to_owned());
     }
     let (directory, name) = match original.rsplit_once('/') {
-        Some((directory, "")) => {
+        Some((_, "")) => {
             return Err(ShellError::trash_operation_failed(original, "the original path ends in a slash"));
         }
         Some((directory, name)) => (directory, name),
@@ -600,6 +609,12 @@ mod tests {
     impl PolicyJournal for RecordingJournal {
         fn record(&self, event: PolicyAuditEvent) {
             self.events.lock().expect("not poisoned").push(event);
+        }
+    }
+
+    impl RecordingJournal {
+        fn events(&self) -> Vec<PolicyAuditEvent> {
+            self.events.lock().expect("not poisoned").clone()
         }
     }
 
@@ -789,9 +804,9 @@ mod tests {
 
     #[test]
     fn a_trash_entry_name_is_the_last_segment() {
-        assert_eq!(trash_entry_name("/home/user/notes.txt").as_deref(), Some("notes.txt"));
+        assert_eq!(trash_entry_name("/home/user/notes.txt").expect("a name"), "notes.txt");
         assert!(trash_entry_name("/").is_err(), "the root has no name to carry");
-        assert_eq!(trash_entry_name("/home/user/folder/").as_deref(), Some("folder"));
+        assert_eq!(trash_entry_name("/home/user/folder/").expect("a name"), "folder");
     }
 
     #[test]
