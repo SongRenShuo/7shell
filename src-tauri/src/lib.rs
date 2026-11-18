@@ -238,6 +238,7 @@ pub fn run() {
             commands::terminal::tunnel_close,
             commands::desktop::desktop_open,
             commands::workbench::workbench_power,
+            commands::process::process_kill,
             commands::monitor::monitor_sample,
             commands::monitor::monitor_processes,
             commands::monitor::monitor_process_detail,

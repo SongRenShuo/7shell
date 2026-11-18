@@ -45,6 +45,9 @@
       "reboot": "Restarts the machine",
       "shutdown": "Powers the machine off",
       "unknown": "A workbench action this version does not recognise"
+    },
+    "process": {
+      "kill": "Ends a running process"
     }
   }
 }
