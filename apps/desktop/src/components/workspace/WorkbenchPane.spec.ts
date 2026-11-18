@@ -1175,3 +1175,93 @@ describe("the workbench desktop", () => {
     expect(restart?.kind === "action" ? restart.disabled : undefined).toBe(true);
   });
 });
+
+/*
+ * The snap preview. The arithmetic is the window list's suite and the gesture is the chrome's; what
+ * can only be seen here is the wiring — that a drag whose hand crosses an edge zone draws the ghost
+ * rectangle, that the ghost is a drawing and not a surface (the desktop underneath stays clickable,
+ * the lesson the starter's wrapper already taught), and that letting go lands the window and takes
+ * the preview away.
+ */
+describe("the snap preview", () => {
+  /**
+   * A desk jsdom has no layout for, so the work area measures 0x0 and every zone answer would be
+   * "no room". These tests give the elements the desk's own 800x600 for the duration — the pane
+   * measures on mount, so the patch has to be in place before the first render.
+   */
+  function giveTheDeskItsSize(): void {
+    for (const property of ["clientWidth", "clientHeight"] as const) {
+      Object.defineProperty(HTMLElement.prototype, property, {
+        configurable: true,
+        get() {
+          return property === "clientWidth" ? 800 : 600;
+        },
+      });
+    }
+  }
+
+  function takeTheDeskBack(): void {
+    for (const property of ["clientWidth", "clientHeight"] as const) {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property];
+    }
+  }
+
+  function pointer(type: string, clientX: number, clientY: number): PointerEvent {
+    return new PointerEvent(type, { clientX, clientY, button: 0, pointerId: 1, bubbles: true, cancelable: true });
+  }
+
+  /** Opens one window (the trash) and drags its title bar through the given pointer positions. */
+  async function draggedTitle(positions: { x: number; y: number }[]): Promise<void> {
+    giveTheDeskItsSize();
+    await render();
+    fire(iconByLabel("Trash"), "dblclick");
+    await nextTick();
+    const title = host.querySelector<HTMLElement>("[data-workbench-window-title]");
+    if (!title) {
+      throw new Error("the window has no title bar");
+    }
+    title.dispatchEvent(pointer("pointerdown", 100, 10));
+    for (const at of positions) {
+      title.dispatchEvent(pointer("pointermove", at.x, at.y));
+      await nextTick();
+    }
+  }
+
+  afterEach(takeTheDeskBack);
+
+  it("draws the zone's ghost while the hand is in an edge zone", async () => {
+    await draggedTitle([{ x: 5, y: 300 }]);
+
+    const preview = host.querySelector<HTMLElement>("[data-workbench-snap-preview]");
+    expect(preview, "the hand is at the desk's left edge, so the half-screen ghost is drawn").not.toBeNull();
+    expect(preview?.dataset.snapZone).toBe("left");
+  });
+
+  it("draws nothing while the hand is in the middle of the desk", async () => {
+    await draggedTitle([{ x: 400, y: 300 }]);
+
+    expect(host.querySelector("[data-workbench-snap-preview]")).toBeNull();
+  });
+
+  it("takes the ghost away, and lands the window, when the hand lets go", async () => {
+    await draggedTitle([
+      { x: 5, y: 300 },
+      { x: 400, y: 300 },
+    ]);
+    const title = host.querySelector<HTMLElement>("[data-workbench-window-title]");
+    title?.dispatchEvent(pointer("pointerup", 400, 300));
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-snap-preview]")).toBeNull();
+    expect(host.querySelector("[data-workbench-window]")).not.toBeNull();
+  });
+
+  it("is a drawing, never a surface: the preview passes presses through", async () => {
+    await draggedTitle([{ x: 5, y: 300 }]);
+
+    const preview = host.querySelector<HTMLElement>("[data-workbench-snap-preview]");
+    expect(preview?.className, "the ghost itself is click-through").toContain("pointer-events-none");
+    const atGhost = document.elementFromPoint(5, 300);
+    expect(atGhost, "nothing answers a press at the ghost but what sits under it").not.toBe(preview);
+  });
+});
