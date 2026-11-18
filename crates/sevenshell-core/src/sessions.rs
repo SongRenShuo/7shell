@@ -12,8 +12,8 @@ use sevenshell_ssh::{
 };
 use sevenshell_term::{LocalSpec, SerialSpec, TcpSpec, TelnetSpec, WslSpec};
 use sevenshell_types::{
-    AuthMethod, ForwardMode, KnownHostEntry, LocalForward, LocalShell, OpenOutcome, OpenTunnel, PresentedHostKey,
-    Protocol, SerialPortInfo, Session, TransferInfo, TunnelFailure,
+    AuthMethod, ForwardMode, KnownHostEntry, LocalForward, LocalShell, OpenOutcome, OpenTunnel, PolicyAction,
+    PresentedHostKey, Protocol, SerialPortInfo, Session, TransferInfo, TunnelFailure,
 };
 use sevenshell_vault::Vault;
 use tokio::sync::{Mutex, Notify, mpsc};
@@ -518,16 +518,26 @@ impl Core {
     /// request arrives as the serialized [`LocalForward`] shape — an empty id means the interface
     /// did not name it, and the registry names it `runtime-<uuid>` itself.
     ///
-    /// The order is the one every unattended action takes: session, protocol, policy, carrier,
-    /// and only then the listener. `tunnel.open` is `Caution` for a loopback bind; an address
-    /// other machines could reach stops for a person, which is the "exposing a port" question.
+    /// The order is the one every gated action takes: session, protocol, policy, carrier, and
+    /// only then the listener. `tunnel.open` is `Caution` for a loopback bind; an address other
+    /// machines could reach stops for a person, which is the "exposing a port" question — and a
+    /// remote forward is `Destructive` wherever it binds, so it always needs the person. The
+    /// `acknowledged` flag is how the person answers: the forwards window asks, and the call that
+    /// carries its answer opens. This is the container gate's shape — a verdict that asks without
+    /// the acknowledgement is a refusal naming the rule that fired, and a destructive verdict is
+    /// never looser than a person, whatever the matrix says.
     ///
     /// The tunnel is registered in the same registry the session's own forwards use, and its
     /// record's handle is the terminal that shared this session's connection when the tunnel came
     /// up — so `close_terminal` closes a runtime forward exactly like a saved one. A forward on a
     /// carrier of its own (no terminal was open) has no handle to die with a terminal; it is
     /// stopped by `tunnel_runtime_stop`, by `close_all`, or when the interface goes away.
-    pub async fn tunnel_open(&self, session_id: &str, request: LocalForward) -> Result<OpenTunnel, ShellError> {
+    pub async fn tunnel_open(
+        &self,
+        session_id: &str,
+        request: LocalForward,
+        acknowledged: bool,
+    ) -> Result<OpenTunnel, ShellError> {
         let session = self.session(session_id)?;
         match session.protocol {
             // The workbench session speaks SSH in every mechanical sense, exactly as the terminal
@@ -552,7 +562,18 @@ impl Core {
             .as_ref()
             .map(|session| session.as_target())
             .unwrap_or_default();
-        self.unattended_gate("tunnel.open", &verdict, target, Some(session_id), Some(&subject))?;
+        let decision = self.policy_decision("tunnel.open", &verdict, target, Some(session_id), Some(&subject));
+        match decision.action {
+            PolicyAction::Deny => return Err(ShellError::policy_denied("tunnel.open")),
+            PolicyAction::Ask if !acknowledged => {
+                let rule = verdict
+                    .reasons
+                    .first()
+                    .map_or("tunnel.unknown", |reason| reason.rule_id.as_str());
+                return Err(ShellError::policy_approval_required(rule));
+            }
+            _ => {}
+        }
 
         // Which terminal shares this session decides what dies with the tunnel. The lookup runs
         // before the carrier so the same terminal that `open_carrier` will find is the one named.
@@ -1337,7 +1358,7 @@ mod tests {
         let (core, _events) = Core::new(vault);
 
         let error = core
-            .tunnel_open("session-1", runtime_forward("127.0.0.1"))
+            .tunnel_open("session-1", runtime_forward("127.0.0.1"), false)
             .await
             .expect_err("the protocol gate refuses");
 
@@ -1388,7 +1409,7 @@ mod tests {
         // A loopback bind, so the refusal is the matrix's, not the expose rule's: one action, one
         // line, and the line names the address the listener would have sat on.
         let error = core
-            .tunnel_open("session-1", runtime_forward("127.0.0.1"))
+            .tunnel_open("session-1", runtime_forward("127.0.0.1"), false)
             .await
             .expect_err("a deny refuses the forward");
 
@@ -1427,5 +1448,49 @@ mod tests {
             target_host: "127.0.0.1".to_owned(),
             target_port: 22,
         }
+    }
+
+    #[tokio::test]
+    async fn a_remote_forward_without_a_persons_answer_is_refused_at_the_gate() {
+        let (_directory, vault, _) = vault_with_a_session();
+        let (core, _events) = Core::new(vault);
+
+        // Loopback bind and all — the verdict is the remote rule's, not the expose rule's, which
+        // is the point: the server's port always needs a person, wherever it binds.
+        let mut remote = runtime_forward("127.0.0.1");
+        remote.mode = ForwardMode::Remote;
+
+        let error = core
+            .tunnel_open("session-1", remote, false)
+            .await
+            .expect_err("a remote forward stops for a person");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
+        assert!(
+            format!("{error:?}").contains("tunnel.remote"),
+            "the refusal names the rule that fired: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_persons_answer_is_what_lets_the_gate_pass() {
+        let (_directory, vault, _) = vault_with_a_session();
+        let (core, _events) = Core::new(vault);
+
+        // The gate runs before the carrier, so the acknowledged open gets past the policy and
+        // fails at the connection instead — which is the difference the acknowledgement makes.
+        let mut remote = runtime_forward("127.0.0.1");
+        remote.mode = ForwardMode::Remote;
+
+        let error = core
+            .tunnel_open("session-1", remote, true)
+            .await
+            .expect_err("the acknowledged open gets past the gate");
+
+        assert_ne!(
+            error.code(),
+            sevenshell_error::ErrorCode::PolicyApprovalRequired,
+            "the refusal is no longer the gate's: {error:?}"
+        );
     }
 }
