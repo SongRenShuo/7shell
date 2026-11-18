@@ -387,13 +387,17 @@ describe("the workbench desktop", () => {
     );
     openTunnel?.click();
     await vi.waitFor(() => {
-      expect(tunnelOpenMock).toHaveBeenCalledWith("desk-1", {
-        mode: "local",
-        bindHost: "127.0.0.1",
-        bindPort: 0,
-        targetHost: "127.0.0.1",
-        targetPort: 8080,
-      });
+      expect(tunnelOpenMock).toHaveBeenCalledWith(
+        "desk-1",
+        {
+          mode: "local",
+          bindHost: "127.0.0.1",
+          bindPort: 0,
+          targetHost: "127.0.0.1",
+          targetPort: 8080,
+        },
+        false,
+      );
     });
   });
 
