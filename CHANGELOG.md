@@ -52,6 +52,10 @@ All notable changes to 7Shell are documented in this file. The format is
   "no partitions" rather than failing to draw (73eb01c).
 - The desktop's own settings, from its right-click menu: a backdrop choice that is written back to
   the session, and an icon density that stays with this window (4d1ce31).
+- Desktop icons can be dragged into place — onto another icon to take its slot, or onto the
+  wallpaper for the end of the grid — and the arrangement is remembered per session, with "Reset
+  icon layout" in the desktop's own menu putting the default order back. The taskbar now ends in a
+  clock, and clicking it opens the system panel (ab096c1).
 
 ## [0.2.0] - 2026-11-17
 
