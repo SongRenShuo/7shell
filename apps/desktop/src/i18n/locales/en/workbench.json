@@ -10,6 +10,8 @@
       "shell": {
         "disconnect": "Disconnect",
         "starter": "Applications",
+        "starterSearch": "Search applications",
+        "starterNoResults": "Nothing matches",
         "clock": "Clock",
         "power": "Power",
         "minimize": "Minimize",
