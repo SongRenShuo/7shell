@@ -5,34 +5,31 @@
       "ended": "机器当前未连接。重新连接后，工作台会随之打开。",
       "retry": "重新连接"
     },
-    "system": {
-      "title": "系统",
-      "os": "操作系统",
-      "address": "地址",
-      "hostname": "主机名",
-      "cpu": "处理器",
-      "memory": "内存",
-      "disks": "磁盘",
-      "waiting": "等待第一次采样…"
-    },
-    "files": {
-      "title": "文件",
-      "home": "主目录",
-      "recent": "最近访问",
-      "recentEmpty": "本会话的文件浏览器去过的目录会汇集在这里。"
-    },
-    "session": {
-      "title": "会话",
-      "address": "地址",
-      "status": "状态",
-      "connected": "已连接",
-      "disconnected": "未连接"
-    },
-    "entry": {
-      "title": "打开",
-      "terminal": "打开终端",
-      "files": "打开文件",
-      "monitor": "打开监控"
+    "desktop": {
+      "title": "桌面",
+      "icons": {
+        "home": "主目录",
+        "terminal": "终端",
+        "monitor": "监控",
+        "systemInfo": "系统信息",
+        "trash": "回收站"
+      },
+      "trashPlaceholder": "回收站将在后续版本提供。",
+      "menu": {
+        "open": "打开",
+        "remove": "移除",
+        "properties": "属性",
+        "refresh": "刷新",
+        "newShortcut": "新建快捷方式",
+        "settings": "桌面设置"
+      },
+      "shortcut": {
+        "title": "新建快捷方式",
+        "message": "输入本机上的一个目录路径。快捷方式会让文件浏览器打开到那里。",
+        "placeholder": "/home/user/projects",
+        "invalid": "请输入目录路径。不能为空，也不能包含控制字符。",
+        "create": "创建快捷方式"
+      }
     },
     "power": {
       "title": "电源",

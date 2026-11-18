@@ -13,63 +13,83 @@ export type WorkbenchWallpaperId = (typeof WORKBENCH_WALLPAPER_IDS)[number];
 /**
  * The desktop workbench: what a Linux desktop session opens as, instead of a terminal.
  *
- * The connection underneath is an ordinary SSH one, and everything this pane shows is a surface
- * that connection already carries — the system mark the open asked for once, the monitor's sample,
- * the file browser, the host's own pages. Nothing here opens a second connection: the entries are
- * ways of using the one the session has, which is why "open terminal" is a plain open (a second
- * connection to the same machine, as asking for another terminal anywhere is) and why closing the
- * workbench takes the file tabs riding its connection with it.
+ * This is a desktop, in the ordinary sense of the word: a backdrop the session chose covers the
+ * whole tab, a grid of icons sits on it from the top left, a right-click offers what the thing
+ * under the pointer can do, and a thin bar along the bottom holds the tabs this session has open.
+ * The icons are doors, not pages — double-clicking one opens the thing it names somewhere else in
+ * the workspace, and what is left on screen is still this desktop.
  *
- * The one thing this pane can ask the machine to *do* is the power action, and it is asked about
- * first: the buttons open the same plain confirmation every destructive action here uses, and the
- * acknowledgement that a person answered it is what travels with the command.
+ * The connection underneath is an ordinary SSH one, and every door leads somewhere that connection
+ * already reaches: the file browser over SFTP, a second terminal, the monitor's pages. The one
+ * thing this desktop can ask the machine to *do* is the power action, carried by the taskbar, and
+ * it is asked about first: the buttons open the same plain confirmation every destructive action
+ * here uses, and the acknowledgement that a person answered it is what travels with the command.
  *
- * The monitor is asked for while this pane is the tab on screen and not otherwise, the same rule
- * the host pages follow: a poll nobody can see is somebody else's machine paying for a feature
- * nobody is looking at.
+ * The desktop asks for no samples of its own. The readings the first release drew on cards live on
+ * the monitor's system page now, and the pages poll by their own rule — a poll nobody can see is
+ * somebody else's machine paying for a feature nobody is looking at.
  */
 import {
-  CircleAlert,
+  Cpu,
   ExternalLink,
   Folder,
-  HardDrive,
+  FolderPlus,
   House,
+  Info,
+  List,
   ListTree,
-  LoaderCircle,
+  Network,
   Power,
   RotateCw,
   Terminal,
+  Trash2,
+  X,
 } from "@lucide/vue";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import type { Component } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
-import SystemIcon from "@/components/ui/SystemIcon.vue";
+import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
-import { formatSize } from "@/lib/files/format";
-import { sessionEndpoint } from "@/lib/menu/sessions";
-import { memoryUsed, share } from "@/lib/monitor/rates";
-import { systemLabel, systemMark } from "@/lib/system/icons";
-import { rememberPath, readRecentPaths, writeRecentPaths } from "@/lib/workbench/recentPaths";
-import { useFilesStore } from "@/stores/files";
-import { useMonitorStore } from "@/stores/monitor";
-import { type WorkbenchTab, useTerminalsStore } from "@/stores/terminals";
-import type { DiskUsage } from "@/types/monitor";
+import {
+  addShortcut,
+  isValidShortcutPath,
+  readDesktopShortcuts,
+  removeShortcut,
+  shortcutName,
+  writeDesktopShortcuts,
+  type DesktopShortcut,
+} from "@/lib/workbench/desktopIcons";
+import type { MenuEntry } from "@/lib/menu/types";
+import { sessionTabTitle } from "@/lib/sessions/reopen";
+import {
+  useTerminalsStore,
+  type FilesTab,
+  type InspectTab,
+  type InspectView,
+  type TerminalTab,
+  type WorkbenchTab,
+} from "@/stores/terminals";
 
 const props = defineProps<{
   /** The tab this pane draws; its session is what everything here is about. */
   tab: WorkbenchTab;
-  /** Whether this pane is the tab on screen, which is what starts and stops the sampling. */
+  /**
+   * Whether this pane is the tab on screen. The desktop asks for no samples of its own — the
+   * readings live on the monitor's pages, which poll by their own rule — so nothing here reads it
+   * today, and the frame keeps handing it over so a later reader does not re-plumb the workspace.
+   */
   active: boolean;
 }>();
 
 const { t } = useI18n();
 const terminals = useTerminalsStore();
-const monitor = useMonitorStore();
-const files = useFilesStore();
+const { openMenu } = useContextMenu();
 const { toast } = useToast();
 
 function translate(key: string, params?: Record<string, string>): string {
@@ -78,10 +98,6 @@ function translate(key: string, params?: Record<string, string>): string {
 
 const session = computed(() => props.tab.session);
 const connected = computed(() => props.tab.handle !== null && props.tab.failure === null);
-
-const system = computed(() => terminals.systemOf(session.value));
-const mark = computed(() => systemMark(system.value));
-const osName = computed(() => systemLabel(system.value) ?? monitor.sample?.os ?? null);
 
 /**
  * The backdrop the session asked for, or nothing for the interface's own background.
@@ -113,91 +129,292 @@ const wallpaperStyle = computed(() => {
   return { background: WALLPAPER_BACKDROPS[id] };
 });
 
-// The pane is what asks for samples while it is the tab on screen, the way a host page is; the
-// panel beside the workspace asks for its own.
-watch(
-  () => props.active,
-  (active) => (active ? monitor.start() : monitor.stop()),
-  { immediate: true },
-);
-onBeforeUnmount(() => {
-  if (props.active) {
-    monitor.stop();
-  }
-});
-
-/** Whether the readings on screen are about this host, which is what a body draws. */
-const live = computed(() => monitor.sampleSessionId === session.value.id);
-
-const memory = computed(() => monitor.sample?.memory ?? null);
-const memoryPercent = computed(() => (memory.value ? share(memoryUsed(memory.value), memory.value.totalBytes) : null));
-const memoryText = computed(() =>
-  memory.value ? `${formatSize(memoryUsed(memory.value))} / ${formatSize(memory.value.totalBytes)}` : null,
-);
-
-function diskUsage(disk: DiskUsage): number | null {
-  return share(disk.sizeBytes - disk.availableBytes, disk.sizeBytes);
-}
-
-/** A reading somebody can read, or the dash that says nobody reported one. */
-function percent(value: number | null | undefined): string {
-  return value === null || value === undefined ? "-" : `${Math.round(value)}%`;
-}
-
-// -- recently visited directories --------------------------------------------
+// -- the desktop icons -------------------------------------------------------
 
 /**
- * Where this session's browser has been, as last remembered.
+ * One icon on the desktop: what it is, what it says, and — for a shortcut — where it opens.
  *
- * Read when the pane is drawn, and extended while it is: the browsers in the files store are
- * watched for their current path, because a browser's path changing *is* a visit — there is
- * nothing else to record and nobody to ask. Nothing here is a choice, which is why none of it
- * reaches the settings file.
+ * The fixed ids carry a `system-` prefix, so a shortcut's own id can never collide with one of the
+ * doors every desktop has.
  */
-const recentPaths = ref<string[]>(readRecentPaths()[session.value.id] ?? []);
+interface DesktopIcon {
+  readonly id: string;
+  readonly kind: "home" | "terminal" | "monitor" | "systemInfo" | "trash" | "shortcut";
+  readonly label: string;
+  readonly icon: Component;
+  /** Drawn, but not openable: the placeholder is the whole of what it says. */
+  readonly disabled?: boolean;
+  /** Where a shortcut opens, when this icon is one. */
+  readonly path?: string;
+  /** The shortcut's own id in storage, which its removal is named by. */
+  readonly shortcutId?: string;
+}
 
-watch(
-  () =>
-    Object.values(files.browsers)
-      .filter((browser) => browser.sessionId === session.value.id)
-      .map((browser) => browser.path),
-  (now, before) => {
-    const remembered = recentPaths.value;
-    let next = remembered;
-    for (const path of now) {
-      if (before?.includes(path) || next[0] === path) {
-        continue;
-      }
-      next = rememberPath(next, path);
-    }
-    if (next !== remembered) {
-      recentPaths.value = next;
-      writeRecentPaths({ ...readRecentPaths(), [session.value.id]: next });
-    }
+/**
+ * The doors every desktop has, in the order the grid draws them.
+ *
+ * The monitor door and the system-information door lead to the same page on purpose: the readings
+ * the first release drew on cards live on the monitor's system page, and both names are ways of
+ * asking for it — `openInspect` answers a second ask with the tab that is already there rather than
+ * a second copy of it.
+ */
+const systemIcons = computed<DesktopIcon[]>(() => [
+  { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
+  { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
+  { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
+  { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
+  {
+    id: "system-trash",
+    kind: "trash",
+    label: t("workbench.desktop.icons.trash"),
+    icon: Trash2,
+    disabled: true,
   },
-  { immediate: true },
-);
-
-// -- the entries -------------------------------------------------------------
+]);
 
 /**
- * A terminal of this session's own, as the entry says.
- *
- * Not `open`: the fork that mounts the workbench is what a session's open *is* here, and the
- * entry would hand back another front page. The store's terminal-only path exists for exactly
- * this ask.
+ * The shortcuts this session's desktop carries, read out of the WebView's own storage when the
+ * desktop is drawn. Losing them costs the shortcuts until they are added again, and nothing else
+ * in the application reads them — the same reasoning, and the same place, as the recent paths.
  */
-function openTerminal(): void {
-  void terminals.openTerminalTab(session.value);
+const shortcuts = ref<DesktopShortcut[]>(readDesktopShortcuts()[session.value.id] ?? []);
+
+const userIcons = computed<DesktopIcon[]>(() =>
+  shortcuts.value.map((shortcut) => ({
+    id: `shortcut:${shortcut.id}`,
+    kind: "shortcut" as const,
+    label: shortcutName(shortcut.path),
+    icon: Folder,
+    path: shortcut.path,
+    shortcutId: shortcut.id,
+  })),
+);
+
+const icons = computed<DesktopIcon[]>(() => [...systemIcons.value, ...userIcons.value]);
+
+/** The icon somebody has clicked, which the Enter key opens and a click on the wallpaper clears. */
+const selectedId = ref<string | null>(null);
+
+function select(icon: DesktopIcon): void {
+  selectedId.value = icon.id;
 }
 
-function openFiles(path?: string): void {
-  void terminals.openFiles(session.value, path);
+function clearSelection(): void {
+  selectedId.value = null;
 }
 
-function openMonitor(): void {
-  terminals.openInspect("system", session.value);
+/**
+ * Opens what an icon names, somewhere else in the workspace.
+ *
+ * A path handed to the file browser is a place to be: a browser that is already up walks there
+ * through the navigation it already uses, and one that is not opens on it — the store owns both
+ * shapes, and the icon does not care which it gets.
+ */
+function openIcon(icon: DesktopIcon): void {
+  if (icon.disabled) {
+    return;
+  }
+  selectedId.value = icon.id;
+  switch (icon.kind) {
+    case "home":
+      void terminals.openFiles(session.value);
+      return;
+    case "terminal":
+      // Not `open`: the fork that mounts the workbench is what a session's open *is* here, and the
+      // store's terminal-only path exists for exactly this ask.
+      void terminals.openTerminalTab(session.value);
+      return;
+    // Two names, one destination: see `systemIcons`.
+    case "monitor":
+    case "systemInfo":
+      terminals.openInspect("system", session.value);
+      return;
+    case "trash":
+      return;
+    case "shortcut":
+      void terminals.openFiles(session.value, icon.path);
+      return;
+  }
 }
+
+// -- the menus ---------------------------------------------------------------
+
+function persistShortcuts(): void {
+  writeDesktopShortcuts({ ...readDesktopShortcuts(), [session.value.id]: shortcuts.value });
+}
+
+/**
+ * What the wallpaper offers when it is right-clicked.
+ *
+ * Refresh re-reads what storage holds — the icons are memory, not a live view of the machine, so
+ * that is the whole of what refreshing can mean. The settings entry is drawn but not runnable: the
+ * desktop's own settings are a later piece of this work, and a menu entry that did nothing silently
+ * would be worse than one that says it is not there yet.
+ */
+function openDesktopMenu(event: MouseEvent): void {
+  openMenu(event, { key: "workbench.desktop.title" }, [
+    {
+      kind: "action",
+      id: "desktop-refresh",
+      labelKey: "workbench.desktop.menu.refresh",
+      icon: RotateCw,
+      run: refreshDesktop,
+    },
+    {
+      kind: "action",
+      id: "desktop-new-shortcut",
+      labelKey: "workbench.desktop.menu.newShortcut",
+      icon: FolderPlus,
+      run: beginCreateShortcut,
+    },
+    { kind: "separator", id: "desktop-sep" },
+    {
+      kind: "action",
+      id: "desktop-settings",
+      labelKey: "workbench.desktop.menu.settings",
+      disabled: true,
+      run: () => {},
+    },
+  ]);
+}
+
+function refreshDesktop(): void {
+  shortcuts.value = readDesktopShortcuts()[session.value.id] ?? [];
+  selectedId.value = null;
+}
+
+/** What an icon offers when it is right-clicked: the door, its removal, and what it is. */
+function openIconMenu(event: MouseEvent, icon: DesktopIcon): void {
+  if (icon.disabled) {
+    return;
+  }
+  const entries: MenuEntry[] = [
+    {
+      kind: "action",
+      id: "icon-open",
+      labelKey: "workbench.desktop.menu.open",
+      icon: ExternalLink,
+      run: () => openIcon(icon),
+    },
+  ];
+  if (icon.kind === "shortcut") {
+    entries.push({
+      kind: "action",
+      id: "icon-remove",
+      labelKey: "workbench.desktop.menu.remove",
+      icon: X,
+      run: () => removeIcon(icon),
+    });
+  }
+  entries.push({ kind: "separator", id: "icon-sep" });
+  entries.push({
+    kind: "action",
+    id: "icon-properties",
+    labelKey: "workbench.desktop.menu.properties",
+    disabled: true,
+    run: () => {},
+  });
+  openMenu(event, { key: "workbench.desktop.title" }, entries);
+}
+
+function removeIcon(icon: DesktopIcon): void {
+  if (icon.shortcutId === undefined) {
+    return;
+  }
+  shortcuts.value = removeShortcut(shortcuts.value, icon.shortcutId);
+  persistShortcuts();
+  if (selectedId.value === icon.id) {
+    selectedId.value = null;
+  }
+}
+
+// -- adding a shortcut -------------------------------------------------------
+
+const creating = ref(false);
+const draftPath = ref("");
+
+function beginCreateShortcut(): void {
+  draftPath.value = "";
+  creating.value = true;
+}
+
+const draftValid = computed(() => isValidShortcutPath(draftPath.value));
+
+function cancelCreateShortcut(): void {
+  creating.value = false;
+}
+
+/**
+ * Puts the typed path on the desktop and writes the arrangement down.
+ *
+ * The list's own rules decide what a duplicate and a full desktop mean; the dialog only refuses to
+ * send a path the input rules would reject, which is why the confirm button is out of reach while
+ * the draft is not a path.
+ */
+function createShortcut(): void {
+  if (!draftValid.value) {
+    return;
+  }
+  shortcuts.value = addShortcut(shortcuts.value, draftPath.value, crypto.randomUUID());
+  persistShortcuts();
+  creating.value = false;
+}
+
+// -- the taskbar -------------------------------------------------------------
+
+/** One entry of the taskbar: a tab this session has open, named the way the strip names it. */
+interface TaskbarEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: Component;
+}
+
+function inspectTitleKey(view: InspectView): string {
+  switch (view) {
+    case "system":
+      return "inspect.system.title";
+    case "processes":
+      return "inspect.processes.title";
+    default:
+      return "inspect.network.title";
+  }
+}
+
+function taskbarLabel(tab: TerminalTab | FilesTab | InspectTab): string {
+  if (tab.kind === "inspect") {
+    // A page names the machine it is about, the way the strip names it.
+    return `${t(inspectTitleKey(tab.view))} · ${tab.session.host}`;
+  }
+  // A session opened twice is drawn twice, and the copy number tells them apart.
+  return sessionTabTitle(tab.session.name, terminals.copyOf(tab.id));
+}
+
+function taskbarIcon(tab: TerminalTab | FilesTab | InspectTab): Component {
+  switch (tab.kind) {
+    case "terminal":
+      return Terminal;
+    case "files":
+      return Folder;
+    case "inspect":
+      return tab.view === "system" ? Cpu : tab.view === "processes" ? List : Network;
+    default:
+      return Terminal;
+  }
+}
+
+/**
+ * The tabs of this session only: a shell, a browser, or a page about this host. The workbench tab
+ * itself is the desktop these sit behind, so it is not an entry of its own.
+ */
+const taskbarEntries = computed<TaskbarEntry[]>(() =>
+  terminals.tabs
+    .filter(
+      (tab): tab is TerminalTab | FilesTab | InspectTab =>
+        (tab.kind === "terminal" || tab.kind === "files" || tab.kind === "inspect") &&
+        tab.session.id === session.value.id,
+    )
+    .map((tab) => ({ id: tab.id, label: taskbarLabel(tab), icon: taskbarIcon(tab) })),
+);
 
 // -- the power actions -------------------------------------------------------
 
@@ -244,211 +461,159 @@ async function issuePower(): Promise<void> {
 
 <template>
   <!--
-    The backdrop is the pane's own, and the cards stay on the standard surface: a wallpaper behind
-    standard cards is a backdrop, while one behind custom colours is a theme nobody asked to debug.
+    The backdrop is the desktop's own, and it covers the whole tab — icons, taskbar and all, the way
+    a wallpaper on any desktop stops nowhere in particular. Without one the interface's own surface
+    is the backdrop, which is the elevation the tokens already speak.
   -->
-  <section class="flex min-h-0 flex-1 flex-col overflow-hidden" :style="wallpaperStyle">
-    <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-      <div class="mx-auto flex max-w-2xl flex-col gap-3">
-        <!--
-          The system card: what the machine said it is, and what it is doing right now. A reading
-          the host did not report is drawn as a dash, never as a zero — the same rule the monitor
-          panel follows, because a dash next to a number that means something is exactly the
-          confusion a reading must not create.
-        -->
-        <section class="rounded-lg border border-border bg-card px-3 py-2.5" data-workbench-system>
-          <header class="mb-2 flex items-center gap-2">
-            <SystemIcon v-if="mark" :system="null" :mark="mark" :size="16" :label="osName ?? undefined" />
-            <h3 class="text-xs font-medium">{{ t("workbench.system.title") }}</h3>
-            <span class="flex-1"></span>
-            <LoaderCircle v-if="active && monitor.sampling" :size="12" class="animate-spin text-muted-foreground" />
-          </header>
-
-          <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-1 text-xs">
-            <dt class="text-muted-foreground">{{ t("workbench.system.os") }}</dt>
-            <dd class="truncate" :title="osName ?? undefined">{{ osName ?? "-" }}</dd>
-
-            <dt class="text-muted-foreground">{{ t("workbench.system.hostname") }}</dt>
-            <dd class="truncate font-mono">{{ monitor.sample?.hostname ?? "-" }}</dd>
-
-            <dt class="text-muted-foreground">{{ t("workbench.system.address") }}</dt>
-            <dd class="truncate font-mono">{{ sessionEndpoint(session, t) }}</dd>
-          </dl>
-
-          <!--
-            The three readings, in the shape the monitor panel draws them: label, bar, percentage.
-            The bar and the percentage are the same number, so a row without one has neither.
-          -->
-          <div class="mt-2.5 space-y-1.5 border-t border-border pt-2 text-xs">
-            <div class="flex items-center gap-2" :title="t('monitor.cpuHint')">
-              <span class="w-16 shrink-0 text-muted-foreground">{{ t("workbench.system.cpu") }}</span>
-              <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-                <span
-                  class="block h-full rounded-sm bg-primary/70"
-                  :style="{ width: `${Math.min(Math.max(monitor.cpuPercent ?? 0, 0), 100)}%` }"
-                />
-              </span>
-              <span class="w-10 shrink-0 text-right font-mono">{{ percent(monitor.cpuPercent) }}</span>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <span class="w-16 shrink-0 text-muted-foreground">{{ t("workbench.system.memory") }}</span>
-              <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-                <span
-                  class="block h-full rounded-sm bg-primary/70"
-                  :style="{ width: `${Math.min(Math.max(memoryPercent ?? 0, 0), 100)}%` }"
-                />
-              </span>
-              <span class="w-10 shrink-0 text-right font-mono">{{ percent(memoryPercent) }}</span>
-              <span class="w-28 shrink-0 truncate text-right font-mono text-muted-foreground">
-                {{ memoryText ?? "-" }}
-              </span>
-            </div>
-          </div>
-
-          <div class="mt-1.5 space-y-1 border-t border-border pt-2 text-xs">
-            <div class="flex items-center gap-2">
-              <HardDrive :size="12" class="shrink-0 text-muted-foreground" />
-              <span class="w-14 shrink-0 text-muted-foreground">{{ t("workbench.system.disks") }}</span>
-              <span
-                v-if="!live || (monitor.sample?.disks.length ?? 0) === 0"
-                class="min-w-0 flex-1 text-right font-mono"
-              >
-                {{ !live ? "-" : t("monitor.disks.empty") }}
-              </span>
-            </div>
-            <div
-              v-for="disk in monitor.sample?.disks ?? []"
-              :key="`${disk.filesystem}:${disk.mountPoint}`"
-              class="flex items-center gap-2 pl-[18px]"
-              :title="disk.filesystem"
-            >
-              <span class="min-w-0 flex-1 truncate font-mono">{{ disk.mountPoint }}</span>
-              <span class="shrink-0 font-mono text-muted-foreground">
-                {{ formatSize(disk.availableBytes) }}/{{ formatSize(disk.sizeBytes) }}
-              </span>
-              <span class="w-10 shrink-0 text-right font-mono">{{ percent(diskUsage(disk)) }}</span>
-            </div>
-            <p v-if="!live" class="pl-[18px] text-[10px] text-muted-foreground">
-              {{ t("workbench.system.waiting") }}
-            </p>
-          </div>
-        </section>
-
-        <!--
-          The file area's entries: the session's own browser, and where it has been. Both open the
-          browser the session already has — a path here is a place to be, not another connection.
-        -->
-        <section class="rounded-lg border border-border bg-card px-3 py-2.5" data-workbench-files>
-          <h3 class="mb-2 text-xs font-medium">{{ t("workbench.files.title") }}</h3>
-          <button
-            type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-accent"
-            @click="openFiles()"
-          >
-            <House :size="13" class="shrink-0 text-muted-foreground" />
-            {{ t("workbench.files.home") }}
-            <ExternalLink :size="11" class="ml-auto shrink-0 text-muted-foreground" />
-          </button>
-
-          <p class="mt-2 px-2 text-[10px] tracking-wide text-muted-foreground uppercase">
-            {{ t("workbench.files.recent") }}
-          </p>
-          <button
-            v-for="path in recentPaths"
-            :key="path"
-            type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent"
-            :title="path"
-            @click="openFiles(path)"
-          >
-            <Folder :size="13" class="shrink-0 text-muted-foreground" />
-            <span class="min-w-0 flex-1 truncate font-mono">{{ path }}</span>
-          </button>
-          <p v-if="recentPaths.length === 0" class="px-2 py-1 text-[11px] text-muted-foreground">
-            {{ t("workbench.files.recentEmpty") }}
-          </p>
-        </section>
-
-        <!--
-          The session card, and the entries: every one of them uses the connection this session has
-          or asks for one in a shape the session already opens in. None of them open anything the
-          session does not already have a door for.
-        -->
-        <section class="rounded-lg border border-border bg-card px-3 py-2.5" data-workbench-session>
-          <header class="mb-2 flex items-center gap-2">
-            <h3 class="text-xs font-medium">{{ t("workbench.session.title") }}</h3>
-            <span
-              class="ml-auto flex items-center gap-1.5 text-[11px]"
-              :class="connected ? 'text-success' : 'text-muted-foreground'"
-            >
-              <CircleAlert v-if="!connected" :size="12" class="text-warning" />
-              {{ connected ? t("workbench.session.connected") : t("workbench.session.disconnected") }}
-            </span>
-          </header>
-
-          <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-1 text-xs">
-            <dt class="text-muted-foreground">{{ t("workbench.session.address") }}</dt>
-            <dd class="truncate font-mono">{{ session.user }}@{{ session.host }}:{{ session.port }}</dd>
-          </dl>
-
-          <div class="mt-2.5 flex flex-wrap gap-1.5 border-t border-border pt-2.5">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs transition-colors hover:bg-accent"
-              @click="openTerminal()"
-            >
-              <Terminal :size="13" />
-              {{ t("workbench.entry.terminal") }}
-            </button>
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs transition-colors hover:bg-accent"
-              @click="openFiles()"
-            >
-              <Folder :size="13" />
-              {{ t("workbench.entry.files") }}
-            </button>
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs transition-colors hover:bg-accent"
-              @click="openMonitor()"
-            >
-              <ListTree :size="13" />
-              {{ t("workbench.entry.monitor") }}
-            </button>
-          </div>
-        </section>
-
-        <!--
-          The power actions, behind the same plain confirmation every destructive action here uses:
-          the title is the action, the message is the consequence, and the button is the verb again.
-        -->
-        <section class="rounded-lg border border-border bg-card px-3 py-2.5" data-workbench-power>
-          <h3 class="mb-2 text-xs font-medium">{{ t("workbench.power.title") }}</h3>
-          <div class="flex gap-1.5">
-            <button
-              type="button"
-              :disabled="!connected"
-              class="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-              @click="confirming = 'reboot'"
-            >
-              <RotateCw :size="13" />
-              {{ t("workbench.power.reboot") }}
-            </button>
-            <button
-              type="button"
-              :disabled="!connected"
-              class="flex items-center gap-1.5 rounded-md border border-destructive/50 px-2.5 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-              @click="confirming = 'shutdown'"
-            >
-              <Power :size="13" />
-              {{ t("workbench.power.shutdown") }}
-            </button>
-          </div>
-        </section>
+  <section
+    class="flex min-h-0 flex-1 flex-col overflow-hidden"
+    :class="wallpaper === undefined ? 'bg-background' : undefined"
+    :style="wallpaperStyle"
+  >
+    <!--
+      The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
+      clears the selection, because on a desktop that is what clicking nowhere means; an icon stops
+      the click on its way up, because selecting it is not clicking nowhere.
+    -->
+    <div
+      data-workbench-desktop
+      class="min-h-0 flex-1 overflow-y-auto"
+      @click="clearSelection()"
+      @contextmenu="openDesktopMenu"
+    >
+      <div
+        class="grid max-w-full grid-cols-[repeat(auto-fill,6rem)] content-start justify-start gap-1 p-3"
+        data-workbench-icons
+      >
+        <button
+          v-for="icon in icons"
+          :key="icon.id"
+          type="button"
+          data-workbench-icon
+          :data-icon-id="icon.id"
+          :disabled="icon.disabled"
+          :title="icon.disabled ? t('workbench.desktop.trashPlaceholder') : undefined"
+          class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors"
+          :class="
+            selectedId === icon.id
+              ? 'border-border/60 bg-accent text-foreground'
+              : 'border-transparent text-foreground hover:bg-accent/50'
+          "
+          @click.stop="select(icon)"
+          @dblclick.stop="openIcon(icon)"
+          @keydown.enter.prevent="openIcon(icon)"
+          @contextmenu.stop="openIconMenu($event, icon)"
+        >
+          <component :is="icon.icon" :size="28" class="shrink-0" :stroke-width="1.5" />
+          <span class="w-full truncate text-center leading-tight">{{ icon.label }}</span>
+        </button>
       </div>
     </div>
+
+    <!--
+      The taskbar: the tabs this session has open, one click each, and the session's power actions
+      at the far end — the entry buttons the first release drew on cards, gathered where a desktop
+      keeps its lasting controls.
+    -->
+    <footer
+      data-workbench-taskbar
+      class="flex shrink-0 items-center gap-1 border-t border-border bg-card px-2 py-1 select-none"
+    >
+      <button
+        v-for="entry in taskbarEntries"
+        :key="entry.id"
+        type="button"
+        data-workbench-taskbar-entry
+        :data-tab-id="entry.id"
+        class="flex max-w-40 shrink items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors"
+        :class="
+          entry.id === terminals.activeTabId
+            ? 'bg-accent text-foreground'
+            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+        "
+        :title="entry.label"
+        @click="terminals.activateTab(entry.id)"
+      >
+        <component :is="entry.icon" :size="12" class="shrink-0" />
+        <span class="truncate">{{ entry.label }}</span>
+      </button>
+
+      <span class="min-w-0 flex-1"></span>
+
+      <div class="flex shrink-0 items-center gap-1 border-l border-border pl-2" data-workbench-power>
+        <button
+          type="button"
+          :disabled="!connected"
+          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          @click="confirming = 'reboot'"
+        >
+          <RotateCw :size="12" />
+          {{ t("workbench.power.reboot") }}
+        </button>
+        <button
+          type="button"
+          :disabled="!connected"
+          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          @click="confirming = 'shutdown'"
+        >
+          <Power :size="12" />
+          {{ t("workbench.power.shutdown") }}
+        </button>
+      </div>
+    </footer>
+
+    <!--
+      The shortcut dialog: one field, one path. The rules the input follows live with the shortcuts
+      themselves (`lib/workbench/desktopIcons`), and the dialog only refuses to send what they would
+      reject — the confirm button is out of reach while the draft is not a path.
+    -->
+    <DialogRoot :open="creating" @update:open="(value: boolean) => (creating = value)">
+      <DialogPortal>
+        <DialogOverlay class="fixed inset-0 z-50 bg-overlay" />
+        <DialogContent
+          class="fixed top-1/2 left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-xl select-none focus:outline-none"
+        >
+          <div class="px-4 pt-4">
+            <DialogTitle class="text-sm font-medium">{{ t("workbench.desktop.shortcut.title") }}</DialogTitle>
+            <DialogDescription class="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {{ t("workbench.desktop.shortcut.message") }}
+            </DialogDescription>
+            <input
+              v-model="draftPath"
+              type="text"
+              spellcheck="false"
+              class="mt-3 w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs focus:outline-none"
+              :aria-label="t('workbench.desktop.shortcut.title')"
+              :placeholder="t('workbench.desktop.shortcut.placeholder')"
+              @keydown.enter.prevent="createShortcut()"
+            />
+            <!-- Said only when it is true: a draft nobody has typed yet is not an error. -->
+            <p v-if="!draftValid && draftPath.trim() !== ''" class="mt-1.5 text-[11px] text-destructive">
+              {{ t("workbench.desktop.shortcut.invalid") }}
+            </p>
+          </div>
+          <footer
+            class="mt-4 flex flex-col-reverse gap-2 rounded-b-lg border-t border-border bg-muted/40 px-4 py-3 sm:flex-row sm:justify-end"
+          >
+            <button
+              type="button"
+              class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent"
+              @click="cancelCreateShortcut()"
+            >
+              {{ t("common.action.cancel") }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="!draftValid"
+              @click="createShortcut()"
+            >
+              {{ t("workbench.desktop.shortcut.create") }}
+            </button>
+          </footer>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <ConfirmDialog
       :open="confirming !== null"

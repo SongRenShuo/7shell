@@ -1,11 +1,13 @@
 /**
- * The workbench pane, as a person meets it: what the cards say about the machine, where the
- * entries lead, and what answering the power question does.
+ * The workbench pane, as a person meets it: a desktop with icons, a right-click menu where the
+ * thing under the pointer can answer, a taskbar of this session's tabs, and the one question the
+ * desktop still asks before the machine does what it is told.
  *
- * The stores' suites already say what opening and closing the tabs behind these entries does. What
- * can only be seen here is the wiring — that a reading the host did not report is drawn as a dash
- * rather than a zero, that the entries carry the path they were asked for, and that the power
- * action travels with the acknowledgement the confirmation is.
+ * The stores' suites already say what opening and closing the tabs behind these doors does, and the
+ * ContextMenu component's own suite says how a menu is drawn. What can only be seen here is the
+ * wiring — that the icons are doors and not pages, that a shortcut is remembered where shortcuts
+ * live, that the taskbar mirrors the session's tabs, and that the power action travels with the
+ * acknowledgement the confirmation is.
  */
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
@@ -13,9 +15,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/runtime", () => ({ isDesktopRuntime: vi.fn(() => true) }));
 vi.mock("@/lib/backend/tauri", () => ({
-  monitorSample: vi.fn(async () => {
-    throw new Error("no sample was asked for");
-  }),
   sessionOpen: vi.fn(),
   sessionSystem: vi.fn(),
   filesOpen: vi.fn(),
@@ -33,12 +32,15 @@ vi.mock("@/lib/backend/tauri", () => ({
 
 import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import { useToast } from "@/composables/useToast";
+import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
 import { filesOpen, sessionOpen, workbenchPower } from "@/lib/backend/tauri";
-import { writeSystemCache } from "@/lib/system/cache";
-import { writeRecentPaths, WORKBENCH_RECENT_PATHS_KEY } from "@/lib/workbench/recentPaths";
-import { useFilesStore } from "@/stores/files";
-import { useMonitorStore } from "@/stores/monitor";
+import {
+  readDesktopShortcuts,
+  writeDesktopShortcuts,
+  WORKBENCH_DESKTOP_SHORTCUTS_KEY,
+  type DesktopShortcut,
+} from "@/lib/workbench/desktopIcons";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
@@ -46,7 +48,7 @@ const sessionOpenMock = vi.mocked(sessionOpen);
 const filesOpenMock = vi.mocked(filesOpen);
 const workbenchPowerMock = vi.mocked(workbenchPower);
 
-/** A file browser that opened, for the entries that lead to one. */
+/** A file browser that opened, for the doors that lead to one. */
 function filesOpened(path = "/root") {
   return { kind: "opened", handle: "f1", sessionId: desk.id, listing: { path, entries: [] }, packed: true } as const;
 }
@@ -70,7 +72,7 @@ let host: HTMLDivElement;
 let app: App | undefined;
 
 /** Mounts the pane over a workbench tab whose connection is up, or as failed as the case needs. */
-async function render(session: Session = desk, handle: string | null = "w1", active = false): Promise<void> {
+async function render(session: Session = desk, handle: string | null = "w1", active = true): Promise<void> {
   const terminals = useTerminalsStore();
   terminals.tabs = [{ kind: "workbench", id: "tab-workbench", session, handle, failure: null }];
   terminals.openedOrder = ["tab-workbench"];
@@ -87,13 +89,51 @@ async function render(session: Session = desk, handle: string | null = "w1", act
   await nextTick();
 }
 
-/** The one button in the pane whose text is given, pressed the way a person presses it. */
-function button(label: string): HTMLElement {
-  const found = [...host.querySelectorAll<HTMLElement>("button")].find((entry) => entry.textContent?.trim() === label);
+/** Every desktop icon, in the order the grid draws them. */
+function icons(): HTMLElement[] {
+  return [...host.querySelectorAll<HTMLElement>("[data-workbench-icon]")];
+}
+
+function iconByLabel(label: string): HTMLElement {
+  const found = icons().find((entry) => entry.textContent?.trim() === label);
   if (!found) {
-    throw new Error(`the pane has no button saying ${label}`);
+    throw new Error(`the desktop has no icon saying ${label}`);
   }
   return found;
+}
+
+function taskbarEntries(): HTMLElement[] {
+  return [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")];
+}
+
+/** The context menu the pane last opened, read where the composable keeps it. */
+function lastMenu(): ReturnType<typeof useContextMenu> {
+  return useContextMenu();
+}
+
+/** Runs the one entry of the open menu whose id is given, the way a click on its row would. */
+async function runMenuEntry(menu: ReturnType<typeof useContextMenu>, id: string): Promise<void> {
+  const entry = menu.entries.value.find((candidate) => candidate.kind === "action" && candidate.id === id);
+  if (!entry || entry.kind !== "action") {
+    throw new Error(`the menu has no entry called ${id}`);
+  }
+  entry.run();
+  await nextTick();
+}
+
+/** The one button in a dialog whose text is given, pressed the way a person presses it. */
+function dialogButton(label: string): HTMLElement {
+  const found = [...document.body.querySelectorAll<HTMLElement>("button")].find(
+    (entry) => entry.textContent?.trim() === label,
+  );
+  if (!found) {
+    throw new Error(`no dialog button says ${label}`);
+  }
+  return found;
+}
+
+function fire(element: HTMLElement, type: string): void {
+  element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
 }
 
 beforeEach(() => {
@@ -101,113 +141,77 @@ beforeEach(() => {
   host = document.body.appendChild(document.createElement("div"));
   localStorage.clear();
   sessionOpenMock.mockReset();
+  filesOpenMock.mockReset();
   workbenchPowerMock.mockReset();
   useToast().visible.value = false;
+  useContextMenu().closeMenu();
 });
 
 afterEach(() => {
   app?.unmount();
   host.remove();
   localStorage.clear();
+  useContextMenu().closeMenu();
 });
 
-describe("the workbench pane", () => {
-  it("draws the machine's mark and address on the system card", async () => {
-    writeSystemCache({
-      "root@lab.example.test:22": {
-        name: "Ubuntu 24.04 LTS",
-        kernel: "Linux",
-        distro: "ubuntu",
-        distroLike: ["debian"],
-      },
-    });
-
+describe("the workbench desktop", () => {
+  it("lays the fixed doors out from the top left, and the trash among them is only a placeholder", async () => {
     await render();
 
-    expect(host.textContent).toContain("Ubuntu 24.04 LTS");
-    expect(host.textContent).toContain("root@lab.example.test:22");
-    expect(host.querySelector(".os-mark"), "the distribution's own mark").not.toBeNull();
+    const labels = icons().map((entry) => entry.textContent?.trim());
+    expect(labels).toEqual(["Home", "Terminal", "Monitor", "System information", "Trash"]);
+
+    const trash = iconByLabel("Trash");
+    expect((trash as HTMLButtonElement).disabled, "a placeholder is not openable").toBe(true);
+    expect(trash.getAttribute("title")).toContain("later release");
   });
 
-  it("draws a dash, never a zero, for a reading the host has not reported", async () => {
-    await render();
+  it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {
+    await render(deskWithWallpaper);
+    expect(host.firstElementChild?.getAttribute("style")).toContain("linear-gradient");
 
-    // Nothing has been sampled: the CPU and memory rows say so in words, and no bar claims a value.
-    expect(host.textContent).toContain("CPU");
-    const readings = [...host.querySelectorAll("dd")].map((entry) => entry.textContent?.trim());
-    expect(readings).toContain("-");
+    app?.unmount();
+    host.remove();
+    const unknown: Session = { ...desk, workbench: { wallpaper: "something-else" } };
+    await render(unknown);
+    expect(host.firstElementChild?.getAttribute("style") ?? "").not.toContain("linear-gradient");
   });
 
-  it("draws the sample's readings when the sample is about this host", async () => {
-    const monitor = useMonitorStore();
-    monitor.sample = {
-      sampledAt: 1_700_000_000_000,
-      roundTripMs: 12,
-      hostname: "lab-1",
-      os: "Ubuntu 24.04 LTS",
-      kernel: "6.8.0-31-generic",
-      arch: "x86_64",
-      cores: 4,
-      cpuModel: { name: "test", frequencyMhz: 1, cacheKb: 1, bogomips: 1 },
-      uptimeSeconds: 60,
-      load: { one: 0.1, five: 0.1, fifteen: 0.1 },
-      cpu: {
-        totalTicks: 1000,
-        idleTicks: 800,
-        states: {
-          userTicks: 150,
-          niceTicks: 0,
-          systemTicks: 50,
-          idleTicks: 800,
-          ioWaitTicks: 0,
-          interruptTicks: 0,
-          softInterruptTicks: 0,
-          stealTicks: 0,
-        },
-      },
-      memory: {
-        totalBytes: 8_000_000_000,
-        availableBytes: 4_000_000_000,
-        swapTotalBytes: 2_000_000_000,
-        swapFreeBytes: 2_000_000_000,
-      },
-      network: [],
-      disks: [{ mountPoint: "/", filesystem: "ext4", sizeBytes: 100_000_000_000, availableBytes: 40_000_000_000 }],
-      processes: [],
-    };
-    monitor.sampleSessionId = desk.id;
-
-    await render();
-
-    expect(host.textContent).toContain("lab-1");
-    // Half the memory used: a number the sample actually carries, not a dash.
-    expect(host.textContent).toContain("50%");
-    expect(host.textContent).toContain("/");
-  });
-
-  it("opens the session's own file browser from the home entry, and the monitor's page from its entry", async () => {
+  it("opens the session's own file browser on a double-click of Home, not on a single click", async () => {
     filesOpenMock.mockResolvedValue(filesOpened());
 
     const terminals = useTerminalsStore();
     await render();
 
-    button("Home directory").click();
+    fire(iconByLabel("Home"), "click");
+    await nextTick();
+    expect(terminals.tabs, "a click selects, it does not open").toHaveLength(1);
+
+    fire(iconByLabel("Home"), "dblclick");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
     expect(
       terminals.tabs.some((tab) => tab.kind === "files"),
       "the browser is a tab of its own",
     ).toBe(true);
-
-    button("Open monitor").click();
-    await nextTick();
-    expect(
-      terminals.tabs.some((tab) => tab.kind === "inspect"),
-      "the monitor page is a tab of its own",
-    ).toBe(true);
   });
 
-  it("opens a second connection from the terminal entry, which is what asking for another terminal is", async () => {
+  it("opens the file browser onto a shortcut's path when the shortcut opens", async () => {
+    filesOpenMock.mockResolvedValue(filesOpened("/srv/data"));
+
+    const terminals = useTerminalsStore();
+    writeDesktopShortcuts({ [desk.id]: [{ id: "s1", path: "/srv/data" }] });
+    await render();
+
+    fire(iconByLabel("data"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const filesTab = terminals.tabs.find((tab) => tab.kind === "files");
+    expect(filesTab && "initialPath" in filesTab ? filesTab.initialPath : undefined).toBe("/srv/data");
+  });
+
+  it("opens a second connection from the Terminal icon, which is what asking for another terminal is", async () => {
     sessionOpenMock.mockResolvedValue({
       kind: "opened",
       handle: "t1",
@@ -219,73 +223,234 @@ describe("the workbench pane", () => {
     const terminals = useTerminalsStore();
     await render();
 
-    button("Open terminal").click();
+    fire(iconByLabel("Terminal"), "dblclick");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
     expect(sessionOpenMock).toHaveBeenCalledWith(desk.id);
     expect(terminals.tabs).toHaveLength(2);
     const second = terminals.tabs[1];
-    // The entry says terminal, so a terminal is what mounts — `open` would fork to another
+    // The icon says terminal, so a terminal is what mounts — `open` would fork to another
     // workbench, which is why the pane asks the store for the terminal-only path.
     expect(second?.kind).toBe("terminal");
     expect(second && "handle" in second ? second.handle : undefined).toBe("t1");
   });
 
-  it("gathers the directories the session's browser has been in, and opens them again", async () => {
-    filesOpenMock.mockResolvedValue(filesOpened("/var/log"));
-    const files = useFilesStore();
-    files.browsers = {
-      f1: {
-        handle: "f1",
-        sessionId: desk.id,
-        path: "/var/log",
-        home: "/root",
-        shellPath: "/root",
-        entries: [],
-        loading: false,
-        failure: null,
-      },
-    };
-
+  it("opens the monitor's system page from both monitor doors, as the tab that is already there", async () => {
+    const terminals = useTerminalsStore();
     await render();
+
+    fire(iconByLabel("Monitor"), "dblclick");
     await nextTick();
+    expect(
+      terminals.tabs.filter((tab) => tab.kind === "inspect"),
+      "the system page is a tab of its own",
+    ).toHaveLength(1);
 
-    // The visit is remembered in the pane's own storage, keyed by the session it belongs to.
-    const stored = JSON.parse(localStorage.getItem(WORKBENCH_RECENT_PATHS_KEY) ?? "{}") as Record<string, string[]>;
-    expect(stored[desk.id]).toContain("/var/log");
+    fire(iconByLabel("System information"), "dblclick");
+    await nextTick();
+    expect(
+      terminals.tabs.filter((tab) => tab.kind === "inspect"),
+      "a second ask does not stack a second copy",
+    ).toHaveLength(1);
+  });
 
-    button("/var/log").click();
+  it("opens the selected icon with the Enter key, the way a desktop's keyboard works", async () => {
+    filesOpenMock.mockResolvedValue(filesOpened());
+
+    const terminals = useTerminalsStore();
+    await render();
+
+    fire(iconByLabel("Home"), "click");
+    await nextTick();
+    iconByLabel("Home").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
-    expect(filesOpenMock, "the browser opens on the session's own SFTP side").toHaveBeenCalledWith(desk.id);
-    const filesTab = useTerminalsStore().tabs.find((tab) => tab.kind === "files");
-    expect(filesTab && "initialPath" in filesTab ? filesTab.initialPath : undefined).toBe("/var/log");
+    expect(terminals.tabs.some((tab) => tab.kind === "files")).toBe(true);
   });
 
-  it("offers a remembered path from an earlier run, and opens the browser onto it", async () => {
-    writeRecentPaths({ [desk.id]: ["/srv"] });
+  it("offers what the desktop can do from its own right-click, and refresh rereads storage", async () => {
+    writeDesktopShortcuts({ [desk.id]: [{ id: "s1", path: "/srv/a" }] });
+    await render();
+    expect(iconByLabel("a")).toBeDefined();
 
+    // Somebody else — an earlier close, another pane — changed what storage holds since the desktop
+    // was drawn; refresh is how the desktop catches up.
+    writeDesktopShortcuts({
+      [desk.id]: [
+        { id: "s1", path: "/srv/a" },
+        { id: "s2", path: "/srv/b" },
+      ],
+    });
+
+    const menu = lastMenu();
+    fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+    await nextTick();
+    expect(menu.visible.value, "the desktop's own menu is up").toBe(true);
+    expect(menu.title.value.key).toBe("workbench.desktop.title");
+
+    const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(ids).toContain("desktop-refresh");
+    expect(ids).toContain("desktop-new-shortcut");
+    const settings = menu.entries.value.find((entry) => entry.kind === "action" && entry.id === "desktop-settings");
+    expect(settings && settings.kind === "action" ? settings.disabled : undefined, "settings is a placeholder").toBe(
+      true,
+    );
+
+    await runMenuEntry(menu, "desktop-refresh");
+    expect(iconByLabel("b"), "the shortcut added elsewhere is now on the desktop").toBeDefined();
+  });
+
+  it("asks for a path, remembers the shortcut, and refuses to send a draft that is not a path", async () => {
+    const terminals = useTerminalsStore();
     await render();
 
-    expect(host.textContent).toContain("/srv");
+    const menu = lastMenu();
+    fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+    await runMenuEntry(menu, "desktop-new-shortcut");
+    await nextTick();
+
+    const field = document.body.querySelector<HTMLInputElement>("input");
+    expect(field, "the dialog has one field").not.toBeNull();
+
+    // A control character is refused before it is remembered, and the confirm button stays out
+    // of reach while the draft is not a path. (A newline never reaches this check: an input of
+    // this kind sanitizes those away, which is the browser's own rule, not ours.)
+    field!.value = "/srv/a\tb";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    expect(dialogButton("Create shortcut").getAttribute("disabled")).not.toBeNull();
+
+    field!.value = "/srv/data";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    dialogButton("Create shortcut").click();
+    await nextTick();
+
+    expect(iconByLabel("data"), "the icon is on the desktop").toBeDefined();
+    expect(terminals.tabs, "creating a shortcut opens nothing").toHaveLength(1);
+    const stored = readDesktopShortcuts();
+    expect(stored[desk.id]?.map((shortcut) => shortcut.path)).toEqual(["/srv/data"]);
+    expect(localStorage.getItem(WORKBENCH_DESKTOP_SHORTCUTS_KEY), "and it is written down").toContain("/srv/data");
+  });
+
+  it("adds nothing for a path already on the desktop, instead of stacking a second icon", async () => {
+    await render();
+
+    const menu = lastMenu();
+    fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+    await runMenuEntry(menu, "desktop-new-shortcut");
+    await nextTick();
+
+    const field = document.body.querySelector<HTMLInputElement>("input") as HTMLInputElement;
+    field.value = "/srv/data";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    dialogButton("Create shortcut").click();
+    await nextTick();
+
+    fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+    await runMenuEntry(menu, "desktop-new-shortcut");
+    await nextTick();
+    const fieldAgain = document.body.querySelector<HTMLInputElement>("input") as HTMLInputElement;
+    fieldAgain.value = "/srv/data";
+    fieldAgain.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    dialogButton("Create shortcut").click();
+    await nextTick();
+
+    expect(icons().filter((entry) => entry.textContent?.trim() === "data")).toHaveLength(1);
+  });
+
+  it("offers a shortcut's removal on its own right-click, and takes it off the desktop", async () => {
+    const stored: Record<string, DesktopShortcut[]> = { [desk.id]: [{ id: "s1", path: "/srv/data" }] };
+    writeDesktopShortcuts(stored);
+    await render();
+
+    const shortcut = iconByLabel("data");
+    fire(shortcut, "contextmenu");
+    await nextTick();
+
+    const menu = lastMenu();
+    expect(menu.visible.value).toBe(true);
+    const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(ids, "a shortcut can be opened and removed").toEqual(
+      expect.arrayContaining(["icon-open", "icon-remove", "icon-properties"]),
+    );
+
+    await runMenuEntry(menu, "icon-remove");
+    expect(
+      icons().some((entry) => entry.textContent?.trim() === "data"),
+      "the icon is gone",
+    ).toBe(false);
+    expect(readDesktopShortcuts()[desk.id], "and so is its memory").toBeUndefined();
+  });
+
+  it("offers a system icon its door and its properties, but no removal", async () => {
+    await render();
+
+    const menu = lastMenu();
+    fire(iconByLabel("Home"), "contextmenu");
+    await nextTick();
+
+    const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(ids).toContain("icon-open");
+    expect(ids, "a door every desktop has is not somebody's to remove").not.toContain("icon-remove");
+    const properties = menu.entries.value.find((entry) => entry.kind === "action" && entry.id === "icon-properties");
+    expect(properties && properties.kind === "action" ? properties.disabled : undefined).toBe(true);
+  });
+
+  it("mirrors the session's tabs in the taskbar, and switches to the one that is clicked", async () => {
+    sessionOpenMock.mockResolvedValue({
+      kind: "opened",
+      handle: "t1",
+      sessionId: desk.id,
+      tunnels: [],
+      tunnelFailures: [],
+    });
+    filesOpenMock.mockResolvedValue(filesOpened());
+
+    const terminals = useTerminalsStore();
+    await render();
+
+    expect(taskbarEntries(), "an empty session has an empty bar").toHaveLength(0);
+
+    fire(iconByLabel("Terminal"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    fire(iconByLabel("Home"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const entries = taskbarEntries();
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.textContent?.trim())).toEqual(["lab desk", "lab desk"]);
+
+    const filesId = terminals.tabs.find((tab) => tab.kind === "files")?.id ?? "";
+    const filesEntry = entries.find((entry) => entry.dataset.tabId === filesId) as HTMLElement;
+    expect(filesEntry.className, "the tab on screen is the one the bar lights up").toContain("bg-accent");
+
+    // Going to the terminal's tab: the bar asks the store, which validates what it is handed.
+    const terminalId = terminals.tabs.find((tab) => tab.kind === "terminal")?.id ?? "";
+    (entries.find((entry) => entry.dataset.tabId === terminalId) as HTMLElement).click();
+    await nextTick();
+    expect(terminals.activeTabId).toBe(terminalId);
   });
 
   it("asks about a shutdown before sending anything, and sends the acknowledgement with it", async () => {
     workbenchPowerMock.mockResolvedValue({ issued: true });
 
     await render();
-    button("Shut down").click();
+    [...host.querySelectorAll<HTMLElement>("button")]
+      .find((entry) => entry.textContent?.trim() === "Shut down")!
+      .click();
     await nextTick();
 
     expect(workbenchPowerMock, "a question first, and no command behind it").not.toHaveBeenCalled();
     // The confirmation is a dialog on the portal, outside the pane's own host element.
-    const confirm = [...document.body.querySelectorAll<HTMLElement>("button")].find(
-      (entry) => entry.textContent?.trim() === "Shut down machine",
-    );
-    expect(confirm, "the question names the action on its button").toBeDefined();
-    confirm?.click();
+    const confirm = dialogButton("Shut down machine");
+    confirm.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
@@ -304,12 +469,11 @@ describe("the workbench pane", () => {
     });
 
     await render();
-    button("Shut down").click();
+    [...host.querySelectorAll<HTMLElement>("button")]
+      .find((entry) => entry.textContent?.trim() === "Shut down")!
+      .click();
     await nextTick();
-    const confirm = [...document.body.querySelectorAll<HTMLElement>("button")].find(
-      (entry) => entry.textContent?.trim() === "Shut down machine",
-    );
-    confirm?.click();
+    dialogButton("Shut down machine").click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
@@ -317,22 +481,16 @@ describe("the workbench pane", () => {
     expect(useToast().tier.value).toBe("failure");
   });
 
-  it("leaves the power buttons out of reach while there is no connection to send through", async () => {
+  it("leaves the power actions out of reach while there is no connection to send through", async () => {
     await render(desk, null);
 
-    expect((button("Shut down") as HTMLButtonElement).disabled).toBe(true);
-    expect((button("Restart") as HTMLButtonElement).disabled).toBe(true);
-    expect(host.textContent).toContain("Not connected");
-  });
-
-  it("draws the backdrop the session chose, and the default when it chose nothing this build knows", async () => {
-    await render(deskWithWallpaper);
-    expect(host.firstElementChild?.getAttribute("style")).toContain("linear-gradient");
-
-    app?.unmount();
-    host.remove();
-    const unknown: Session = { ...desk, workbench: { wallpaper: "something-else" } };
-    await render(unknown);
-    expect(host.firstElementChild?.getAttribute("style") ?? "").not.toContain("linear-gradient");
+    const shutdown = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (entry) => entry.textContent?.trim() === "Shut down",
+    );
+    const restart = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (entry) => entry.textContent?.trim() === "Restart",
+    );
+    expect(shutdown?.disabled).toBe(true);
+    expect(restart?.disabled).toBe(true);
   });
 });

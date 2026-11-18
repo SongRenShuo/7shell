@@ -5,34 +5,31 @@
       "ended": "The machine is not connected. Connecting again opens the workbench with it.",
       "retry": "Connect again"
     },
-    "system": {
-      "title": "System",
-      "os": "Operating system",
-      "address": "Address",
-      "hostname": "Hostname",
-      "cpu": "CPU",
-      "memory": "Memory",
-      "disks": "Disks",
-      "waiting": "Waiting for the first reading…"
-    },
-    "files": {
-      "title": "Files",
-      "home": "Home directory",
-      "recent": "Recently opened",
-      "recentEmpty": "Directories this session's browser has been in gather here."
-    },
-    "session": {
-      "title": "Session",
-      "address": "Address",
-      "status": "Status",
-      "connected": "Connected",
-      "disconnected": "Not connected"
-    },
-    "entry": {
-      "title": "Open",
-      "terminal": "Open terminal",
-      "files": "Open files",
-      "monitor": "Open monitor"
+    "desktop": {
+      "title": "Desktop",
+      "icons": {
+        "home": "Home",
+        "terminal": "Terminal",
+        "monitor": "Monitor",
+        "systemInfo": "System information",
+        "trash": "Trash"
+      },
+      "trashPlaceholder": "Trash will be available in a later release.",
+      "menu": {
+        "open": "Open",
+        "remove": "Remove",
+        "properties": "Properties",
+        "refresh": "Refresh",
+        "newShortcut": "New shortcut",
+        "settings": "Desktop settings"
+      },
+      "shortcut": {
+        "title": "New shortcut",
+        "message": "A directory path on this machine. The shortcut opens the file browser there.",
+        "placeholder": "/home/user/projects",
+        "invalid": "Type a directory path. It cannot be empty and cannot carry control characters.",
+        "create": "Create shortcut"
+      }
     },
     "power": {
       "title": "Power",
