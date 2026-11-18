@@ -148,6 +148,15 @@
         "taskbarAlignLeft": "Left",
         "taskbarAlignCenter": "Center",
         "widgets": "Desktop widgets",
+        "wallpaperColor": "Backdrop colour",
+        "wallpaperOpacity": "Backdrop opacity",
+        "wallpaperImage": "Custom picture",
+        "wallpaperImageRemove": "Remove picture",
+        "wallpaperFill": {
+          "cover": "Fill",
+          "contain": "Fit"
+        },
+        "imageFailed": "The picture could not be read.",
         "saved": "Backdrop saved."
       },
       "widgets": {
