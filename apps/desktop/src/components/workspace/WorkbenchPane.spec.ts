@@ -47,6 +47,7 @@ import {
   WORKBENCH_DESKTOP_SHORTCUTS_KEY,
   type DesktopShortcut,
 } from "@/lib/workbench/desktopIcons";
+import { iconOrderKey } from "@/lib/workbench/iconOrder";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
 
@@ -103,6 +104,14 @@ function icons(): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>("[data-workbench-icon]")];
 }
 
+/** Every icon's label, in the order the grid draws them. */
+function iconLabels(): (string | undefined)[] {
+  return icons().map((entry) => entry.textContent?.trim());
+}
+
+/** The order this desktop draws before anybody arranges it. */
+const DEFAULT_ICON_LABELS = ["Home", "Terminal", "Monitor", "System information", "System panel", "Trash"];
+
 function iconByLabel(label: string): HTMLElement {
   const found = icons().find((entry) => entry.textContent?.trim() === label);
   if (!found) {
@@ -143,6 +152,28 @@ function dialogButton(label: string): HTMLElement {
 
 function fire(element: HTMLElement, type: string): void {
   element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+}
+
+/**
+ * Drags one icon onto another — or onto the wallpaper, when `onto` is left out — the way a browser
+ * does it: dragstart on the source, dragover and drop on the target, then dragend on the source.
+ *
+ * The events are plain `Event`s: what this pane reads from a drag is which icon was picked up and
+ * which one was dropped on, and the transfer itself is only the browser's own carriage.
+ */
+function drag(from: HTMLElement, onto: HTMLElement | null = null): void {
+  const target = onto ?? (host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement);
+  from.dispatchEvent(new Event("dragstart", { bubbles: true }));
+  target.dispatchEvent(new Event("dragover", { bubbles: true, cancelable: true }));
+  target.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
+  from.dispatchEvent(new Event("dragend", { bubbles: true }));
+}
+
+/** Takes the pane down the way closing its tab does, leaving storage exactly as it is. */
+function unmount(): void {
+  app?.unmount();
+  app = undefined;
+  host.remove();
 }
 
 beforeEach(() => {
@@ -448,6 +479,89 @@ describe("the workbench desktop", () => {
     expect(iconByLabel("b"), "the shortcut added elsewhere is now on the desktop").toBeDefined();
   });
 
+  it("moves an icon onto another by dragging, and keeps the arrangement for the next visit", async () => {
+    const terminals = useTerminalsStore();
+    await render();
+
+    drag(iconByLabel("Trash"), iconByLabel("Home"));
+    await nextTick();
+
+    const arranged = ["Trash", "Home", "Terminal", "Monitor", "System information", "System panel"];
+    expect(iconLabels()).toEqual(arranged);
+    expect(terminals.tabs, "a drag opens nothing").toHaveLength(1);
+    expect(iconByLabel("Trash").className, "and it does not select what it picked up, either").not.toContain(
+      "bg-accent text-foreground",
+    );
+
+    // What storage holds is ids, not slots: the same icon stays the same entry when the list grows.
+    expect(JSON.parse(localStorage.getItem(iconOrderKey(desk.id)) ?? "null")).toEqual([
+      "system-trash",
+      "system-home",
+      "system-terminal",
+      "system-monitor",
+      "system-info",
+      "system-panel",
+    ]);
+
+    // A later visit draws the arrangement storage holds.
+    unmount();
+    await render();
+    expect(iconLabels()).toEqual(arranged);
+  });
+
+  it("moves an icon to the end when it is dropped on the wallpaper", async () => {
+    await render();
+
+    drag(iconByLabel("Home"));
+    await nextTick();
+
+    expect(iconLabels()).toEqual(["Terminal", "Monitor", "System information", "System panel", "Trash", "Home"]);
+  });
+
+  it("drops an id whose icon is gone, and puts a newly added icon at the end", async () => {
+    writeDesktopShortcuts({ [desk.id]: [{ id: "s1", path: "/srv/data" }] });
+    localStorage.setItem(iconOrderKey(desk.id), JSON.stringify(["system-trash", "system-home", "shortcut:gone"]));
+
+    await render();
+
+    expect(iconLabels()).toEqual([
+      "Trash",
+      "Home",
+      "Terminal",
+      "Monitor",
+      "System information",
+      "System panel",
+      "data",
+    ]);
+  });
+
+  it("falls back to the default order when the stored arrangement is unreadable", async () => {
+    localStorage.setItem(iconOrderKey(desk.id), "not json at all");
+    await render();
+    expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+
+    unmount();
+    localStorage.setItem(iconOrderKey(desk.id), JSON.stringify({ order: ["system-trash"] }));
+    await render();
+    expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+  });
+
+  it("puts the default order back from the desktop's menu, and forgets the arrangement", async () => {
+    localStorage.setItem(iconOrderKey(desk.id), JSON.stringify(["system-trash", "system-home"]));
+    await render();
+    expect(iconLabels()[0]).toBe("Trash");
+
+    const menu = lastMenu();
+    fire(host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement, "contextmenu");
+    await nextTick();
+    const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
+    expect(ids, "the desktop offers to put its icons back in their place").toContain("desktop-reset-layout");
+
+    await runMenuEntry(menu, "desktop-reset-layout");
+    expect(iconLabels()).toEqual(DEFAULT_ICON_LABELS);
+    expect(localStorage.getItem(iconOrderKey(desk.id)), "and storage holds no arrangement").toBeNull();
+  });
+
   it("asks for a path, remembers the shortcut, and refuses to send a draft that is not a path", async () => {
     const terminals = useTerminalsStore();
     await render();
@@ -582,6 +696,61 @@ describe("the workbench desktop", () => {
     (entries.find((entry) => entry.dataset.tabId === terminalId) as HTMLElement).click();
     await nextTick();
     expect(terminals.activeTabId).toBe(terminalId);
+  });
+
+  it("draws a clock at the far end of the taskbar, and clicking it opens the system panel", async () => {
+    systemOverviewMock.mockResolvedValue({
+      services: [],
+      disks: [],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      uptimeSeconds: 60,
+    });
+    await render();
+
+    const clock = host.querySelector<HTMLElement>("[data-workbench-clock]");
+    expect(clock, "the bar carries a clock").not.toBeNull();
+    expect(clock!.textContent, "the time is on it").toMatch(/\d{2}:\d{2}/);
+    expect(clock!.getAttribute("aria-label"), "and it is named for a reader").toBeTruthy();
+    expect(host.querySelector("[data-workbench-clock-date]")?.textContent, "the date rides beside it").not.toBe("");
+    expect(
+      [...host.querySelectorAll("[data-workbench-taskbar] button")].at(-1),
+      "the clock is the last thing on the bar",
+    ).toBe(clock);
+
+    // The trash first, so the clock's door has something to close: the two panels share the floor.
+    iconByLabel("Trash").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(host.querySelector("[data-workbench-trash]"), "the trash opened first").not.toBeNull();
+
+    clock!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(host.querySelector("[data-workbench-system]"), "the clock is a door to the system panel").not.toBeNull();
+    expect(host.querySelector("[data-workbench-trash]"), "and only one panel stands").toBeNull();
+    expect(systemOverviewMock).toHaveBeenCalledWith("w1");
+  });
+
+  it("reads the clock again on the next minute", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 10, 18, 9, 5, 0));
+      await render();
+      expect(host.querySelector("[data-workbench-clock-time]")?.textContent).toContain("09:05");
+
+      // The timers and the wall clock move together: one minute later the tick has to say so.
+      vi.advanceTimersByTime(60_000);
+      await nextTick();
+      expect(
+        host.querySelector("[data-workbench-clock-time]")?.textContent,
+        "a minute later the bar says so",
+      ).toContain("09:06");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks about a shutdown before sending anything, and sends the acknowledgement with it", async () => {

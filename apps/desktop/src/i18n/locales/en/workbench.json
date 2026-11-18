@@ -22,7 +22,11 @@
         "properties": "Properties",
         "refresh": "Refresh",
         "newShortcut": "New shortcut",
+        "resetLayout": "Reset icon layout",
         "settings": "Desktop settings"
+      },
+      "clock": {
+        "title": "Clock — open the system panel"
       },
       "shortcut": {
         "title": "New shortcut",

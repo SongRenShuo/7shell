@@ -37,6 +37,7 @@ import {
   FolderPlus,
   House,
   Info,
+  LayoutGrid,
   List,
   ListTree,
   Network,
@@ -48,7 +49,7 @@ import {
   X,
 } from "@lucide/vue";
 import type { Component } from "vue";
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
 
@@ -69,6 +70,7 @@ import {
   writeDesktopShortcuts,
   type DesktopShortcut,
 } from "@/lib/workbench/desktopIcons";
+import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import type { MenuEntry } from "@/lib/menu/types";
 import type { Session } from "@/types/session";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
@@ -92,7 +94,7 @@ const props = defineProps<{
   active: boolean;
 }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const terminals = useTerminalsStore();
 const { openMenu } = useContextMenu();
 const { toast } = useToast();
@@ -221,7 +223,101 @@ const userIcons = computed<DesktopIcon[]>(() =>
   })),
 );
 
-const icons = computed<DesktopIcon[]>(() => [...systemIcons.value, ...userIcons.value]);
+/**
+ * Every icon this desktop has, in the order it would draw them before anybody arranges them: the
+ * fixed doors first, then the shortcuts in the order they were added.
+ */
+const defaultIcons = computed<DesktopIcon[]>(() => [...systemIcons.value, ...userIcons.value]);
+
+/**
+ * The arrangement this session's desktop was left in, or null while nobody has moved anything.
+ *
+ * Read once, when the pane is drawn: an arrangement is written by this pane and by nothing else, so
+ * there is no second writer to keep up with. The ids are the icons' own — `system-…` for the fixed
+ * doors, `shortcut:<shortcutId>` for a shortcut — because an id keeps meaning the same icon when
+ * the list around it grows, while a position would not.
+ */
+const iconOrder = ref<string[] | null>(readIconOrder(session.value.id));
+
+/** The icons in the order the grid draws them: the recorded arrangement with the defaults filled in. */
+const icons = computed<DesktopIcon[]>(() => {
+  const byId = new Map(defaultIcons.value.map((icon) => [icon.id, icon]));
+  const ordered: DesktopIcon[] = [];
+  for (const id of normalizeIconOrder(
+    iconOrder.value,
+    defaultIcons.value.map((icon) => icon.id),
+  )) {
+    const icon = byId.get(id);
+    if (icon !== undefined) {
+      ordered.push(icon);
+    }
+  }
+  return ordered;
+});
+
+/** Which icon is being dragged, and which one the pointer is over — the second is for the highlight. */
+const draggingId = ref<string | null>(null);
+const dragOverId = ref<string | null>(null);
+
+/**
+ * Picks an icon up without touching the selection.
+ *
+ * A drag is not a click, and the browser suppresses the click that would normally follow one; this
+ * handler deliberately does not select what it picks up either. Somebody arranging the desktop is
+ * not asking to open anything, and a desktop that opened what a drag passed over would be one
+ * nobody dares tidy.
+ */
+function beginDrag(event: DragEvent, icon: DesktopIcon): void {
+  draggingId.value = icon.id;
+  dragOverId.value = null;
+  // A drag that carries nothing is not started at all in some engines, so the id rides along.
+  event.dataTransfer?.setData("text/plain", icon.id);
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+
+function dragOver(icon: DesktopIcon): void {
+  dragOverId.value = draggingId.value !== null && draggingId.value !== icon.id ? icon.id : null;
+}
+
+/** The wallpaper between the icons: a drop here means the end of the grid, so no icon is lit. */
+function dragOverDesktop(): void {
+  dragOverId.value = null;
+}
+
+function endDrag(): void {
+  draggingId.value = null;
+  dragOverId.value = null;
+}
+
+/**
+ * Puts the dragged icon where the drop landed, and writes the result down.
+ *
+ * Dropping onto nothing — the wallpaper between the icons — is the end of the grid, the way it is
+ * on any desktop. A drop that changes nothing writes nothing, so a mis-aimed drag does not leave an
+ * arrangement behind that is the default order spelled out.
+ */
+function dropIcon(target: DesktopIcon | null): void {
+  const from = draggingId.value;
+  endDrag();
+  if (from === null) {
+    return;
+  }
+  const current = icons.value.map((icon) => icon.id);
+  const next = moveIcon(current, from, target?.id ?? null);
+  if (next.every((id, index) => id === current[index])) {
+    return;
+  }
+  iconOrder.value = next;
+  writeIconOrder(session.value.id, next);
+}
+
+/** Puts the grid back in its default order for this session, forgetting the arrangement. */
+function resetIconOrder(): void {
+  iconOrder.value = null;
+  clearIconOrder(session.value.id);
+}
 
 /** The icon somebody has clicked, which the Enter key opens and a click on the wallpaper clears. */
 const selectedId = ref<string | null>(null);
@@ -324,8 +420,7 @@ function openIcon(icon: DesktopIcon): void {
     case "system":
       // Opening, not toggling: a desktop icon is a door, and a door that closed when somebody
       // opened it twice in one gesture is a door that looks broken. The panel's own cross closes it.
-      systemOpen.value = true;
-      trashOpen.value = false;
+      openSystemPanel();
       return;
     case "trash":
       trashOpen.value = true;
@@ -335,6 +430,18 @@ function openIcon(icon: DesktopIcon): void {
       void terminals.openFiles(session.value, icon.path);
       return;
   }
+}
+
+/**
+ * Opens the system panel over the desktop, closing the trash.
+ *
+ * The two panels share one floor — a desktop with two of them stacked would be a window manager,
+ * which this is not — so every door to one closes the other. The clock is the second door to this
+ * one: a clock on a desktop opens the machine's own panel, which is exactly what this panel is.
+ */
+function openSystemPanel(): void {
+  systemOpen.value = true;
+  trashOpen.value = false;
 }
 
 // -- the menus ---------------------------------------------------------------
@@ -347,9 +454,9 @@ function persistShortcuts(): void {
  * What the wallpaper offers when it is right-clicked.
  *
  * Refresh re-reads what storage holds — the icons are memory, not a live view of the machine, so
- * that is the whole of what refreshing can mean. The settings entry is drawn but not runnable: the
- * desktop's own settings are a later piece of this work, and a menu entry that did nothing silently
- * would be worse than one that says it is not there yet.
+ * that is the whole of what refreshing can mean. Reset layout forgets the arrangement this session
+ * was left in, which is how somebody gets the default order back without clearing storage by hand.
+ * The settings entry opens the desktop's own two choices: a backdrop and a density.
  */
 function openDesktopMenu(event: MouseEvent): void {
   openMenu(event, { key: "workbench.desktop.title" }, [
@@ -366,6 +473,13 @@ function openDesktopMenu(event: MouseEvent): void {
       labelKey: "workbench.desktop.menu.newShortcut",
       icon: FolderPlus,
       run: beginCreateShortcut,
+    },
+    {
+      kind: "action",
+      id: "desktop-reset-layout",
+      labelKey: "workbench.desktop.menu.resetLayout",
+      icon: LayoutGrid,
+      run: resetIconOrder,
     },
     { kind: "separator", id: "desktop-sep" },
     {
@@ -518,6 +632,41 @@ const taskbarEntries = computed<TaskbarEntry[]>(() =>
     .map((tab) => ({ id: tab.id, label: taskbarLabel(tab), icon: taskbarIcon(tab) })),
 );
 
+// -- the clock ---------------------------------------------------------------
+
+/**
+ * The time the taskbar shows, refreshed once a minute.
+ *
+ * One interval, started when the pane is drawn and cleared when it goes: a clock that kept ticking
+ * behind a closed tab would be this window paying for a reading nobody can see. A minute is the
+ * whole resolution of what the bar says, so nothing faster would be visible anyway.
+ */
+const now = ref(new Date());
+let clockTicker: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  clockTicker = setInterval(() => {
+    now.value = new Date();
+  }, 60_000);
+});
+
+onUnmounted(() => {
+  if (clockTicker !== undefined) {
+    clearInterval(clockTicker);
+    clockTicker = undefined;
+  }
+});
+
+/** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
+const clockTime = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { hour: "2-digit", minute: "2-digit", hour12: false }).format(now.value),
+);
+
+/** The date, shown only when the bar has room for it — the month and day a desktop clock adds. */
+const clockDate = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { month: "short", day: "numeric" }).format(now.value),
+);
+
 // -- the power actions -------------------------------------------------------
 
 const confirming = ref<"reboot" | "shutdown" | null>(null);
@@ -575,13 +724,16 @@ async function issuePower(): Promise<void> {
     <!--
       The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
       clears the selection, because on a desktop that is what clicking nowhere means; an icon stops
-      the click on its way up, because selecting it is not clicking nowhere.
+      the click on its way up, because selecting it is not clicking nowhere. A drop on the wallpaper
+      is where a dragged icon goes when it is not dropped onto another one: the end of the grid.
     -->
     <div
       data-workbench-desktop
       class="min-h-0 flex-1 overflow-y-auto"
       @click="clearSelection()"
       @contextmenu="openDesktopMenu"
+      @dragover.prevent="dragOverDesktop()"
+      @drop.prevent="dropIcon(null)"
     >
       <div
         class="grid max-w-full content-start justify-start gap-1 p-3"
@@ -597,21 +749,27 @@ async function issuePower(): Promise<void> {
           data-workbench-icon
           :data-icon-id="icon.id"
           :disabled="icon.disabled"
+          draggable="true"
           :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
           class="flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors"
-          :class="
+          :class="[
             onPicture
               ? selectedId === icon.id
                 ? 'border-white/35 bg-white/15 text-white'
                 : 'border-transparent text-white/95 hover:bg-white/10'
               : selectedId === icon.id
                 ? 'border-border/60 bg-accent text-foreground'
-                : 'border-transparent text-foreground hover:bg-accent/50'
-          "
+                : 'border-transparent text-foreground hover:bg-accent/50',
+            dragOverId === icon.id ? (onPicture ? 'ring-2 ring-white/70' : 'ring-2 ring-primary/60') : undefined,
+          ]"
           @click.stop="select(icon)"
           @dblclick.stop="openIcon(icon)"
           @keydown.enter.prevent="openIcon(icon)"
           @contextmenu.stop="openIconMenu($event, icon)"
+          @dragstart.stop="beginDrag($event, icon)"
+          @dragover.prevent.stop="dragOver(icon)"
+          @drop.stop.prevent="dropIcon(icon)"
+          @dragend="endDrag()"
         >
           <component
             :is="icon.icon"
@@ -696,6 +854,23 @@ async function issuePower(): Promise<void> {
           {{ t("workbench.power.shutdown") }}
         </button>
       </div>
+
+      <!--
+        The clock, at the far end of the bar. Clicking it opens the system panel — the same door the
+        system-information icon opens — because on a desktop a clock is usually the quickest way to
+        what the machine is doing. The date rides beside it only when the bar is wide enough.
+      -->
+      <button
+        type="button"
+        data-workbench-clock
+        :title="t('workbench.desktop.clock.title')"
+        :aria-label="t('workbench.desktop.clock.title')"
+        class="flex shrink-0 items-baseline gap-1.5 rounded-md border-l border-border py-1 pr-1 pl-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        @click="openSystemPanel()"
+      >
+        <span data-workbench-clock-time class="tabular-nums">{{ clockTime }}</span>
+        <span data-workbench-clock-date class="hidden sm:inline">{{ clockDate }}</span>
+      </button>
     </footer>
 
     <!--
