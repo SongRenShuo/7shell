@@ -19,6 +19,7 @@ mod policy_matrix;
 mod risk;
 mod session;
 mod settings;
+mod sysinfo;
 mod snippet;
 mod sync;
 mod system;
@@ -83,6 +84,10 @@ pub use session::{
     SftpListing, SftpOutcome, SftpPasteItem, SftpPasteOutcome, TelnetSettings, TerminalSettings, TransferDirection,
     TransferInfo, TransferState, TunnelFailure, UploadAnswer, UploadOutcome, VaultArchive, VaultState, WebDavSettings,
     WorkbenchPowerOutcome, WorkbenchSettings, WslSettings,
+};
+pub use sysinfo::{
+    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, RouteEntry,
+    ServiceEntry, SystemOverview,
 };
 pub use settings::{
     AI_SESSION_RETENTION_DAYS_DEFAULT, AI_SESSION_RETENTION_DAYS_MAX, AI_SESSION_RETENTION_DAYS_MIN, AppLayout,
