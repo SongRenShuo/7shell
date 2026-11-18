@@ -73,6 +73,7 @@ import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWin
 import WorkbenchTailWindow from "@/components/workspace/WorkbenchTailWindow.vue";
 import WorkbenchBatchWindow from "@/components/workspace/WorkbenchBatchWindow.vue";
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
+import WorkbenchNotices from "@/components/workspace/WorkbenchNotices.vue";
 import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
 import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
 import WorkbenchWidgets from "@/components/workspace/WorkbenchWidgets.vue";
@@ -83,6 +84,9 @@ import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { describeShellError, type Translate } from "@/i18n/errors";
 import { useFilesStore } from "@/stores/files";
+import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
+import { usePreferencesStore } from "@/stores/preferences";
+import type { NoticeSourceKey } from "@/components/workspace/WorkbenchNotices.vue";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
 import {
@@ -102,16 +106,23 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import {
   closeWindow as closeWindowRecord,
+  cycleWindow,
   focusWindow,
   minimizeAll,
   minimizeWindow,
   moveWindow,
   openWindow,
   resizeWindow,
+  resizeWindowFrom,
   restoreAll,
   restoreWindow,
   setMaximized,
   showWindow,
+  snapRect,
+  snapZoneAt,
+  snapZoneRect,
+  type ResizeDirection,
+  type SnapZone,
   type WorkbenchBounds,
   type WorkbenchWindowState,
 } from "@/lib/workbench/windows";
@@ -387,6 +398,30 @@ function dragOverDesktop(): void {
   dragOverId.value = null;
 }
 
+/**
+ * The drag over an icon: the desk's own arrangement when it is an icon being dragged, the file
+ * upload's hover when it is files from outside. A desk icon is not a folder — files from outside
+ * land in the directory the desk's hover names, never inside another icon.
+ */
+function dragOverIcon(event: DragEvent, icon: DesktopIcon): void {
+  if (externalFiles(event)) {
+    dragOverDesk(event);
+    return;
+  }
+  event.stopPropagation();
+  dragOver(icon);
+}
+
+/** The drop on an icon, split the same way its dragover is. */
+function dropIconFrom(event: DragEvent, icon: DesktopIcon): void {
+  if (externalFiles(event)) {
+    dropOnDesk(event);
+    return;
+  }
+  event.stopPropagation();
+  dropIcon(icon);
+}
+
 function endDrag(): void {
   draggingId.value = null;
   dragOverId.value = null;
@@ -440,6 +475,22 @@ interface WindowPayload {
 
 const windows = ref<WorkbenchWindowState[]>([]);
 const payloads = ref<Record<string, WindowPayload>>({});
+
+/**
+ * The snap zone a dragged window's hand is in, while the drag lasts.
+ *
+ * The preview is drawn from this; the landing (`snapRect`) waits for the drag to end. It is cleared
+ * the moment the drag is over — including the maximise exit, which never sends a pointerup.
+ */
+const snapZone = ref<SnapZone | null>(null);
+
+const snapPreviewStyle = computed(() => {
+  if (snapZone.value === null) {
+    return undefined;
+  }
+  const rect = snapZoneRect(snapZone.value, bounds.value);
+  return { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
+});
 
 /** The work area — everything between the status bar and the taskbar — as the geometry's frame. */
 const workArea = ref<HTMLElement | null>(null);
@@ -522,6 +573,9 @@ function minimize(id: string): void {
 }
 
 function maximize(id: string): void {
+  // The drag that reached the top line ended without a pointerup; its pending snap, if the hand
+  // had crossed a zone on the way, never happened.
+  snapZone.value = null;
   windows.value = setMaximized(windows.value, id, bounds.value);
 }
 
@@ -533,8 +587,93 @@ function move(id: string, next: { left: number; top: number }): void {
   windows.value = moveWindow(windows.value, id, next, bounds.value);
 }
 
+/**
+ * The snap zone the dragged window's hand is in, or none.
+ *
+ * The window's own drag gesture reports the pointer's desktop position alongside every move; the
+ * zones are judged by the hand, not by the corner the window happens to be dragged by. Nothing is
+ * committed here — the preview is drawn from this, and the landing happens when the drag ends.
+ */
+function moveAt(id: string, at: { left: number; top: number }): void {
+  const window = windows.value.find((entry) => entry.id === id);
+  if (window === undefined || window.mode !== "normal") {
+    return;
+  }
+  snapZone.value = snapZoneAt(at, bounds.value);
+}
+
+/** The drag ended: a pending snap lands, and the preview goes away either way. */
+function endMove(id: string): void {
+  const zone = snapZone.value;
+  snapZone.value = null;
+  if (zone !== null) {
+    windows.value = snapRect(windows.value, id, zone, bounds.value);
+  }
+}
+
 function resize(id: string, next: { width: number; height: number }): void {
   windows.value = resizeWindow(windows.value, id, next, bounds.value);
+}
+
+/**
+ * A resize from one of the window's eight edge zones.
+ *
+ * The gesture hands over the rectangle the pointer travelled to, tagged with the edge it was
+ * measured from; the arithmetic that keeps the far edge anchored and the pointer inside the desk
+ * is `resizeWindowFrom`'s, the same list arithmetic every other gesture answers to.
+ */
+function resizeFrom(
+  id: string,
+  next: { dir: ResizeDirection; rect: { left: number; top: number; width: number; height: number } },
+): void {
+  windows.value = resizeWindowFrom(windows.value, id, next.dir, next.rect, bounds.value);
+}
+
+// -- the desktop's own keys ---------------------------------------------------
+
+/**
+ * Whether the Meta key is being held *alone*.
+ *
+ * The launcher key is a chord-avoiding key, not a modifier to hijack: Meta pressed and released by
+ * itself opens (or closes) the starter, but Meta+S is somebody's shortcut, not a half-pressed
+ * launcher. So the flag is armed by a fresh Meta keydown and disarmed by any other key — and the
+ * release only counts while it is still armed.
+ */
+const metaAlone = ref(false);
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!props.active) {
+    return;
+  }
+  if (event.key === "Meta") {
+    if (!event.repeat) {
+      metaAlone.value = true;
+    }
+    return;
+  }
+  metaAlone.value = false;
+  if (event.altKey && event.key === "Tab") {
+    // A terminal that holds the focus is holding keystrokes for the machine on the other end; the
+    // desktop has no business intercepting a key the shell may be waiting for. Everything else on
+    // the desk — the icons, the dialogs, the starter's own field — cycles the windows.
+    const focus = document.activeElement;
+    if (focus instanceof Element && focus.closest(".terminal-surface") !== null) {
+      return;
+    }
+    event.preventDefault();
+    windows.value = cycleWindow(windows.value, event.shiftKey);
+  }
+}
+
+function onKeyup(event: KeyboardEvent): void {
+  if (!props.active) {
+    metaAlone.value = false;
+    return;
+  }
+  if (event.key === "Meta" && metaAlone.value) {
+    metaAlone.value = false;
+    starterOpen.value = !starterOpen.value;
+  }
 }
 
 function raise(id: string): void {
@@ -882,6 +1021,227 @@ function launch(appId: string): void {
   }
 }
 
+// -- the notification centre -------------------------------------------------
+
+const notifications = useNotificationsStore();
+
+/**
+ * Whether the centre's panel is over the desk.
+ *
+ * Opening it is also the act of reading it: every notice this session can see is marked read, the
+ * way every notification centre clears its badge when it is opened — a badge that stayed lit under
+ * an open centre would be counting something the person is looking straight at.
+ */
+const noticesOpen = ref(false);
+
+const unreadCount = computed(() => notifications.unreadCount(session.value.id));
+
+function toggleNotices(): void {
+  noticesOpen.value = !noticesOpen.value;
+  if (noticesOpen.value) {
+    notifications.markAllRead(session.value.id);
+  }
+}
+
+function activateNotice(id: string): void {
+  notifications.markRead(session.value.id, id);
+  const notice = notifications.notices.find((entry: WorkbenchNotice) => entry.id === id);
+  if (notice?.target === "transfers") {
+    // The one jump a transfer notice promises: the window where everything this session is moving
+    // is listed, opened the way its desktop icon opens it.
+    noticesOpen.value = false;
+    openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
+  }
+}
+
+/**
+ * The rows the panel draws: the store's keyed notices spoken in this interface's language, with
+ * the time formatted the way the taskbar's clock is.
+ */
+const noticeRows = computed(() =>
+  notifications.notices.map((notice) => ({
+    id: notice.id,
+    source: notice.source,
+    title: notice.params === undefined ? t(notice.titleKey) : t(notice.titleKey, notice.params),
+    body:
+      notice.bodyKey === undefined
+        ? undefined
+        : notice.params === undefined
+          ? t(notice.bodyKey)
+          : t(notice.bodyKey, notice.params),
+    atLabel: new Intl.DateTimeFormat(locale.value, { hour: "2-digit", minute: "2-digit", hour12: false }).format(
+      notice.at,
+    ),
+    read: notifications.isRead(session.value.id, notice.id),
+    actionable: notice.target === "transfers",
+  })),
+);
+
+const noticeGroupLabels = computed<Record<NoticeSourceKey, string>>(() => ({
+  transfer: t("workbench.notices.group.transfer"),
+  container: t("workbench.notices.group.container"),
+  tail: t("workbench.notices.group.tail"),
+  power: t("workbench.notices.group.power"),
+}));
+
+const noticeLabels = computed(() => ({
+  title: t("workbench.notices.title"),
+  empty: t("workbench.notices.empty"),
+  clear: t("workbench.notices.clear"),
+  clearTitle: t("workbench.notices.clearTitle"),
+  clearMessage: t("workbench.notices.clearMessage"),
+  clearConfirm: t("workbench.notices.clearConfirm"),
+}));
+
+// -- files from outside the window -------------------------------------------
+
+const preferences = usePreferencesStore();
+
+/**
+ * The external file drag hovering over the desk, or none.
+ *
+ * A drag of real files — the operating system handing them over, not the desktop's own icon
+ * arrangement — is answered the way the reference's file manager answers a dragged batch: the desk
+ * says what letting go would do, and where. The window under the pointer decides the "where": a
+ * file window offers its own directory, and the desk itself offers the session's home.
+ */
+const fileDrag = ref<{ count: number; target: string } | null>(null);
+
+/** Whether what is being dragged is a batch of files from outside, and not this desk's own icons. */
+function externalFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+/** Where a drop would land: a file window's own directory, or the session's home. */
+function dropTargetOf(event: DragEvent): {
+  windowId: string | null;
+  handle: string | null;
+  directory: string | null;
+  label: string;
+} {
+  const over =
+    event.target instanceof Element
+      ? (event.target.closest("[data-workbench-window]")?.getAttribute("data-window-id") ?? null)
+      : null;
+  const payload = over !== null ? payloads.value[over] : undefined;
+  if (over !== null && payload?.fileHandle !== undefined) {
+    const browser = files.browser(payload.fileHandle);
+    if (browser !== null) {
+      return { windowId: over, handle: payload.fileHandle, directory: browser.path, label: browser.path };
+    }
+  }
+  // The desk itself: the home, named through whichever file browser is already open — its `home`
+  // is where every browser of this session opened, which is what `~` means here.
+  for (const entry of Object.values(payloads.value)) {
+    if (entry.fileHandle === undefined) {
+      continue;
+    }
+    const browser = files.browser(entry.fileHandle);
+    if (browser !== null) {
+      return {
+        windowId: null,
+        handle: entry.fileHandle,
+        directory: browser.home,
+        label: t("workbench.desktop.dropUpload.targetHome"),
+      };
+    }
+  }
+  return {
+    windowId: null,
+    handle: null,
+    directory: null,
+    label: t("workbench.desktop.dropUpload.targetHome"),
+  };
+}
+
+function dragOverDesk(event: DragEvent): void {
+  if (!externalFiles(event)) {
+    dragOverDesktop();
+    return;
+  }
+  const target = dropTargetOf(event);
+  fileDrag.value = { count: event.dataTransfer?.items.length ?? 0, target: target.label };
+}
+
+function dragLeftDesk(event: DragEvent): void {
+  if (event.relatedTarget === null) {
+    fileDrag.value = null;
+  }
+}
+
+function dropOnDesk(event: DragEvent): void {
+  // The pane is where the drop ends: stopping it here keeps the window-level drop handler (the
+  // one the panels share) from answering the same drop a second time.
+  event.stopPropagation();
+  fileDrag.value = null;
+  if (!externalFiles(event)) {
+    dropIcon(null);
+    return;
+  }
+  const chosen = Array.from(event.dataTransfer?.files ?? []);
+  if (chosen.length === 0) {
+    return;
+  }
+  void uploadDroppedFiles(chosen, dropTargetOf(event));
+}
+
+/**
+ * Sends what was dropped to the directory the hover promised.
+ *
+ * A file window's drop goes through the browser that window already holds. A drop on the desk
+ * itself reuses an open browser's home — and when none is open, a temporary browser is opened for
+ * the listing that names the home, the files are sent, and the browser is closed again: a transfer
+ * outlives the browser it started from, so closing costs nothing that was still moving.
+ */
+async function uploadDroppedFiles(
+  chosen: readonly File[],
+  target: { handle: string | null; directory: string | null },
+): Promise<void> {
+  if (props.tab.handle === null) {
+    return;
+  }
+  if (target.handle !== null && target.directory !== null) {
+    await files.uploadBrowserFiles(target.handle, target.directory, chosen, preferences.packedTransfer);
+    return;
+  }
+  const outcome = await files.open(session.value.id);
+  if (outcome.kind !== "opened") {
+    return;
+  }
+  const home = files.browser(outcome.handle)?.home;
+  if (home !== undefined) {
+    await files.uploadBrowserFiles(outcome.handle, home, chosen, preferences.packedTransfer);
+  }
+  void files.close(outcome.handle);
+}
+
+const fileDragHint = computed(() => {
+  const drag = fileDrag.value;
+  if (drag === null) {
+    return "";
+  }
+  return drag.count === 1
+    ? t("workbench.desktop.dropUpload.hintOne", { target: drag.target })
+    : t("workbench.desktop.dropUpload.hintMany", { count: drag.count, target: drag.target });
+});
+
+/**
+ * The upload guard: while this session is still moving bytes, leaving the window is a question.
+ *
+ * A transfer that a closed window abandoned is a transfer nobody can stop or see — the same reason
+ * the editor's unsaved text arms the quit guard. The warning is said in the interface's language,
+ * whatever the WebView decides to do with it.
+ */
+const transfersRunning = computed(() => files.transfers.some((entry) => entry.state.kind === "running"));
+
+function onBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!transfersRunning.value) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = t("workbench.desktop.dropUpload.leaveWarning");
+}
+
 // -- the taskbar -------------------------------------------------------------
 
 interface TaskbarEntry {
@@ -965,6 +1325,12 @@ onMounted(() => {
   clockTicker = setInterval(() => {
     now.value = new Date();
   }, 60_000);
+  window.addEventListener("keydown", onKeydown);
+  window.addEventListener("keyup", onKeyup);
+  window.addEventListener("beforeunload", onBeforeUnload);
+  // The centre's sources are the desktop's events; subscribing is idempotent, so several desktops
+  // sharing the window cost one subscription.
+  notifications.connect();
 });
 
 onUnmounted(() => {
@@ -978,6 +1344,9 @@ onUnmounted(() => {
   }
   areaObserver?.disconnect();
   areaObserver = undefined;
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("keyup", onKeyup);
+  window.removeEventListener("beforeunload", onBeforeUnload);
 });
 
 /** The hour and minute, in the interface's language: 24-hour, because that is what a log reads. */
@@ -1330,6 +1699,14 @@ async function issuePower(): Promise<void> {
   try {
     await backend.workbenchPower(session.value.id, props.tab.handle, action, true);
     toast(t("workbench.power.issued"), "receipt");
+    // The receipt is also the notification centre's power source: a machine that was told to stop
+    // or restart is something that happened while the desk was up, and the centre is where that
+    // stays written down after the toast is gone.
+    notifications.push({
+      source: "power",
+      titleKey: action === "reboot" ? "workbench.notices.power.issuedReboot" : "workbench.notices.power.issuedShutdown",
+      params: { name: session.value.name },
+    });
   } catch (error) {
     const failure = asShellError(error, "workbench_power");
     toast(describeShellError(translate as Translate, failure).message, "failure");
@@ -1395,6 +1772,7 @@ function disconnect(): void {
     class="relative flex min-h-0 flex-1 flex-col overflow-hidden"
     :class="wallpaper === undefined ? 'bg-background' : undefined"
     :style="wallpaperStyle"
+    :data-workbench-on-picture="onPicture ? '' : undefined"
     data-workbench-shell
   >
     <WorkbenchStatusBar
@@ -1411,8 +1789,9 @@ function disconnect(): void {
       class="relative z-0 min-h-0 flex-1 overflow-hidden"
       @click="clearSelection()"
       @contextmenu="openDesktopMenu"
-      @dragover.prevent="dragOverDesktop()"
-      @drop.prevent="dropIcon(null)"
+      @dragover.prevent="dragOverDesk($event)"
+      @dragleave="dragLeftDesk($event)"
+      @drop.prevent="dropOnDesk($event)"
     >
       <!--
         The desktop: the icons from the top left, and nothing else on it. A click on the wallpaper
@@ -1450,20 +1829,24 @@ function disconnect(): void {
             :class="[
               onPicture
                 ? selectedId === icon.id
-                  ? 'bg-white/20 text-white'
-                  : 'text-white/95 hover:bg-white/10'
+                  ? 'bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_20%,transparent)] text-[var(--workbench-on-wallpaper)]'
+                  : 'text-[color-mix(in_srgb,var(--workbench-on-wallpaper)_95%,transparent)] hover:bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_10%,transparent)]'
                 : selectedId === icon.id
                   ? 'bg-accent text-foreground'
                   : 'text-foreground hover:bg-accent/50',
-              dragOverId === icon.id ? (onPicture ? 'ring-2 ring-white/70' : 'ring-2 ring-primary/60') : undefined,
+              dragOverId === icon.id
+                ? onPicture
+                  ? 'ring-2 ring-[color-mix(in_srgb,var(--workbench-on-wallpaper)_70%,transparent)]'
+                  : 'ring-2 ring-primary/60'
+                : undefined,
             ]"
             @click.stop="select(icon)"
             @dblclick.stop="openIcon(icon)"
             @keydown.enter.prevent="openIcon(icon)"
             @contextmenu.stop="openIconMenu($event, icon)"
             @dragstart.stop="beginDrag($event, icon)"
-            @dragover.prevent.stop="dragOver(icon)"
-            @drop.stop.prevent="dropIcon(icon)"
+            @dragover.prevent="dragOverIcon($event, icon)"
+            @drop.prevent="dropIconFrom($event, icon)"
             @dragend="endDrag()"
           >
             <!--
@@ -1527,7 +1910,10 @@ function disconnect(): void {
         @maximize="maximize(window.id)"
         @restore="restore(window.id)"
         @move="move(window.id, $event)"
+        @move-at="moveAt(window.id, $event)"
+        @move-end="endMove(window.id)"
         @resize="resize(window.id, $event)"
+        @resize-dir="resizeFrom(window.id, $event)"
       >
         <!-- The terminal the window holds: an ordinary terminal tab drawn here instead of in the strip. -->
         <template v-if="window.kind === 'terminal'">
@@ -1618,6 +2004,41 @@ function disconnect(): void {
           @close="close(window.id)"
         />
       </WorkbenchWindow>
+
+      <!--
+        The snap preview: the ghost rectangle the desk offers a dragged window while its hand is in
+        an edge or corner zone. It is a drawing, never a surface — `pointer-events-none` is the whole
+        point, because a rectangle that could catch a click would eat the desktop under it while the
+        drag lasted (the wrapper lesson this desktop already paid for once). The window lands in the
+        zone when the hand lets go, not here.
+      -->
+      <div
+        v-if="snapZone !== null"
+        data-workbench-snap-preview
+        :data-snap-zone="snapZone"
+        :style="snapPreviewStyle"
+        aria-hidden="true"
+        class="pointer-events-none absolute z-40 rounded-md border-2 border-dashed border-[color-mix(in_srgb,var(--workbench-on-picture)_60%,transparent)] bg-[color-mix(in_srgb,var(--workbench-on-picture)_10%,transparent)] transition-[left,top,width,height] duration-100"
+      ></div>
+
+      <!--
+        The file drop's hover: the reference's dragged-batch sentence, over the whole desk — what
+        letting go will do, and where. A faint wash marks the desk as the target while the drag
+        lasts. Both layers are drawings; neither catches a press (the wrapper lesson), and the drop
+        itself is the desk's own handler, not this hint's.
+      -->
+      <div
+        v-if="fileDrag !== null"
+        data-workbench-drop-hint
+        class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[color-mix(in_srgb,var(--workbench-accent)_8%,transparent)]"
+      >
+        <div
+          data-workbench-drop-hint-text
+          class="pointer-events-none max-w-[80%] truncate rounded-lg border border-[var(--workbench-glass-border)] bg-[var(--workbench-surface-2)] px-4 py-2 text-xs text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-dropdown)]"
+        >
+          {{ fileDragHint }}
+        </div>
+      </div>
     </div>
 
     <!--
@@ -1649,21 +2070,49 @@ function disconnect(): void {
       />
     </div>
 
+    <!--
+      The notification centre, at the desk's lower right. The layer is a layer, not a surface: it
+      carries no pixels and exists only while the panel is open, so a closed centre cannot eat a
+      click (the wrapper lesson). Inside it, the mask is the one thing that catches a press on the
+      desk — its whole job is closing the panel — and the panel turns pointer events back on for
+      itself.
+    -->
+    <div v-if="noticesOpen" class="pointer-events-none absolute inset-0 z-40" data-workbench-notices-layer>
+      <div
+        data-workbench-notices-mask
+        class="pointer-events-auto absolute inset-0"
+        aria-hidden="true"
+        @click="noticesOpen = false"
+      ></div>
+      <WorkbenchNotices
+        class="pointer-events-auto absolute bottom-[76px] right-3"
+        :notices="noticeRows"
+        :group-labels="noticeGroupLabels"
+        :labels="noticeLabels"
+        @activate="activateNotice($event)"
+        @clear="notifications.clear()"
+        @close="noticesOpen = false"
+      />
+    </div>
+
     <WorkbenchTaskbar
       :entries="taskbarEntries"
       :clock="clockTime"
       :align="taskbarAlign"
       :power="t('workbench.power.title')"
+      :unread="unreadCount"
       :labels="{
         starter: t('workbench.desktop.shell.starter'),
         desktop: t('workbench.desktop.shell.desktop'),
         clock: t('workbench.desktop.clock.title'),
+        notices: t('workbench.notices.bell'),
       }"
       @starter="starterOpen = !starterOpen"
       @desktop="pressDesktop()"
       @launch="pressTaskbar($event)"
       @clock="openRecord('system', t('workbench.desktop.icons.system'), 'system')"
       @power="openPowerMenu()"
+      @notices="toggleNotices()"
     />
 
     <!--

@@ -87,6 +87,12 @@
         }
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
+      "dropUpload": {
+        "hintOne": "松开即上传 1 个文件到 {target}",
+        "hintMany": "松开即上传 {count} 个文件到 {target}",
+        "targetHome": "主目录",
+        "leaveWarning": "上传仍在进行，现在离开会中断它们。"
+      },
       "menu": {
         "open": "打开",
         "remove": "移除",
@@ -211,6 +217,43 @@
       "emptyHint": "删除到回收站的文件会列在这里，直到被放回或永久删除。",
       "emptyTitle": "清空回收站？",
       "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。"
+    },
+    "notices": {
+      "title": "通知中心",
+      "bell": "通知",
+      "empty": "暂无通知",
+      "clear": "全部清空",
+      "clearTitle": "清空全部通知？",
+      "clearMessage": "列表中的全部通知都会被移除；这台桌面已读的记录保持不变。",
+      "clearConfirm": "清空",
+      "group": {
+        "transfer": "传输",
+        "container": "容器",
+        "tail": "日志追踪",
+        "power": "系统"
+      },
+      "transfer": {
+        "doneUpload": "上传完成",
+        "doneDownload": "下载完成",
+        "failedUpload": "上传失败",
+        "failedDownload": "下载失败",
+        "detail": "{name}"
+      },
+      "tail": {
+        "ended": "日志追踪已结束",
+        "failed": "日志追踪因错误结束",
+        "detail": "{path}",
+        "error": "{path}：{error}"
+      },
+      "container": {
+        "ended": "容器任务已结束",
+        "failed": "容器任务失败",
+        "error": "{error}"
+      },
+      "power": {
+        "issuedReboot": "已向 {name} 发送重启指令。",
+        "issuedShutdown": "已向 {name} 发送关机指令。"
+      }
     },
     "system": {
       "title": "系统面板",

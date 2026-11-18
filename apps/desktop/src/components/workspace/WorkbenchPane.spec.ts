@@ -38,13 +38,22 @@ vi.mock("@/lib/backend/tauri", () => ({
   onDesktopResized: vi.fn(async () => () => {}),
   onDesktopClosed: vi.fn(async () => () => {}),
   onDesktopFailed: vi.fn(async () => () => {}),
+  onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
 import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import { useToast } from "@/composables/useToast";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
-import { filesList, filesOpen, sessionOpen, systemOverview, trashList, workbenchPower } from "@/lib/backend/tauri";
+import {
+  filesClose,
+  filesList,
+  filesOpen,
+  sessionOpen,
+  systemOverview,
+  trashList,
+  workbenchPower,
+} from "@/lib/backend/tauri";
 import {
   readDesktopShortcuts,
   writeDesktopShortcuts,
@@ -53,8 +62,10 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import { iconOrderKey } from "@/lib/workbench/iconOrder";
 import { hiddenDoorsKey } from "@/lib/workbench/hiddenDoors";
+import { useFilesStore } from "@/stores/files";
+import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
 import { useTerminalsStore } from "@/stores/terminals";
-import type { Session } from "@/types/session";
+import type { Session, TransferInfo } from "@/types/session";
 
 const trashListMock = vi.mocked(trashList);
 const systemOverviewMock = vi.mocked(systemOverview);
@@ -62,6 +73,7 @@ const systemOverviewMock = vi.mocked(systemOverview);
 const sessionOpenMock = vi.mocked(sessionOpen);
 const filesOpenMock = vi.mocked(filesOpen);
 const filesListMock = vi.mocked(filesList);
+const filesCloseMock = vi.mocked(filesClose);
 const workbenchPowerMock = vi.mocked(workbenchPower);
 
 const desk: Session = {
@@ -188,6 +200,30 @@ function dialogButton(label: string): HTMLElement {
 
 function fire(element: HTMLElement, type: string): void {
   element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+}
+
+/**
+ * A desk jsdom has no layout for, so the work area measures 0x0 and the desk's own geometry —
+ * snapping, the zones — would answer "no room" to everything. Tests that need the geometry give
+ * the elements the desk's own 800x600 for the duration; the pane measures on mount, so the patch
+ * has to be in place before the first render. {@link takeTheDeskBack} must run afterwards, and
+ * every user of these registers it in an afterEach.
+ */
+function giveTheDeskItsSize(): void {
+  for (const property of ["clientWidth", "clientHeight"] as const) {
+    Object.defineProperty(HTMLElement.prototype, property, {
+      configurable: true,
+      get() {
+        return property === "clientWidth" ? 800 : 600;
+      },
+    });
+  }
+}
+
+function takeTheDeskBack(): void {
+  for (const property of ["clientWidth", "clientHeight"] as const) {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property];
+  }
 }
 
 /**
@@ -1196,5 +1232,445 @@ describe("the workbench desktop", () => {
     const restart = menu.entries.value.find((entry) => entry.kind === "action" && entry.id === "power-reboot");
     expect(shutdown?.kind === "action" ? shutdown.disabled : undefined).toBe(true);
     expect(restart?.kind === "action" ? restart.disabled : undefined).toBe(true);
+  });
+});
+
+/*
+ * The snap preview. The arithmetic is the window list's suite and the gesture is the chrome's; what
+ * can only be seen here is the wiring — that a drag whose hand crosses an edge zone draws the ghost
+ * rectangle, that the ghost is a drawing and not a surface (the desktop underneath stays clickable,
+ * the lesson the starter's wrapper already taught), and that letting go lands the window and takes
+ * the preview away.
+ */
+describe("the snap preview", () => {
+  function pointer(type: string, clientX: number, clientY: number): PointerEvent {
+    return new PointerEvent(type, { clientX, clientY, button: 0, pointerId: 1, bubbles: true, cancelable: true });
+  }
+
+  /** Opens one window (the trash) and drags its title bar through the given pointer positions. */
+  async function draggedTitle(positions: { x: number; y: number }[]): Promise<void> {
+    giveTheDeskItsSize();
+    await render();
+    fire(iconByLabel("Trash"), "dblclick");
+    await nextTick();
+    const title = host.querySelector<HTMLElement>("[data-workbench-window-title]");
+    if (!title) {
+      throw new Error("the window has no title bar");
+    }
+    title.dispatchEvent(pointer("pointerdown", 100, 10));
+    for (const at of positions) {
+      title.dispatchEvent(pointer("pointermove", at.x, at.y));
+      await nextTick();
+    }
+  }
+
+  afterEach(takeTheDeskBack);
+
+  it("draws the zone's ghost while the hand is in an edge zone", async () => {
+    await draggedTitle([{ x: 5, y: 300 }]);
+
+    const preview = host.querySelector<HTMLElement>("[data-workbench-snap-preview]");
+    expect(preview, "the hand is at the desk's left edge, so the half-screen ghost is drawn").not.toBeNull();
+    expect(preview?.dataset.snapZone).toBe("left");
+  });
+
+  it("draws nothing while the hand is in the middle of the desk", async () => {
+    await draggedTitle([{ x: 400, y: 300 }]);
+
+    expect(host.querySelector("[data-workbench-snap-preview]")).toBeNull();
+  });
+
+  it("takes the ghost away, and lands the window, when the hand lets go", async () => {
+    await draggedTitle([
+      { x: 5, y: 300 },
+      { x: 400, y: 300 },
+    ]);
+    const title = host.querySelector<HTMLElement>("[data-workbench-window-title]");
+    title?.dispatchEvent(pointer("pointerup", 400, 300));
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-snap-preview]")).toBeNull();
+    expect(host.querySelector("[data-workbench-window]")).not.toBeNull();
+  });
+
+  it("is a drawing, never a surface: the preview passes presses through", async () => {
+    await draggedTitle([{ x: 5, y: 300 }]);
+
+    const preview = host.querySelector<HTMLElement>("[data-workbench-snap-preview]");
+    expect(preview?.className, "the ghost itself is click-through").toContain("pointer-events-none");
+    const atGhost = document.elementFromPoint(5, 300);
+    expect(atGhost, "nothing answers a press at the ghost but what sits under it").not.toBe(preview);
+  });
+});
+
+/*
+ * The desktop's own keys. The starter answers the launcher key, the windows answer Alt+Tab, and
+ * neither answers anything while this desktop is not the tab on screen. A terminal that holds the
+ * focus is the one place the desktop must stay out of: its keystrokes belong to the shell.
+ */
+describe("the desktop's own keys", () => {
+  function key(type: "keydown" | "keyup", init: KeyboardEventInit): void {
+    window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
+  }
+
+  /** Whether the starter sheet is open, by whether it is still inert. */
+  function starterOpen(): boolean {
+    const sheet = host.querySelector("[data-workbench-starter]");
+    return sheet !== null && sheet.getAttribute("inert") === null;
+  }
+
+  /** Opens two windows and leaves the second one in front, the way two clicks would. */
+  async function twoWindows(): Promise<void> {
+    await render();
+    fire(iconByLabel("Trash"), "dblclick");
+    await nextTick();
+    fire(iconByLabel("Monitor"), "dblclick");
+    await nextTick();
+  }
+
+  afterEach(() => {
+    takeTheDeskBack();
+  });
+
+  it("opens the starter on the launcher key, and closes it on the next one", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+    expect(starterOpen(), "Meta alone is the launcher").toBe(true);
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+    expect(starterOpen(), "Meta again is the way out").toBe(false);
+  });
+
+  it("does not open the starter when the key was part of a chord", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Meta" });
+    key("keydown", { key: "s" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+
+    expect(starterOpen()).toBe(false);
+  });
+
+  it("cycles the windows on Alt+Tab, and walks back with Shift", async () => {
+    giveTheDeskItsSize();
+    await twoWindows();
+
+    key("keydown", { key: "Tab", altKey: true });
+    await nextTick();
+    const active = () =>
+      [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+        (entry) => entry.dataset.active === "true",
+      )?.dataset.entryId;
+    expect(active(), "the window focused just before the front one takes over").not.toBe(undefined);
+
+    const afterForward = active();
+    key("keydown", { key: "Tab", altKey: true, shiftKey: true });
+    await nextTick();
+    expect(active(), "Shift walks the other way, back to the front window").not.toBe(afterForward);
+  });
+
+  it("stays out of a terminal that holds the focus", async () => {
+    giveTheDeskItsSize();
+    await twoWindows();
+
+    const surface = document.createElement("div");
+    surface.className = "terminal-surface";
+    surface.tabIndex = 0;
+    host.append(surface);
+    surface.focus();
+
+    const before = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+      (entry) => entry.dataset.active === "true",
+    )?.dataset.entryId;
+    key("keydown", { key: "Tab", altKey: true });
+    await nextTick();
+    const after = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")].find(
+      (entry) => entry.dataset.active === "true",
+    )?.dataset.entryId;
+
+    expect(after, "the keystroke belonged to the shell, not to the desk").toBe(before);
+  });
+
+  it("answers nothing while this desktop is not the tab on screen", async () => {
+    giveTheDeskItsSize();
+    await render(undefined, "w1", false);
+
+    key("keydown", { key: "Meta" });
+    key("keyup", { key: "Meta" });
+    await nextTick();
+
+    expect(starterOpen()).toBe(false);
+  });
+});
+
+/*
+ * The notification centre. The store's suite says what joins the ledger; the panel's says how the
+ * rows are read. What can only be seen here is the wiring — that the bell wears the session's
+ * unread count, that opening the panel is the act of reading it, that a transfer row's click is
+ * the jump it promises, and that a closed centre is nothing in the DOM at all (the wrapper lesson:
+ * an empty layer that could catch a click would eat the desk under it).
+ */
+describe("the notification centre", () => {
+  /** Two notices the store holds, as a transfer finishing and a tail ending would leave them. */
+  function seedNotices(centre: ReturnType<typeof useNotificationsStore>): void {
+    const first: Omit<WorkbenchNotice, "id" | "at"> = {
+      source: "transfer",
+      titleKey: "workbench.notices.transfer.doneUpload",
+      bodyKey: "workbench.notices.transfer.detail",
+      params: { name: "backup.tar" },
+      target: "transfers",
+    };
+    centre.push(first);
+    centre.push({ source: "tail", titleKey: "workbench.notices.tail.ended" });
+  }
+
+  /** Opens the bell's panel the way a person does, and hands back the store behind it. */
+  async function openCentre(): Promise<ReturnType<typeof useNotificationsStore>> {
+    await render();
+    const centre = useNotificationsStore();
+    seedNotices(centre);
+    const bell = host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]");
+    if (!bell) {
+      throw new Error("the taskbar has no bell");
+    }
+    fire(bell, "click");
+    await nextTick();
+    return centre;
+  }
+
+  it("is nothing in the DOM while it is closed", async () => {
+    await render();
+
+    expect(host.querySelector("[data-workbench-notices-layer]")).toBeNull();
+  });
+
+  it("wears the unread count on the bell, and opening the panel is the act of reading it", async () => {
+    await render();
+    const centre = useNotificationsStore();
+    seedNotices(centre);
+    await nextTick();
+
+    const badge = host.querySelector<HTMLElement>("[data-workbench-taskbar-notices-badge]");
+    expect(badge?.textContent?.trim(), "two unread, said on the badge").toBe("2");
+
+    fire(host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices]")).not.toBeNull();
+    expect(host.querySelector("[data-workbench-taskbar-notices-badge]"), "an open centre has no badge").toBeNull();
+    expect(centre.unreadCount("desk-1")).toBe(0);
+  });
+
+  it("groups the rows by source with the count at each head", async () => {
+    await openCentre();
+
+    const heads = [...host.querySelectorAll<HTMLElement>(".notices-group-head")];
+    expect(heads.length).toBeGreaterThanOrEqual(2);
+    expect(host.querySelectorAll("[data-notice-id]").length).toBe(2);
+  });
+
+  it("says nothing has happened when the ledger is empty, in the shared empty drawing", async () => {
+    await render();
+    fire(host.querySelector<HTMLElement>("[data-workbench-taskbar-notices]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-wb-empty]")?.getAttribute("data-scenario")).toBe("noData");
+    expect(host.textContent).toContain("Nothing has happened.");
+  });
+
+  it("jumps a transfer notice to the transfers window, and takes the panel away", async () => {
+    await openCentre();
+    const row = host.querySelector<HTMLElement>('[data-notice-source="transfer"]');
+    if (!row) {
+      throw new Error("the panel has no transfer row");
+    }
+    fire(row, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices-layer]"), "the panel went with the jump").toBeNull();
+    const entries = [...host.querySelectorAll<HTMLElement>("[data-workbench-taskbar-entry]")];
+    expect(
+      entries.some((entry) => entry.dataset.entryId === "transfers"),
+      "the transfers window is open",
+    ).toBe(true);
+  });
+
+  it("closes from the mask, the way a sheet over the desk closes", async () => {
+    await openCentre();
+
+    fire(host.querySelector<HTMLElement>("[data-workbench-notices-mask]") as HTMLElement, "click");
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-notices-layer]")).toBeNull();
+  });
+});
+
+/*
+ * Files from outside the window. The reference's dragged-batch behaviour, said on the desk: while
+ * real files hover over it, the desk tells what letting go would do and where; letting go sends
+ * them through the same upload engine every other door uses — a file window's own directory when
+ * the drop lands there, the session's home when it lands on the desk — and while anything is still
+ * moving, closing the window is a question.
+ */
+describe("files from outside the window", () => {
+  /** A transfer as the polled list answers it, with only the fields the guard reads varying. */
+  function transfer(kind: TransferInfo["state"]["kind"]): TransferInfo {
+    return {
+      id: "t1",
+      direction: "upload",
+      name: "backup.tar",
+      remotePath: "/root/backup.tar",
+      sessionId: "desk-1",
+      size: 100,
+      transferred: 0,
+      state: kind === "failed" ? { kind: "failed", detail: "broken" } : { kind },
+      hasLocalPath: false,
+      packed: false,
+      pausable: true,
+    };
+  }
+
+  /** A drag event with files, built by hand: jsdom has no DataTransfer to dispatch. */
+  function fileDragEvent(type: string, files: readonly File[]): Event {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: {
+        types: ["Files"],
+        items: { length: files.length },
+        files: [...files],
+      },
+    });
+    return event;
+  }
+
+  /** Opens one file window (Home) so the desk has a browser to name the home through. */
+  async function withFileWindow(): Promise<void> {
+    await render();
+    fire(iconByLabel("Home"), "dblclick");
+    // The open is a few awaits deep; the window is what everything after this reads.
+    for (let hop = 0; hop < 20 && host.querySelector("[data-workbench-window]") === null; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+    if (host.querySelector("[data-workbench-window]") === null) {
+      throw new Error("the file window did not open");
+    }
+  }
+
+  it("says what letting go would do, and where, while the files hover over the desk", async () => {
+    await withFileWindow();
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    desk.dispatchEvent(fileDragEvent("dragover", [new File(["a"], "a.txt"), new File(["b"], "b.txt")]));
+    await nextTick();
+
+    const hint = host.querySelector<HTMLElement>("[data-workbench-drop-hint]");
+    expect(hint, "the desk answers a dragged batch").not.toBeNull();
+    expect(host.querySelector("[data-workbench-drop-hint-text]")?.textContent?.trim()).toBe(
+      "Release to upload 2 files to the home directory",
+    );
+    expect(hint?.className, "the hover is a drawing, not a surface").toContain("pointer-events-none");
+    expect(document.elementFromPoint(200, 200), "nothing answers a press but what sits under it").not.toBe(hint);
+  });
+
+  it("does not answer the desk's own icon drags with the upload hover", async () => {
+    await withFileWindow();
+
+    const icon = iconByLabel("Terminal");
+    icon.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const plain = new Event("dragover", { bubbles: true, cancelable: true });
+    desk.dispatchEvent(plain);
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-drop-hint]")).toBeNull();
+  });
+
+  it("uploads what is let go on the desk to the session's home", async () => {
+    await withFileWindow();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const files = [new File(["a"], "a.txt")];
+    desk.dispatchEvent(fileDragEvent("dragover", files));
+    desk.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(upload, "the home directory is where the desk sends them").toHaveBeenCalledWith(
+      expect.any(String),
+      "/root",
+      files,
+      false,
+    );
+    expect(host.querySelector("[data-workbench-drop-hint]"), "the hover went with the drop").toBeNull();
+  });
+
+  it("opens the browser it needs for the home, and closes it again when none is open", async () => {
+    await render();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+
+    const desk = host.querySelector<HTMLElement>("[data-workbench-desktop]") as HTMLElement;
+    const files = [new File(["a"], "a.txt")];
+    desk.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(filesOpenMock, "a browser was opened just for this listing").toHaveBeenCalledWith("desk-1");
+    expect(upload).toHaveBeenCalledWith(expect.any(String), "/root", files, false);
+    expect(filesCloseMock, "the temporary browser went away again").toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("sends a drop that lands on a file window to that window's own directory", async () => {
+    await withFileWindow();
+    const store = useFilesStore();
+    const upload = vi.spyOn(store, "uploadBrowserFiles").mockResolvedValue(undefined);
+    await store.navigate("f1", "/root/logs");
+    await nextTick();
+
+    const windowBody = host.querySelector<HTMLElement>("[data-workbench-window]");
+    const files = [new File(["a"], "a.txt")];
+    windowBody?.dispatchEvent(fileDragEvent("drop", files));
+    for (let hop = 0; hop < 20 && upload.mock.calls.length === 0; hop += 1) {
+      await nextTick();
+      await Promise.resolve();
+    }
+    await nextTick();
+
+    expect(upload).toHaveBeenCalledWith("f1", "/root/logs", files, false);
+  });
+
+  it("asks before the window goes away while an upload is still moving", async () => {
+    await render();
+    const store = useFilesStore();
+
+    store.transfers = [transfer("running")];
+    await nextTick();
+    let event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, "bytes are still moving").toBe(true);
+
+    store.transfers = [transfer("done")];
+    await nextTick();
+    event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, "nothing is moving any more").toBe(false);
   });
 });
