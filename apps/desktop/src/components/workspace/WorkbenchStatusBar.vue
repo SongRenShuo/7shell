@@ -7,9 +7,11 @@
  * windows onto it — and the one thing a person can do here, letting the connection go, is asked of
  * that owner too.
  *
- * The strip is drawn in the desktop's own colours rather than the theme's: it stands on a picture,
- * and a light theme's foreground on a dark wallpaper is the unreadable state the first release
- * shipped. 23 pixels tall with 13px text is the strip the desktop this copies draws.
+ * The strip is drawn in the desktop's own colours rather than the theme's: `--workbench-surface-1`
+ * behind it and `--workbench-on-picture` for its text, the tokens the desktop chrome names in
+ * `globals.css`. It stands on a picture, and a light theme's foreground on a dark wallpaper is the
+ * unreadable state the first release shipped. 23 pixels tall with 13px text is the strip the
+ * desktop this copies draws.
  */
 import { Power } from "@lucide/vue";
 
@@ -37,7 +39,7 @@ const emit = defineEmits<{
 <template>
   <header
     data-workbench-status-bar
-    class="flex h-[23px] w-full shrink-0 select-none items-center justify-between gap-3 bg-[#00000082] px-2 text-[13px] leading-none text-white"
+    class="flex h-[23px] w-full shrink-0 select-none items-center justify-between gap-3 bg-[var(--workbench-surface-1)] px-2 text-[13px] leading-none text-[var(--workbench-on-picture)]"
   >
     <span class="truncate font-mono" data-workbench-status-host>{{ host }}</span>
 
