@@ -19,23 +19,21 @@ use sevenshell_types::{
     CompletionWord, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime, ContainerSettings,
     ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey, CustomColors,
     DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesDeleteMode, FilesLayout, ForwardMode,
-    HomeLayout, HostFailure,
-    HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry,
-    KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy, McpPrompt,
-    McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent,
+    HomeLayout, HostFailure, HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo,
+    KnownHostEntry, KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy,
+    McpPrompt, McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent,
     McpResourceRead, McpResourceTemplate, McpScope, McpServerConfig, McpServerContent, McpServerState, McpServerStatus,
     McpServerTransport, McpToolPolicy, MemoryUsage, NetworkCounters, OpenOutcome, OpenTunnel, PolicyAction,
     PolicyMatrix, PolicyRule, PresentedHostKey, ProcessDetail, ProcessPage, ProcessSample, Protocol, RiskAssessment,
     RiskLevel, RiskReason, SendFailure, SendOutcome, SendReport, SendTarget, Session, SessionAuth,
     SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SessionLayout, SessionReopen,
     SftpPasteItem, SftpPasteOutcome, Snippet, SnippetGroup, SnippetProvider, SnippetStatus, SnippetUploadReceipt,
-    TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest,
     SocketRow, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt,
     SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement,
     TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
     TerminalHighlightRule, TerminalSchemeBackground, TerminalSchemeProfile, TerminalSchemeSource, TerminalSettings,
-    ThemeMode, ThemePalette, TunnelFailure, UpdateCheck, UpdateProgress, UploadAnswer, UploadOutcome, VaultArchive,
-    VaultState,
+    ThemeMode, ThemePalette, TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest, TunnelFailure,
+    UpdateCheck, UpdateProgress, UploadAnswer, UploadOutcome, VaultArchive, VaultState,
 };
 
 /// Fails on any key that is not camelCase, however deep it sits.
@@ -1718,7 +1716,10 @@ fn trash_move_and_empty_types_keep_their_camel_case_fields() {
         },
         "TrashMoveOutcome::ok",
     );
-    assert_eq!(moved["trashPath"], serde_json::json!("/home/user/.local/share/Trash/files/logs"));
+    assert_eq!(
+        moved["trashPath"],
+        serde_json::json!("/home/user/.local/share/Trash/files/logs")
+    );
 
     let failed = check(
         &TrashMoveOutcome {

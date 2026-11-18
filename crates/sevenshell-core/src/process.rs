@@ -135,7 +135,13 @@ mod tests {
 
         let (core, _events): (Arc<Core>, _) = Core::new(vault);
         let journal = Arc::new(RecordingJournal::default());
-        core.set_policy(PolicyMatrix { global: rule, ..PolicyMatrix::default() }, Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>));
+        core.set_policy(
+            PolicyMatrix {
+                global: rule,
+                ..PolicyMatrix::default()
+            },
+            Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>),
+        );
         (directory, core, journal)
     }
 

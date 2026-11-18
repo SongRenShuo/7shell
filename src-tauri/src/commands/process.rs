@@ -18,8 +18,5 @@ pub async fn process_kill(
     pid: u32,
     acknowledged: bool,
 ) -> Result<(), ShellError> {
-    state
-        .core()
-        .kill_process(&session_id, &handle, pid, acknowledged)
-        .await
+    state.core().kill_process(&session_id, &handle, pid, acknowledged).await
 }
