@@ -7,6 +7,22 @@
     },
     "desktop": {
       "title": "Desktop",
+      "shell": {
+        "disconnect": "Disconnect",
+        "starter": "Applications",
+        "clock": "Clock",
+        "power": "Power",
+        "minimize": "Minimize",
+        "maximize": "Maximize",
+        "restore": "Restore",
+        "close": "Close",
+        "files": "Files",
+        "terminal": "Terminal",
+        "monitor": "Monitor",
+        "system": "System",
+        "trash": "Trash",
+        "settings": "Settings"
+      },
       "icons": {
         "home": "Home",
         "terminal": "Terminal",
@@ -96,6 +112,8 @@
         "disks": "Disks",
         "accounts": "Accounts",
         "network": "Network",
+        "crontab": "Scheduled jobs",
+        "logins": "Logins",
         "journal": "Journal"
       },
       "facts": {
@@ -114,6 +132,7 @@
         "load": "Load",
         "active": "Active",
         "sub": "Sub",
+        "boot": "Enabled at boot",
         "description": "Description",
         "empty": "This host did not report any services — a container without systemd answers nothing here.",
         "actions": "Actions"
@@ -148,7 +167,23 @@
         "dns": "DNS resolvers",
         "noDns": "No resolver was reported.",
         "empty": "This host did not report any interfaces.",
-        "noRoutes": "This host did not report any routes."
+        "noRoutes": "This host did not report any routes.",
+        "firewall": "Firewall",
+        "firewallOn": "enabled",
+        "firewallOff": "disabled",
+        "firewallMissing": "No supported firewall was found on this host."
+      },
+      "crontab": {
+        "hint": "The account's crontab, exactly as the host stores it.",
+        "empty": "This account has no scheduled jobs."
+      },
+      "logins": {
+        "user": "Account",
+        "tty": "TTY",
+        "from": "From",
+        "start": "Started",
+        "status": "Duration",
+        "empty": "This host reported no logins."
       },
       "journal": {
         "tail": "The last {count} lines",
