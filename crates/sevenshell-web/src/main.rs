@@ -1059,12 +1059,7 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let handle: String = from_args(&args, "handle")?;
             let pid: u32 = from_args(&args, "pid")?;
             let acknowledged: bool = from_args(&args, "acknowledged")?;
-            to_value(
-                state
-                    .core
-                    .kill_process(&session_id, &handle, pid, acknowledged)
-                    .await?,
-            )
+            to_value(state.core.kill_process(&session_id, &handle, pid, acknowledged).await?)
         }
 
         "trash_list" => {
@@ -1081,22 +1076,14 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let handle: String = from_args(&args, "handle")?;
             let id: String = from_args(&args, "id")?;
             let acknowledged: bool = from_args(&args, "acknowledged")?;
-            state
-                .core
-                .trash_remove(&session_id, &handle, &id, acknowledged)
-                .await?;
+            state.core.trash_remove(&session_id, &handle, &id, acknowledged).await?;
             Ok(Value::Null)
         }
         "trash_empty" => {
             let session_id: String = from_args(&args, "sessionId")?;
             let handle: String = from_args(&args, "handle")?;
             let acknowledged: bool = from_args(&args, "acknowledged")?;
-            to_value(
-                state
-                    .core
-                    .trash_empty(&session_id, &handle, acknowledged)
-                    .await?,
-            )
+            to_value(state.core.trash_empty(&session_id, &handle, acknowledged).await?)
         }
         "trash_move" => {
             let handle: String = from_args(&args, "handle")?;

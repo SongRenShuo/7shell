@@ -19,11 +19,7 @@ pub async fn trash_list(state: State<'_, ShellState>, handle: String) -> Result<
 
 /// Moves one entry back out of the trash, answering where it landed.
 #[tauri::command]
-pub async fn trash_restore(
-    state: State<'_, ShellState>,
-    handle: String,
-    id: String,
-) -> Result<String, ShellError> {
+pub async fn trash_restore(state: State<'_, ShellState>, handle: String, id: String) -> Result<String, ShellError> {
     state.core().trash_restore(&handle, &id).await
 }
 
@@ -36,10 +32,7 @@ pub async fn trash_remove(
     id: String,
     acknowledged: bool,
 ) -> Result<(), ShellError> {
-    state
-        .core()
-        .trash_remove(&session_id, &handle, &id, acknowledged)
-        .await
+    state.core().trash_remove(&session_id, &handle, &id, acknowledged).await
 }
 
 /// Empties the trash, after the policy gate has asked about it.
@@ -50,10 +43,7 @@ pub async fn trash_empty(
     handle: String,
     acknowledged: bool,
 ) -> Result<TrashEmptyOutcome, ShellError> {
-    state
-        .core()
-        .trash_empty(&session_id, &handle, acknowledged)
-        .await
+    state.core().trash_empty(&session_id, &handle, acknowledged).await
 }
 
 /// Moves paths into the trash instead of deleting them: the delete mode "trash" is this.

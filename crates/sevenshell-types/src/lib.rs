@@ -88,8 +88,7 @@ pub use settings::{
     AI_SESSION_RETENTION_DAYS_DEFAULT, AI_SESSION_RETENTION_DAYS_MAX, AI_SESSION_RETENTION_DAYS_MIN, AppLayout,
     AppSettings, BACKGROUND_BLUR_MAX, BACKGROUND_TRANSPARENCY_MAX, BackgroundDisplayMode, BackgroundImage, CornerStyle,
     CustomColors, FILE_BOOKMARK_LABEL_MAX, FILE_BOOKMARK_LIMIT, FILE_BOOKMARK_PATH_MAX, FileBookmark, FilesDeleteMode,
-    FilesLayout,
-    HomeLayout, MCP_APPROVAL_TIMEOUT_SECONDS_DEFAULT, MCP_APPROVAL_TIMEOUT_SECONDS_MAX,
+    FilesLayout, HomeLayout, MCP_APPROVAL_TIMEOUT_SECONDS_DEFAULT, MCP_APPROVAL_TIMEOUT_SECONDS_MAX,
     MCP_APPROVAL_TIMEOUT_SECONDS_MIN, MCP_AUDIT_RETENTION_DAYS_DEFAULT, MCP_AUDIT_RETENTION_DAYS_MAX,
     MCP_AUDIT_RETENTION_DAYS_MIN, MCP_MAX_RESULT_BYTES_DEFAULT, MCP_MAX_RESULT_BYTES_MAX, MCP_MAX_RESULT_BYTES_MIN,
     McpAccessPolicy, McpScope, McpToolPolicy, SYNC_AUTO_UPLOAD_MINUTES_DEFAULT, SYNC_AUTO_UPLOAD_MINUTES_MAX,
@@ -116,11 +115,11 @@ pub use snippet::{
     CommandHistoryEntry, DEFAULT_GROUP_ID, SLOT_HISTORY, SNIPPET_SLOTS, SendFailure, SendOutcome, SendReport,
     SendTarget, Snippet, SnippetGroup,
 };
-pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
 pub use sync::{
     SnippetProvider, SnippetStatus, SnippetUploadReceipt, SyncApplySummary, SyncCatalog, SyncContents,
     SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt,
 };
 pub use system::HostSystem;
+pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
 pub use update::{AvailableRelease, UpdateCheck, UpdateProgress};
 pub use words::CompletionWord;
