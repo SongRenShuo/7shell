@@ -1,4 +1,4 @@
-//! What a forward could expose, before a port opens on this machine.
+//! What a forward could expose, before a port opens — here, or on the server.
 //!
 //! A local forward is the `ssh -L` shape: a listener on this machine whose traffic reaches a
 //! destination on the far side. Opening one is `Caution` — it moves traffic, but only for the
@@ -7,13 +7,21 @@
 //! product asks before opening a port, and it is `Destructive` here, which is the level the
 //! default matrix answers with a stop for a person.
 //!
+//! A remote forward turns that around: the port opens on the *server*, and it is a window onto
+//! this machine. Whoever can reach the server — everyone it is reachable by, which is why it is
+//! running SSH at all — reaches the target on the user's own network with it. There is no address
+//! that softens that: even a loopback bind on the server is open to every other process and every
+//! other account on it, which for a shared server is the wider case already. So remote is
+//! `Destructive` always, and the audit line names what is exposed: the target on this machine.
+//!
 //! `stop` takes the forward away from whoever was using it, which is `Caution`. A mode this table
 //! has no rule for is `Catastrophic` and never runs.
 
 use sevenshell_types::{RiskAssessment, RiskLevel, RiskReason};
 
 /// Classifies opening one forward. `mode` is the forward's kind as the classifier sees it —
-/// `local` or `dynamic` — and `bind_host` is the address the listener would bind.
+/// `local`, `dynamic` or `remote` — and `bind_host` is the address the listener would bind: here
+/// for the first two, on the server for a remote one.
 pub fn tunnel_open(mode: &str, bind_host: &str) -> RiskAssessment {
     let mode = mode.trim().to_ascii_lowercase();
     match mode.as_str() {
@@ -24,6 +32,7 @@ pub fn tunnel_open(mode: &str, bind_host: &str) -> RiskAssessment {
                 one("tunnel.expose", "risk.tunnel.expose", RiskLevel::Destructive)
             }
         }
+        "remote" => one("tunnel.remote", "risk.tunnel.remote", RiskLevel::Destructive),
         _ => one("tunnel.unknown", "risk.tunnel.unknown", RiskLevel::Catastrophic),
     }
 }
@@ -84,8 +93,25 @@ mod tests {
     }
 
     #[test]
+    fn a_remote_forward_stops_for_a_person_wherever_it_binds() {
+        // The bind address is the server's, and no address on the server softens what the forward
+        // is: a window onto this machine that everyone who reaches the server can look through.
+        for host in ["127.0.0.1", "localhost", "::1", "0.0.0.0", ""] {
+            let verdict = tunnel_open("remote", host);
+            assert_eq!(verdict.level, RiskLevel::Destructive, "{host}");
+            assert!(verdict.needs_approval(), "{host} asks before the server's port opens");
+            assert_eq!(verdict.reasons[0].rule_id, "tunnel.remote", "{host}");
+            assert_eq!(
+                PolicyRule::default().action_for(verdict.level),
+                PolicyAction::Ask,
+                "{host}"
+            );
+        }
+    }
+
+    #[test]
     fn a_mode_without_a_rule_is_catastrophic_and_asked_about() {
-        let verdict = tunnel_open("remote", "127.0.0.1");
+        let verdict = tunnel_open("socks", "127.0.0.1");
         assert_eq!(verdict.level, RiskLevel::Catastrophic);
         assert!(verdict.needs_approval(), "nothing here may run unattended");
         assert_eq!(verdict.reasons[0].rule_id, "tunnel.unknown");

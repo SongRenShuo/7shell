@@ -78,14 +78,19 @@ pub enum ForwardMode {
     /// One local port that speaks SOCKS5, so the destination is chosen per connection: the
     /// `ssh -D` shape. What asks it for an address is a browser or another tool, not this build.
     Dynamic,
+    /// A port on the *far side*, answered from this machine: the `ssh -R` shape. Whoever reaches
+    /// that port on the server sees a service of this machine's, which is why opening one is the
+    /// one forward that always stops for a person.
+    Remote,
 }
 
 /// A local port answered from the far side of a connection.
 ///
 /// The name is the `ssh -L` shape — a listener on this machine, and whatever it should reach on
-/// the remote side — and it is the shape of both kinds this build has: a [`ForwardMode::Local`] one
-/// has a destination of its own, a [`ForwardMode::Dynamic`] one is told the destination by whoever
-/// connects. Remote forwarding, the third kind, is still declared as planned and refused.
+/// the remote side — and it is the shape of all three kinds this build has: a
+/// [`ForwardMode::Local`] one has a destination of its own, a [`ForwardMode::Dynamic`] one is told
+/// the destination by whoever connects, and a [`ForwardMode::Remote`] one turns the fields around:
+/// `bind` is a port on the *server*, and `target` is a service on this machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalForward {
@@ -94,17 +99,20 @@ pub struct LocalForward {
     /// call site.
     #[serde(default)]
     pub id: String,
-    /// The address to listen on. `127.0.0.1` unless somebody deliberately says otherwise.
+    /// The address to listen on. `127.0.0.1` unless somebody deliberately says otherwise. For a
+    /// [`ForwardMode::Remote`] forward this is an address on the server, not on this machine.
     pub bind_host: String,
-    /// The port to listen on. Zero asks the system for a free one.
+    /// The port to listen on. Zero asks the system for a free one — the system on the far side,
+    /// for a remote forward, whose answer comes back in the open outcome.
     pub bind_port: u16,
-    /// Local or dynamic. A document written before dynamic forwarding existed carries no mode, and
-    /// a missing one means a local forward — which is what every forward was.
+    /// Local, dynamic or remote. A document written before dynamic forwarding existed carries no
+    /// mode, and a missing one means a local forward — which is what every forward was.
     #[serde(default)]
     pub mode: ForwardMode,
     /// Where a local forward sends what arrives. A dynamic one ignores it, and it stays in the
     /// document rather than being dropped so that switching a forward's kind back and forth does
-    /// not lose the address somebody typed.
+    /// not lose the address somebody typed. A remote forward reads it the other way: this is the
+    /// service on *this* machine the server's port is a window onto.
     #[serde(default)]
     pub target_host: String,
     #[serde(default)]
