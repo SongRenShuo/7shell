@@ -23,6 +23,10 @@ vi.mock("@/lib/backend/tauri", () => ({
   transfersOpen: vi.fn(async () => []),
   tunnelsOpen: vi.fn(async () => []),
   workbenchPower: vi.fn(),
+  trashList: vi.fn(async () => []),
+  trashRestore: vi.fn(),
+  trashRemove: vi.fn(),
+  trashEmpty: vi.fn(),
   settingsGet: vi.fn(),
   settingsSet: vi.fn(async () => {}),
   onDesktopResized: vi.fn(async () => () => {}),
@@ -34,7 +38,7 @@ import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import { useToast } from "@/composables/useToast";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { i18n } from "@/i18n";
-import { filesOpen, sessionOpen, workbenchPower } from "@/lib/backend/tauri";
+import { filesOpen, sessionOpen, trashList, workbenchPower } from "@/lib/backend/tauri";
 import {
   readDesktopShortcuts,
   writeDesktopShortcuts,
@@ -43,6 +47,8 @@ import {
 } from "@/lib/workbench/desktopIcons";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { Session } from "@/types/session";
+
+const trashListMock = vi.mocked(trashList);
 
 const sessionOpenMock = vi.mocked(sessionOpen);
 const filesOpenMock = vi.mocked(filesOpen);
@@ -155,15 +161,30 @@ afterEach(() => {
 });
 
 describe("the workbench desktop", () => {
-  it("lays the fixed doors out from the top left, and the trash among them is only a placeholder", async () => {
+  it("lays the fixed doors out from the top left, the trash among them and openable", async () => {
     await render();
 
     const labels = icons().map((entry) => entry.textContent?.trim());
     expect(labels).toEqual(["Home", "Terminal", "Monitor", "System information", "Trash"]);
 
     const trash = iconByLabel("Trash");
-    expect((trash as HTMLButtonElement).disabled, "a placeholder is not openable").toBe(true);
-    expect(trash.getAttribute("title")).toContain("later release");
+    expect((trash as HTMLButtonElement).disabled, "the trash is a door now, not a placeholder").toBe(false);
+    expect(trash.getAttribute("title"), "a door needs no apology in its title").toBeNull();
+  });
+
+  it("opens the trash panel from its icon, and the panel reads the machine's trash once", async () => {
+    trashListMock.mockResolvedValue([
+      { id: "notes.txt", name: "notes.txt", originalPath: "/root/notes.txt", deletedAt: 1, isDir: false },
+    ]);
+    await render();
+
+    // A desktop opens on the second click; the first one only selects.
+    iconByLabel("Trash").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(trashListMock).toHaveBeenCalledWith("w1");
+    expect(host.querySelector("[data-workbench-trash]"), "the panel is drawn over the desktop").not.toBeNull();
   });
 
   it("draws the backdrop the session chose over the whole tab, and the surface when it chose nothing", async () => {

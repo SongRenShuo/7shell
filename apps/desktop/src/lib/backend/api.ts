@@ -98,6 +98,8 @@ import type {
   SessionImportSummary,
   TerminalClosed,
   TerminalData,
+  TrashEmptyOutcome,
+  TrashEntry,
   UploadAnswer,
   UploadOutcome,
   WorkbenchPowerOutcome,
@@ -543,6 +545,19 @@ export const backend = {
       forward("files_download_browser_take", () => webInvoke("files_download_browser_take", { transferId })),
     /** Hands one finished browser download to the page's own download mechanism. */
     saveBrowserDownload: (token: string, name: string): void => saveBrowserFile(token, name),
+    /**
+     * The machine's freedesktop trash, reached over the same connection a browser rides on.
+     *
+     * The handle is a terminal's: the trash is remote file work, and every operation here is the
+     * SFTP channel's, not a command somebody typed.
+     */
+    trashList: (handle: string): Promise<TrashEntry[]> => forward("trash_list", () => desktop.trashList(handle)),
+    trashRestore: (handle: string, id: string): Promise<string> =>
+      forward("trash_restore", () => desktop.trashRestore(handle, id)),
+    trashRemove: (handle: string, sessionId: string, id: string, acknowledged: boolean): Promise<void> =>
+      forward("trash_remove", () => desktop.trashRemove(handle, sessionId, id, acknowledged)),
+    trashEmpty: (handle: string, sessionId: string, acknowledged: boolean): Promise<TrashEmptyOutcome> =>
+      forward("trash_empty", () => desktop.trashEmpty(handle, sessionId, acknowledged)),
   },
 
   transfers: {
