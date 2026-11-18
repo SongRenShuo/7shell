@@ -86,6 +86,10 @@ error_catalog! {
     SftpTransferFailed => "SFTP-TRANSFER-FAILED", "errors.sftp.transferFailed";
     #[doc = "A file operation the far side runs itself (copy, move, chmod) failed."]
     SftpOperationFailed => "SFTP-OPERATION-FAILED", "errors.sftp.operationFailed";
+    #[doc = "A trash operation (move in, restore, remove, empty) failed on the far side."]
+    TrashOperationFailed => "TRASH-OPERATION-FAILED", "errors.trash.operationFailed";
+    #[doc = "The trash entry the caller named is no longer in the trash."]
+    TrashEntryNotFound => "TRASH-ENTRY-NOT-FOUND", "errors.trash.entryNotFound";
 
     // -- The text editor's refusals ----------------------------------------
     #[doc = "The bytes are not text this build can show."]

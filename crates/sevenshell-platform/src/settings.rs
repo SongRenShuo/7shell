@@ -20,7 +20,8 @@ use sevenshell_error::ShellError;
 use sevenshell_types::{
     AiProviderConfig, AiProviderKind, AppLayout, AppSettings, BACKGROUND_BLUR_MAX, BACKGROUND_TRANSPARENCY_MAX,
     BackgroundDisplayMode, BackgroundImage, CornerStyle, CustomColors, FILE_BOOKMARK_LABEL_MAX, FILE_BOOKMARK_LIMIT,
-    FILE_BOOKMARK_PATH_MAX, FileBookmark, FilesLayout, HomeLayout, McpScope, McpServerConfig, McpServerTransport,
+    FILE_BOOKMARK_PATH_MAX, FileBookmark, FilesDeleteMode, FilesLayout, HomeLayout, McpScope, McpServerConfig,
+    McpServerTransport,
     SessionLayout, SessionReopen, SnippetProvider, TERMINAL_CUSTOM_SCHEME_LIMIT, TERMINAL_HIGHLIGHT_RULE_LIMIT,
     TERMINAL_SCHEME_PROFILE_LIMIT, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement, TabSortMode,
     TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
@@ -301,6 +302,10 @@ struct StoredSettings {
     terminal_theme: String,
     #[serde(default)]
     files_layout: String,
+    /// Absent in a file written before a delete could land in the trash, which reads as the trash —
+    /// the default this build ships with.
+    #[serde(default)]
+    files_delete_mode: String,
     /// Absent in a file written before a session could open as two halves, which reads as the
     /// default — the split — rather than as the terminal alone.
     #[serde(default)]
@@ -563,6 +568,7 @@ impl StoredSettings {
             theme_palette: settings.theme_palette.as_str().to_owned(),
             terminal_theme: settings.terminal_theme.as_str().to_owned(),
             files_layout: settings.files_layout.as_str().to_owned(),
+            files_delete_mode: settings.files_delete_mode.as_str().to_owned(),
             session_layout: settings.session_layout.as_str().to_owned(),
             session_reopen: settings.session_reopen.as_str().to_owned(),
             terminal_panel_height: settings.terminal_panel_height,
@@ -724,6 +730,7 @@ impl StoredSettings {
             theme_palette: ThemePalette::from_id(&self.theme_palette).unwrap_or_default(),
             terminal_theme: ThemeMode::from_id(&self.terminal_theme).unwrap_or_default(),
             files_layout: FilesLayout::from_id(&self.files_layout).unwrap_or_default(),
+            files_delete_mode: FilesDeleteMode::from_id(&self.files_delete_mode).unwrap_or_default(),
             session_layout: SessionLayout::from_id(&self.session_layout).unwrap_or_default(),
             session_reopen: SessionReopen::from_id(&self.session_reopen).unwrap_or_default(),
             terminal_panel_height: self.terminal_panel_height,
@@ -954,6 +961,7 @@ mod tests {
             theme_mode,
             terminal_theme,
             files_layout: FilesLayout::default(),
+            files_delete_mode: FilesDeleteMode::default(),
             session_layout: SessionLayout::default(),
             session_reopen: SessionReopen::default(),
             terminal_panel_height: None,

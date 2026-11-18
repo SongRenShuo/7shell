@@ -18,7 +18,8 @@ use sevenshell_types::{
     BatchHostRef, BatchHostResult, BatchOutcome, BatchRequest, CommandHistoryEntry, CompletionExecuteResult,
     CompletionWord, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime, ContainerSettings,
     ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey, CustomColors,
-    DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesLayout, ForwardMode, HomeLayout, HostFailure,
+    DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesDeleteMode, FilesLayout, ForwardMode,
+    HomeLayout, HostFailure,
     HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry,
     KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy, McpPrompt,
     McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent,
@@ -28,6 +29,7 @@ use sevenshell_types::{
     RiskLevel, RiskReason, SendFailure, SendOutcome, SendReport, SendTarget, Session, SessionAuth,
     SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SessionLayout, SessionReopen,
     SftpPasteItem, SftpPasteOutcome, Snippet, SnippetGroup, SnippetProvider, SnippetStatus, SnippetUploadReceipt,
+    TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest,
     SocketRow, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt,
     SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement,
     TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
@@ -615,6 +617,7 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
             theme_mode: ThemeMode::Dark,
             terminal_theme: ThemeMode::System,
             files_layout: FilesLayout::List,
+            files_delete_mode: FilesDeleteMode::Direct,
             session_layout: SessionLayout::Terminal,
             session_reopen: SessionReopen::NewTab,
             terminal_panel_height: Some(320),
@@ -770,6 +773,11 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
     assert_eq!(
         settings["fileBookmarks"][0]["path"],
         serde_json::json!("/var/log/nginx")
+    );
+    assert_eq!(
+        settings["filesDeleteMode"],
+        serde_json::json!("direct"),
+        "the delete mode travels under the name the settings page reads"
     );
     // The terminal's typography travels under the names the page reads, and the two cursor shapes
     // are the lower-case words the menu matches.
@@ -1652,6 +1660,80 @@ fn a_paste_outcome_serializes_with_camel_case_fields() {
     );
     assert_eq!(done["results"][0]["error"], serde_json::json!("cp: permission denied"));
     assert_eq!(done["results"][0]["ok"], serde_json::json!(false));
+}
+
+#[test]
+fn a_trash_entry_serializes_with_camel_case_fields_and_an_unknown_shape() {
+    let known = check(
+        &TrashEntry {
+            id: "notes.txt".to_owned(),
+            name: "notes.txt".to_owned(),
+            original_path: Some("/home/user/notes.txt".to_owned()),
+            deleted_at: Some(1_763_445_087),
+            is_dir: false,
+            size: Some(42),
+        },
+        "TrashEntry::known",
+    );
+    assert_eq!(known["originalPath"], serde_json::json!("/home/user/notes.txt"));
+    assert_eq!(known["deletedAt"], serde_json::json!(1_763_445_087));
+    assert_eq!(known["isDir"], serde_json::json!(false));
+    assert_eq!(known["size"], serde_json::json!(42));
+
+    // An entry with no paired trashinfo is listed but cannot be restored: the absent fields stay
+    // off the wire rather than arriving as nulls the interface has to filter.
+    let unknown = check(
+        &TrashEntry {
+            id: "orphan".to_owned(),
+            name: "orphan".to_owned(),
+            original_path: None,
+            deleted_at: None,
+            is_dir: true,
+            size: None,
+        },
+        "TrashEntry::unknown",
+    );
+    assert!(!serde_json::to_string(&unknown).unwrap().contains("originalPath"));
+    assert!(!serde_json::to_string(&unknown).unwrap().contains("deletedAt"));
+    assert!(!serde_json::to_string(&unknown).unwrap().contains("size"));
+}
+
+#[test]
+fn trash_move_and_empty_types_keep_their_camel_case_fields() {
+    let request = check(
+        &TrashMoveRequest {
+            path: "/home/user/logs".to_owned(),
+            is_dir: true,
+        },
+        "TrashMoveRequest",
+    );
+    assert_eq!(request["isDir"], serde_json::json!(true));
+
+    let moved = check(
+        &TrashMoveOutcome {
+            path: "/home/user/logs".to_owned(),
+            ok: true,
+            trash_path: Some("/home/user/.local/share/Trash/files/logs".to_owned()),
+            error: None,
+        },
+        "TrashMoveOutcome::ok",
+    );
+    assert_eq!(moved["trashPath"], serde_json::json!("/home/user/.local/share/Trash/files/logs"));
+
+    let failed = check(
+        &TrashMoveOutcome {
+            path: "/mnt/other-disk/file".to_owned(),
+            ok: false,
+            trash_path: None,
+            error: Some("rename failed: cross-device link".to_owned()),
+        },
+        "TrashMoveOutcome::failed",
+    );
+    assert_eq!(failed["error"], serde_json::json!("rename failed: cross-device link"));
+    assert!(!serde_json::to_string(&failed).unwrap().contains("trashPath"));
+
+    let empty = check(&TrashEmptyOutcome { removed: 3 }, "TrashEmptyOutcome");
+    assert_eq!(empty["removed"], serde_json::json!(3));
 }
 
 #[test]

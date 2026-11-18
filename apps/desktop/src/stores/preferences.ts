@@ -106,6 +106,7 @@ import {
   type HomeLayout,
   type CustomColors,
   type FileBookmark,
+  type FilesDeleteMode,
   type FilesLayout,
   type McpAccessPolicy,
   type McpScope,
@@ -202,6 +203,7 @@ const FRESH: Omit<AppSettings, "locale"> = {
   customColorsDark: DEFAULT_CUSTOM_COLORS_DARK,
   terminalTheme: "system",
   filesLayout: "tree",
+  filesDeleteMode: "trash",
   sessionLayout: "split",
   sessionReopen: DEFAULT_SESSION_REOPEN,
   terminalPanelHeight: undefined,
@@ -337,6 +339,14 @@ export const usePreferencesStore = defineStore("preferences", () => {
   const terminalTheme = ref<ThemeMode>("system");
   /** Two panes or one, in the file browser. */
   const filesLayout = ref<FilesLayout>("tree");
+  /**
+   * Where a delete in the file browser lands.
+   *
+   * The trash by default, because a delete that can be undone is the safer shape for the button
+   * that sits next to "rename"; the direct delete stays one switch away. A browser that is not
+   * SFTP deletes the way it always has either way — the trash is not something every backend has.
+   */
+  const filesDeleteMode = ref<FilesDeleteMode>("trash");
   /**
    * How a session opens: a terminal on its own, or a terminal with its file panel under it.
    *
@@ -916,6 +926,7 @@ export const usePreferencesStore = defineStore("preferences", () => {
       customColorsDark.value = settings.customColorsDark ?? { ...DEFAULT_CUSTOM_COLORS_DARK };
       terminalTheme.value = settings.terminalTheme;
       filesLayout.value = settings.filesLayout;
+      filesDeleteMode.value = settings.filesDeleteMode;
       sessionLayout.value = settings.sessionLayout;
       sessionReopen.value = settings.sessionReopen;
       terminalPanelHeight.value = settings.terminalPanelHeight ?? null;
@@ -1069,6 +1080,7 @@ export const usePreferencesStore = defineStore("preferences", () => {
         customColorsDark: customColorsDark.value,
         terminalTheme: terminalTheme.value,
         filesLayout: filesLayout.value,
+        filesDeleteMode: filesDeleteMode.value,
         sessionLayout: sessionLayout.value,
         sessionReopen: sessionReopen.value,
         terminalPanelHeight: terminalPanelHeight.value ?? undefined,
@@ -1579,6 +1591,11 @@ export const usePreferencesStore = defineStore("preferences", () => {
 
   async function setFilesLayout(layout: FilesLayout): Promise<void> {
     filesLayout.value = layout;
+    dirty.value = true;
+  }
+
+  async function setFilesDeleteMode(mode: FilesDeleteMode): Promise<void> {
+    filesDeleteMode.value = mode;
     dirty.value = true;
   }
 
@@ -2235,6 +2252,9 @@ export const usePreferencesStore = defineStore("preferences", () => {
         case "filesLayout":
           filesLayout.value = FRESH.filesLayout;
           break;
+        case "filesDeleteMode":
+          filesDeleteMode.value = FRESH.filesDeleteMode;
+          break;
         case "sessionLayout":
           sessionLayout.value = FRESH.sessionLayout;
           break;
@@ -2353,6 +2373,7 @@ export const usePreferencesStore = defineStore("preferences", () => {
     customColorsDark,
     terminalTheme,
     filesLayout,
+    filesDeleteMode,
     sessionLayout,
     sessionReopen,
     terminalPanelHeight,
@@ -2460,6 +2481,7 @@ export const usePreferencesStore = defineStore("preferences", () => {
     resetCustomColors,
     setTerminalTheme,
     setFilesLayout,
+    setFilesDeleteMode,
     setSessionLayout,
     setSessionReopen,
     setMonitorEnabled,
