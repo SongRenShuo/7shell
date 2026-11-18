@@ -147,7 +147,26 @@
         "taskbarAlign": "任务栏对齐",
         "taskbarAlignLeft": "左",
         "taskbarAlignCenter": "中",
+        "widgets": "桌面小部件",
         "saved": "背景已保存。"
+      },
+      "widgets": {
+        "title": "桌面小部件",
+        "system": "系统",
+        "cpu": "处理器",
+        "net": "网络",
+        "storage": "存储空间",
+        "host": "主机",
+        "uptime": "运行时长",
+        "uptimeDays": "{days}天{hours}小时",
+        "uptimeHours": "{hours}小时{minutes}分",
+        "load": "负载（5分钟）",
+        "busy": "占用",
+        "cores": "核心数",
+        "down": "下载",
+        "up": "上传",
+        "used": "已用",
+        "free": "可用"
       }
     },
     "power": {

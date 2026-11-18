@@ -75,6 +75,7 @@ import WorkbenchBatchWindow from "@/components/workspace/WorkbenchBatchWindow.vu
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
 import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
 import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
+import WorkbenchWidgets from "@/components/workspace/WorkbenchWidgets.vue";
 import WorkbenchWindow from "@/components/workspace/WorkbenchWindow.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
@@ -84,6 +85,12 @@ import { describeShellError, type Translate } from "@/i18n/errors";
 import { useFilesStore } from "@/stores/files";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
+import {
+  WORKBENCH_WIDGET_IDS,
+  readDesktopWidgets,
+  writeDesktopWidgets,
+  type WorkbenchWidgetId,
+} from "@/lib/workbench/desktopWidgets";
 import {
   addShortcut,
   isValidShortcutPath,
@@ -233,6 +240,24 @@ const hiddenDoors = ref<string[]>(readHiddenDoors(session.value.id));
 /** Writes the choice down after the checkboxes have changed it. */
 function persistHiddenDoors(): void {
   writeHiddenDoors(session.value.id, hiddenDoors.value);
+}
+
+/**
+ * The widgets this desktop keeps on the desk, read out of the WebView's own storage when the
+ * desktop is drawn — the same reasoning, and the same place, as the hidden doors. The set is
+ * written whole whenever the settings' checkboxes change it.
+ */
+const widgetIds = ref<WorkbenchWidgetId[]>([...readDesktopWidgets(session.value.id)]);
+
+function setWidget(id: WorkbenchWidgetId, on: boolean): void {
+  const enabled = new Set(widgetIds.value);
+  if (on) {
+    enabled.add(id);
+  } else {
+    enabled.delete(id);
+  }
+  widgetIds.value = [...enabled];
+  writeDesktopWidgets(session.value.id, enabled);
 }
 
 /**
@@ -877,6 +902,18 @@ function pressDesktop(): void {
     : restoreAll(windows.value);
 }
 
+/**
+ * Opens the window a widget points at: the vitals cards want the monitor's system page, and the
+ * storage card wants the system panel's disk tree — the two places those readings become an answer.
+ */
+function openWidgetTarget(target: "monitor" | "system"): void {
+  if (target === "monitor") {
+    openRecord("monitor", t("workbench.desktop.icons.monitor"), "monitor");
+    return;
+  }
+  openRecord("system", t("workbench.desktop.icons.system"), "system");
+}
+
 // -- the clock ---------------------------------------------------------------
 
 /**
@@ -1369,6 +1406,19 @@ function disconnect(): void {
       </div>
 
       <!--
+        The widgets column, on the desk's right edge: the machine's vitals, each card a button into
+        the window that can explain its readings. It samples only while this desktop is the tab on
+        screen, and the component itself also asks whether the application window is visible.
+      -->
+      <WorkbenchWidgets
+        v-if="connected"
+        :handle="tab.handle"
+        :active="active"
+        :enabled="widgetIds"
+        @open="openWidgetTarget($event)"
+      />
+
+      <!--
         The windows, in the order the store keeps them. A window is drawn while it exists, whether it
         is minimised or not: the component scales it away, so a terminal keeps its screen and its
         scrollback rather than being torn down and rebuilt.
@@ -1789,6 +1839,33 @@ function disconnect(): void {
             >
               {{ t(`workbench.desktop.settings.${align === "left" ? "taskbarAlignLeft" : "taskbarAlignCenter"}`) }}
             </button>
+          </div>
+
+          <!--
+            The widgets the desk keeps, checked off one by one: unchecking a widget takes its card
+            off the column and stops its share of the sampling with it. The choices are written down
+            per session, the way the hidden doors are.
+          -->
+          <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.desktop.settings.widgets") }}
+          </h3>
+          <div class="grid grid-cols-2 gap-0.5">
+            <label
+              v-for="id in WORKBENCH_WIDGET_IDS"
+              :key="id"
+              class="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] transition-colors hover:bg-accent/50"
+            >
+              <input
+                type="checkbox"
+                class="size-3 shrink-0"
+                :checked="widgetIds.includes(id)"
+                data-workbench-setting-widget
+                :data-widget-id="id"
+                :aria-label="t(`workbench.desktop.widgets.${id}`)"
+                @change="setWidget(id, ($event.target as HTMLInputElement).checked)"
+              />
+              {{ t(`workbench.desktop.widgets.${id}`) }}
+            </label>
           </div>
 
           <footer class="mt-4 flex justify-end">
