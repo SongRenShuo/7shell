@@ -501,6 +501,16 @@ function reconnectWindow(id: string): void {
   }
 }
 
+/**
+ * Asks the store to reconnect this desktop's own connection — the one the system panel and the
+ * trash read through. For a workbench tab a reconnect is an open of the session again, so the
+ * fresh desktop arrives as its own tab and this one is gone; that is the same answer the status
+ * bar's sentence describes, said from inside a window that was left behind by the drop.
+ */
+function reconnectDesktop(): void {
+  void terminals.reconnect(props.tab.id);
+}
+
 function homeOf(id: string): string | undefined {
   return payloads.value[id]?.path;
 }
@@ -1336,6 +1346,27 @@ function disconnect(): void {
           class="h-full"
           @close="close(window.id)"
         />
+        <!--
+          The connection these two read through has gone down. The terminal answers the same moment
+          with its ended sentence and a way back, and these two do not get to be quieter about it
+          than the terminal is: a frame with nothing in it says nothing about what happened or what
+          to do, which is the one answer a desktop may never leave blank.
+        -->
+        <div
+          v-else-if="window.kind === 'system' || window.kind === 'trash'"
+          class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"
+          data-workbench-window-disconnected
+        >
+          <p class="text-xs text-muted-foreground">{{ t("workbench.tab.ended") }}</p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+            @click="reconnectDesktop()"
+          >
+            <RotateCw :size="12" />
+            {{ t("workbench.tab.retry") }}
+          </button>
+        </div>
       </WorkbenchWindow>
     </div>
 

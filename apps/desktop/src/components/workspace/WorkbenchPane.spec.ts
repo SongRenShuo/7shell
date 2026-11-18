@@ -308,6 +308,32 @@ describe("the workbench desktop", () => {
     expect(systemOverviewMock).toHaveBeenCalledWith("w1");
   });
 
+  it("answers a dropped connection with the ended sentence instead of an empty frame, and offers the way back", async () => {
+    // The connection is gone before the trash is opened: the window exists, its body does not.
+    await render(desk, null);
+
+    iconByLabel("Trash").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const body = host.querySelector<HTMLElement>("[data-workbench-window-disconnected]");
+    expect(body, "the window says why it is empty").not.toBeNull();
+    expect(body?.textContent).toContain("not connected");
+
+    sessionOpenMock.mockResolvedValue({
+      kind: "opened",
+      handle: "w2",
+      sessionId: "desk-1",
+      tunnels: [],
+      tunnelFailures: [],
+    });
+    body?.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(sessionOpenMock, "the button asks the store to open the session again").toHaveBeenCalledWith("desk-1");
+  });
+
   it("draws a disk tree whose leaves carry no children key, the shape the shell actually sends", async () => {
     // The Rust side omits an empty vector, so a leaf device arrives without `children` at all.
     // A mirror that typed it as always-present threw "not iterable" the first time this page met
