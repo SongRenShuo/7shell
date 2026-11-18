@@ -99,10 +99,11 @@ function uptime(seconds: number): string {
 }
 
 /** A device and its partitions, flattened for the table, in the host's own order. */
-function flatten(devices: readonly DiskDevice[], depth = 0): { device: DiskDevice; depth: number }[] {
+function flatten(devices: readonly DiskDevice[] | undefined, depth = 0): { device: DiskDevice; depth: number }[] {
   const rows: { device: DiskDevice; depth: number }[] = [];
-  for (const device of devices) {
+  for (const device of devices ?? []) {
     rows.push({ device, depth });
+    // A leaf device carries no `children` key at all rather than an empty list.
     rows.push(...flatten(device.children, depth + 1));
   }
   return rows;

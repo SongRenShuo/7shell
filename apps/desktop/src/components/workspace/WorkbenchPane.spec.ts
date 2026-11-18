@@ -218,6 +218,52 @@ describe("the workbench desktop", () => {
     expect(systemOverviewMock).toHaveBeenCalledWith("w1");
   });
 
+  it("draws a disk tree whose leaves carry no children key, the shape the shell actually sends", async () => {
+    // The Rust side omits an empty vector, so a leaf device arrives without `children` at all.
+    // A mirror that typed it as always-present threw "not iterable" the first time this page met
+    // a real machine; this fixture is that machine's shape.
+    systemOverviewMock.mockResolvedValue({
+      services: [],
+      disks: [
+        { name: "loop0", size: "61.9M", kind: "loop", mount: "/snap/core20/1434", filesystem: "squashfs" },
+        {
+          name: "sda",
+          size: "200G",
+          kind: "disk",
+          children: [{ name: "sda1", size: "200G", kind: "part", mount: "/" }],
+        },
+      ],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      uptimeSeconds: 60,
+    } as never);
+    await render();
+
+    iconByLabel("System panel").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const disk = [...host.querySelectorAll("[data-workbench-system-tabs] button")].find((button) =>
+      button.textContent?.includes("Disks"),
+    );
+    disk?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(host.querySelector("[data-workbench-system]"), "the panel survives a leaf device").not.toBeNull();
+    const text = [...host.querySelectorAll("[data-workbench-system] tbody tr")].map((row) => row.textContent ?? "");
+    expect(
+      text.some((line) => line.includes("loop0")),
+      "the leaf is drawn",
+    ).toBe(true);
+    expect(
+      text.some((line) => line.includes("sda1")),
+      "the child is drawn",
+    ).toBe(true);
+  });
+
   it("keeps the system panel open while its sections are switched", async () => {
     systemOverviewMock.mockResolvedValue({
       services: [{ name: "sshd.service", load: "loaded", active: "active", sub: "running", description: "OpenSSH" }],
