@@ -127,6 +127,19 @@ function onTitlePointerDown(event: PointerEvent): void {
   titleBar.value?.setPointerCapture?.(event.pointerId);
 }
 
+/**
+ * The double-click habit every window manager teaches: two presses on the title bar are the
+ * maximize button's other face. It coexists with the drag because a double-click's two pointerdowns
+ * move nothing — a drag that never moved has nothing to undo when the second press completes.
+ */
+function onTitleDoubleClick(): void {
+  if (props.state === "max") {
+    emit("restore");
+  } else if (props.state === "normal") {
+    emit("maximize");
+  }
+}
+
 function onTitlePointerMove(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
     return;
@@ -222,6 +235,7 @@ function onGripPointerUp(event: PointerEvent): void {
       @pointermove="onTitlePointerMove"
       @pointerup="onTitlePointerUp"
       @pointercancel="onTitlePointerUp"
+      @dblclick="onTitleDoubleClick"
     >
       <component :is="icon" v-if="icon" :size="16" class="shrink-0 text-white/80" aria-hidden="true" />
       <h2 data-workbench-window-caption class="min-w-0 flex-1 truncate text-[17px] leading-none text-white">
@@ -306,6 +320,31 @@ function onGripPointerUp(event: PointerEvent): void {
   transform-origin: center;
   transition: transform 0.2s ease;
   will-change: transform;
+  /* The entrance: every window arrives by settling into place rather than by appearing. It runs
+     once per mount (the animation, unlike the transition, does not re-fire when geometry changes),
+     and it is short enough that a fast double-click never sees a half-drawn window. */
+  animation: workbench-window-in 0.16s ease-out;
+}
+
+@keyframes workbench-window-in {
+  from {
+    opacity: 0.4;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Somebody who told their OS to calm the motion gets a desktop without any of it: the transforms
+   above are decoration, and the states (min, closing) still apply instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .workbench-window {
+    transition: none;
+    animation: none;
+  }
 }
 
 .workbench-window--max {

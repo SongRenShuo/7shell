@@ -17,6 +17,7 @@ vi.mock("@/lib/runtime", () => ({ isDesktopRuntime: vi.fn(() => true) }));
 vi.mock("@/lib/backend/tauri", () => ({
   sessionOpen: vi.fn(),
   sessionSystem: vi.fn(),
+  terminalClose: vi.fn(async () => null),
   filesOpen: vi.fn(),
   filesList: vi.fn(async (_handle: string, path: string) => ({ path, entries: [] })),
   filesClose: vi.fn(async () => null),
@@ -106,7 +107,16 @@ function iconLabels(): (string | undefined)[] {
 }
 
 /** The order this desktop draws before anybody arranges it. */
-const DEFAULT_ICON_LABELS = ["Home", "Terminal", "Monitor", "System information", "System panel", "Trash"];
+const DEFAULT_ICON_LABELS = [
+  "Home",
+  "Terminal",
+  "Docker",
+  "Monitor",
+  "System information",
+  "System panel",
+  "Transfers",
+  "Trash",
+];
 
 function iconByLabel(label: string): HTMLElement {
   const found = icons().find((entry) => entry.textContent?.trim() === label);
@@ -202,7 +212,7 @@ describe("the workbench desktop", () => {
     await render();
 
     const labels = icons().map((entry) => entry.textContent?.trim());
-    expect(labels).toEqual(["Home", "Terminal", "Monitor", "System information", "System panel", "Trash"]);
+    expect(labels).toEqual(DEFAULT_ICON_LABELS);
 
     const trash = iconByLabel("Trash");
     expect((trash as HTMLButtonElement).disabled, "the trash is a door now, not a placeholder").toBe(false);
@@ -553,7 +563,16 @@ describe("the workbench desktop", () => {
     drag(iconByLabel("Trash"), iconByLabel("Home"));
     await nextTick();
 
-    const arranged = ["Trash", "Home", "Terminal", "Monitor", "System information", "System panel"];
+    const arranged = [
+      "Trash",
+      "Home",
+      "Terminal",
+      "Docker",
+      "Monitor",
+      "System information",
+      "System panel",
+      "Transfers",
+    ];
     expect(iconLabels()).toEqual(arranged);
     expect(terminals.tabs, "a drag opens nothing").toHaveLength(1);
     expect(iconByLabel("Trash").className, "and it does not select what it picked up, either").not.toContain(
@@ -565,9 +584,11 @@ describe("the workbench desktop", () => {
       "system-trash",
       "system-home",
       "system-terminal",
+      "system-docker",
       "system-monitor",
       "system-info",
       "system-panel",
+      "system-transfers",
     ]);
 
     // A later visit draws the arrangement storage holds.
@@ -582,7 +603,16 @@ describe("the workbench desktop", () => {
     drag(iconByLabel("Home"));
     await nextTick();
 
-    expect(iconLabels()).toEqual(["Terminal", "Monitor", "System information", "System panel", "Trash", "Home"]);
+    expect(iconLabels()).toEqual([
+      "Terminal",
+      "Docker",
+      "Monitor",
+      "System information",
+      "System panel",
+      "Transfers",
+      "Trash",
+      "Home",
+    ]);
   });
 
   it("drops an id whose icon is gone, and puts a newly added icon at the end", async () => {
@@ -595,9 +625,11 @@ describe("the workbench desktop", () => {
       "Trash",
       "Home",
       "Terminal",
+      "Docker",
       "Monitor",
       "System information",
       "System panel",
+      "Transfers",
       "data",
     ]);
   });
@@ -767,6 +799,35 @@ describe("the workbench desktop", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(written, "the path went to the clipboard").toEqual(["/srv/data"]);
     expect(useToast().message.value).toContain("clipboard");
+  });
+
+  it("folds a window away before removing it, and takes the tab with it", async () => {
+    sessionOpenMock.mockResolvedValue({
+      kind: "opened",
+      handle: "t1",
+      sessionId: desk.id,
+      tunnels: [],
+      tunnelFailures: [],
+    });
+    const terminals = useTerminalsStore();
+    await render();
+
+    fire(iconByLabel("Terminal"), "dblclick");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(terminals.tabs).toHaveLength(2);
+
+    host.querySelector<HTMLElement>("[data-workbench-window-close]")!.click();
+    await nextTick();
+    expect(
+      host.querySelector("[data-workbench-window]"),
+      "the window is still on screen while the collapse runs",
+    ).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    await nextTick();
+    expect(host.querySelector("[data-workbench-window]"), "and is gone once it has folded").toBeNull();
+    expect(terminals.tabs, "the tab underneath went with it").toHaveLength(1);
   });
 
   it("mirrors the open windows in the taskbar, and raises the one that is clicked", async () => {

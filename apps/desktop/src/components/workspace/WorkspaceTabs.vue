@@ -81,6 +81,7 @@ import {
   type TerminalTab,
   type WorkspaceTab,
   type InspectView,
+  isWindowedTab,
   sessionOf,
   useTerminalsStore,
 } from "@/stores/terminals";
@@ -377,7 +378,7 @@ const ordered = computed(() => {
   // A terminal a desktop opened in one of its windows is drawn there, not in this strip: the
   // window is the tab's surface, and a tab in both places would be one connection drawn twice with
   // two active states to keep in step.
-  const tabs = terminals.tabs.filter((tab) => !(tab.kind === "terminal" && tab.windowed));
+  const tabs = terminals.tabs.filter((tab) => !isWindowedTab(tab));
   if (preferences.tabSortMode === "created-asc") {
     const opened = terminals.openedOrder;
     return [...tabs].sort((left, right) => opened.indexOf(left.id) - opened.indexOf(right.id));
@@ -389,7 +390,7 @@ const ordered = computed(() => {
 });
 
 /** The tabs whose body this frame draws — every tab except the ones a desktop window holds. */
-const bodyTabs = computed(() => terminals.tabs.filter((tab) => !(tab.kind === "terminal" && tab.windowed)));
+const bodyTabs = computed(() => terminals.tabs.filter((tab) => !isWindowedTab(tab)));
 
 /** One line of the bar: a run's name, or a tab. */
 type StripEntry =
