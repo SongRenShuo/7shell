@@ -169,6 +169,9 @@ Rust 侧 `skip_serializing_if = "Vec::is_empty"` 让空数组不上线，TS 镜�
 **A2 可选链只保护到它左边那一层：`a?.b.length` 在 `b` 缺失时照样抛**
 `overview?.crontab.length` 只对 `overview` 短路，`crontab` 缺席时仍然读 `undefined.length`；渲染期抛错被 Vue 吞掉并卸载子树，界面上是「切分区面板整块消失」，控制台里也只有一条 console.error。凡线格式里可能缺席的字段，访问其内部属性前再写一个 `?.`（`overview?.crontab?.length`），并用**旧宿主形状**（缺这些字段的应答）做回归用例——新字段的夹具永远是齐的，所以它证不了这条。证据：7shell `da580d1`，运行中的浏览器宿主比前端旧，切到「定时任务/登录记录」两分区即崩。Seen 1。
 
+**A3 给浮层加一层定位包装时，包装自己要会「透传点击」**
+把 `inert`/`display:none` 的面板套进一个全屏定位 div 以获得层叠顺序，那个 div 仍是透明的实心矩形：它盖住底下的全部可点区域，把每一次点击都吃掉。面板自己是 inert 的，所以控制台干净、DOM 看着也对，只有用户发现「什么都点不动」。全屏包装一律 `pointer-events-none`，需要点的子层再 `pointer-events:auto`；回归用例查的是**命中测试**（`elementFromPoint` 落在目标上）而不是「元素在不在 DOM」。证据：7shell `5fb0c12`（桌面图标全部点击无效，包装层 212×732 压住桌面）。Seen 1。
+
 ## 升级记录
 
 | 日期 | 条目 | 去向 |

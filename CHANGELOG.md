@@ -74,6 +74,13 @@ All notable changes to 7Shell are documented in this file. The format is
   the system proxy, which cannot reach this machine's loopback and answered instead with its own
   error (f1f4a25).
 
+### Fixed
+
+- The desktop's icons answer the mouse again: the layer that holds the application starter covered
+  the whole desk and took every click even while the sheet inside it was closed and inert. The
+  layer is now click-through, and the taskbar's side margins narrow with a narrow window instead of
+  leaving a sliver of bar (5fb0c12).
+
 ## [0.2.0] - 2026-11-17
 
 The browser-host release. The interface now runs in a normal browser from a loopback host, so
