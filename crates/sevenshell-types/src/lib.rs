@@ -121,8 +121,8 @@ pub use sync::{
     SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt,
 };
 pub use sysinfo::{
-    AccountEntry, DiskDevice, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, RouteEntry, ServiceEntry,
-    SystemOverview,
+    AccountEntry, DiskDevice, FirewallStatus, InterfaceAddress, InterfaceEntry, JournalLine, JournalTail, LoginRecord,
+    RouteEntry, ServiceEntry, SystemOverview,
 };
 pub use system::HostSystem;
 pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
