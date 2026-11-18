@@ -115,6 +115,9 @@ const DEFAULT_ICON_LABELS = [
   "System information",
   "System panel",
   "Transfers",
+  "Forwards",
+  "Logs",
+  "Batch",
   "Trash",
 ];
 
@@ -572,6 +575,9 @@ describe("the workbench desktop", () => {
       "System information",
       "System panel",
       "Transfers",
+      "Forwards",
+      "Logs",
+      "Batch",
     ];
     expect(iconLabels()).toEqual(arranged);
     expect(terminals.tabs, "a drag opens nothing").toHaveLength(1);
@@ -589,6 +595,9 @@ describe("the workbench desktop", () => {
       "system-info",
       "system-panel",
       "system-transfers",
+      "system-forwards",
+      "system-tail",
+      "system-batch",
     ]);
 
     // A later visit draws the arrangement storage holds.
@@ -610,6 +619,9 @@ describe("the workbench desktop", () => {
       "System information",
       "System panel",
       "Transfers",
+      "Forwards",
+      "Logs",
+      "Batch",
       "Trash",
       "Home",
     ]);
@@ -630,6 +642,9 @@ describe("the workbench desktop", () => {
       "System information",
       "System panel",
       "Transfers",
+      "Forwards",
+      "Logs",
+      "Batch",
       "data",
     ]);
   });

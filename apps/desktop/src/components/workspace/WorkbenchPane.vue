@@ -37,6 +37,7 @@ import {
   Container,
   Cpu,
   ExternalLink,
+  FileText,
   Folder,
   FolderPlus,
   Globe,
@@ -44,7 +45,9 @@ import {
   House,
   Info,
   LayoutGrid,
+  ListChecks,
   ListTree,
+  Network,
   Power,
   RotateCw,
   Settings,
@@ -66,6 +69,9 @@ import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
 import WorkbenchDockerWindow from "@/components/workspace/WorkbenchDockerWindow.vue";
 import WorkbenchTransfersWindow from "@/components/workspace/WorkbenchTransfersWindow.vue";
+import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWindow.vue";
+import WorkbenchTailWindow from "@/components/workspace/WorkbenchTailWindow.vue";
+import WorkbenchBatchWindow from "@/components/workspace/WorkbenchBatchWindow.vue";
 import WorkbenchStarter from "@/components/workspace/WorkbenchStarter.vue";
 import WorkbenchStatusBar from "@/components/workspace/WorkbenchStatusBar.vue";
 import WorkbenchTaskbar from "@/components/workspace/WorkbenchTaskbar.vue";
@@ -193,6 +199,9 @@ interface DesktopIcon {
     | "trash"
     | "docker"
     | "transfers"
+    | "forwards"
+    | "tail"
+    | "batch"
     | "shortcut";
   readonly label: string;
   readonly icon: Component;
@@ -219,6 +228,9 @@ const systemIcons = computed<DesktopIcon[]>(() => [
   { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
   { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
   { id: "system-transfers", kind: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown },
+  { id: "system-forwards", kind: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network },
+  { id: "system-tail", kind: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText },
+  { id: "system-batch", kind: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks },
   { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
 ]);
 
@@ -517,6 +529,12 @@ function iconOf(kind: string): Component {
       return Container;
     case "transfers":
       return ArrowUpDown;
+    case "forwards":
+      return Network;
+    case "tail":
+      return FileText;
+    case "batch":
+      return ListChecks;
     case "trash":
       return Trash2;
     default:
@@ -549,6 +567,12 @@ function toneOf(kind: string): string {
       return "bg-sky-600/90";
     case "transfers":
       return "bg-cyan-600/90";
+    case "forwards":
+      return "bg-indigo-600/90";
+    case "tail":
+      return "bg-teal-600/90";
+    case "batch":
+      return "bg-orange-600/90";
     case "trash":
       return "bg-rose-500/90";
     default:
@@ -598,6 +622,15 @@ function openIcon(icon: DesktopIcon): void {
       return;
     case "transfers":
       openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
+      return;
+    case "forwards":
+      openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
+      return;
+    case "tail":
+      openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
+      return;
+    case "batch":
+      openRecord("batch", t("workbench.desktop.icons.batch"), "batch");
       return;
     case "trash":
       openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
@@ -679,6 +712,9 @@ const starterApps = computed<StarterApp[]>(() => [
   { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
   { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
   { id: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown, tone: "bg-cyan-600/85" },
+  { id: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network, tone: "bg-indigo-600/85" },
+  { id: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText, tone: "bg-teal-600/85" },
+  { id: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks, tone: "bg-orange-600/85" },
   { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
   { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
 ]);
@@ -703,6 +739,15 @@ function launch(appId: string): void {
       return;
     case "transfers":
       openRecord("transfers", t("workbench.desktop.icons.transfers"), "transfers");
+      return;
+    case "forwards":
+      openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
+      return;
+    case "tail":
+      openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
+      return;
+    case "batch":
+      openRecord("batch", t("workbench.desktop.icons.batch"), "batch");
       return;
     case "trash":
       openRecord("trash", t("workbench.desktop.icons.trash"), "trash");
@@ -1276,6 +1321,22 @@ function disconnect(): void {
 
         <!-- Everything this session is moving, in one window. -->
         <WorkbenchTransfersWindow v-else-if="window.kind === 'transfers'" class="h-full" />
+
+        <!--
+          The forwards somebody opens while the desktop is up, and the file somebody follows. The
+          tail's `active` prop is the long-stream rule: a window nobody is watching stops reading.
+        -->
+        <WorkbenchForwardsWindow v-else-if="window.kind === 'forwards'" :session-id="session.id" class="h-full" />
+        <WorkbenchTailWindow
+          v-else-if="window.kind === 'tail'"
+          :session-id="session.id"
+          :window-id="window.id"
+          :active="window.focused"
+          class="h-full"
+        />
+
+        <!-- Batch execution, against the sessions this machine knows. -->
+        <WorkbenchBatchWindow v-else-if="window.kind === 'batch'" class="h-full" />
 
         <!-- The machine's own details, and the trash: the same panels, in a frame now. -->
         <SystemPanel
