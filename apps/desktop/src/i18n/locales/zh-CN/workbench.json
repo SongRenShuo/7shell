@@ -41,6 +41,27 @@
         "resetLayout": "重置图标布局",
         "settings": "桌面设置"
       },
+      "properties": {
+        "title": "属性",
+        "name": "名称",
+        "kind": "类型",
+        "kindEntry": "桌面入口",
+        "kindShortcut": "快捷方式",
+        "target": "目标",
+        "openFolder": "打开所在目录",
+        "copyPath": "复制路径",
+        "copied": "路径已复制到剪贴板。",
+        "copyFailed": "路径复制失败。",
+        "remove": "从桌面移除",
+        "opens": {
+          "home": "这台机器的文件浏览器，落在该账户的主目录。",
+          "terminal": "这台机器的一个新终端窗口。",
+          "monitor": "这台主机的监控系统页。",
+          "system": "这台机器的系统面板。",
+          "trash": "这台机器的回收站。",
+          "shortcut": "下方路径处的文件浏览器。"
+        }
+      },
       "clock": {
         "title": "时钟——打开系统面板"
       },
