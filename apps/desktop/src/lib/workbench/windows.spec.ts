@@ -20,10 +20,12 @@ import {
   clampToWorkArea,
   closeWindow,
   focusWindow,
+  minimizeAll,
   minimizeWindow,
   moveWindow,
   openWindow,
   resizeWindow,
+  restoreAll,
   restoreWindow,
   setMaximized,
   showWindow,
@@ -67,8 +69,8 @@ function snapshot(list: readonly WorkbenchWindowState[]): string {
 }
 
 describe("the metrics", () => {
-  it("are the reference desktop's", () => {
-    expect([DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT]).toEqual([666, 422, 200, 200]);
+  it("are the desktop's", () => {
+    expect([DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT]).toEqual([900, 600, 200, 200]);
     expect([STATUS_BAR_HEIGHT, TASKBAR_HEIGHT]).toEqual([23, 57]);
   });
 });
@@ -115,7 +117,8 @@ describe("clampToWorkArea", () => {
 
 describe("openWindow", () => {
   it("opens at the default size, centred, on top", () => {
-    const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: DESK });
+    const roomy: WorkbenchBounds = { width: 1200, height: 800 };
+    const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: roomy });
 
     expect(opened).toMatchObject({
       id: "w1",
@@ -124,12 +127,45 @@ describe("openWindow", () => {
       mode: "normal",
       focused: true,
       z: 1,
-      // (800 - 666) / 2 and (600 - 422) / 2, both already inside the work area.
-      left: 67,
-      top: 89,
+      // (1200 - 900) / 2 and (800 - 600) / 2, both already inside the work area.
+      left: 150,
+      top: 100,
       width: DEFAULT_WIDTH,
       height: DEFAULT_HEIGHT,
     });
+  });
+
+  it("fills a desk smaller than the default rather than overflowing it", () => {
+    const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: DESK });
+
+    // The 900×600 default does not fit an 800×600 desk: the clamp is the only answer that never
+    // hides a window's own title bar behind the desk's edge.
+    expect(opened).toMatchObject({ left: 0, top: WORK_TOP, width: DESK.width, height: DESK.height });
+  });
+
+  it("opens at the remembered geometry, clamped into the desk as it is now", () => {
+    const [opened] = openWindow([], {
+      id: "w1",
+      title: "Terminal",
+      kind: "terminal",
+      bounds: DESK,
+      remembered: { left: 700, top: 300, width: 500, height: 400 },
+    });
+
+    expect(opened).toMatchObject({ left: 300, top: 200, width: 500, height: 400 });
+  });
+
+  it("ignores junk fields in a remembered rectangle, falling back to the centred default", () => {
+    const roomy: WorkbenchBounds = { width: 1200, height: 800 };
+    const [opened] = openWindow([], {
+      id: "w1",
+      title: "Terminal",
+      kind: "terminal",
+      bounds: roomy,
+      remembered: { left: Number.NaN, top: Number.NaN, width: Number.NaN, height: Number.NaN },
+    });
+
+    expect(opened).toMatchObject({ left: 150, top: 100, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
   });
 
   it("takes the focus from every window already open", () => {
@@ -485,5 +521,65 @@ describe("the work area boundary", () => {
     const [opened] = openWindow([], { id: "w1", title: "Terminal", kind: "terminal", bounds: small });
 
     expect(opened).toMatchObject({ left: 0, top: WORK_TOP, width: 400, height: 300 });
+  });
+});
+
+describe("minimizeAll", () => {
+  it("puts every visible window away and leaves nothing focused", () => {
+    const desk = [
+      windowAt({ id: "a", z: 1, focused: true }),
+      windowAt({ id: "b", left: 200, top: 200, z: 2, focused: false }),
+    ];
+
+    const emptied = minimizeAll(desk);
+
+    expect(emptied.every((window) => window.mode === "min")).toBe(true);
+    expect(emptied.every((window) => window.focused === false)).toBe(true);
+  });
+
+  it("leaves already-minimised windows untouched", () => {
+    const hidden = windowAt({ id: "hidden", mode: "min", left: 40, top: 40, focused: false });
+    const visible = windowAt({ id: "shown", focused: true, z: 2 });
+
+    const emptied = minimizeAll([hidden, visible]);
+
+    expect(emptied.find((window) => window.id === "hidden")).toMatchObject({ mode: "min", left: 40, top: 40 });
+  });
+
+  it("answers a copy of an already-empty desk", () => {
+    const desk = [windowAt({ mode: "min" })];
+    const snapshot = JSON.stringify(desk);
+    const emptied = minimizeAll(desk);
+    expect(JSON.stringify(emptied)).toBe(snapshot);
+  });
+});
+
+describe("restoreAll", () => {
+  it("brings every minimised window back, focus ending with the last one raised", () => {
+    const desk = [
+      windowAt({ id: "a", mode: "min", left: 10, top: 10, focused: false }),
+      windowAt({ id: "b", mode: "min", left: 20, top: 20, focused: false }),
+      windowAt({ id: "c", z: 3, focused: true }),
+    ];
+
+    const restored = restoreAll(desk);
+
+    expect(restored.find((window) => window.id === "a")).toMatchObject({ mode: "normal" });
+    expect(restored.find((window) => window.id === "b")).toMatchObject({ mode: "normal", focused: true });
+    expect(restored.find((window) => window.id === "c")).toMatchObject({ mode: "normal", focused: false });
+  });
+
+  it("leaves visible windows alone on an already-open desk", () => {
+    const desk = [windowAt({ focused: true })];
+    const snapshot = JSON.stringify(desk);
+    const restored = restoreAll(desk);
+    expect(JSON.stringify(restored)).toBe(snapshot);
+  });
+
+  it("does not write through its arguments", () => {
+    const desk = [windowAt({ mode: "min", focused: false })];
+    const snapshot = JSON.stringify(desk);
+    restoreAll(desk);
+    expect(JSON.stringify(desk)).toBe(snapshot);
   });
 });
