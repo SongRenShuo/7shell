@@ -239,19 +239,23 @@ watch(
         v-for="entry in sections"
         :key="entry.id"
         type="button"
-        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors"
+        class="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] transition-colors"
         :class="
           section === entry.id
             ? 'bg-accent text-foreground'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
         "
-        @click="choose(entry.id)"
+        @click.stop="choose(entry.id)"
       >
         <component :is="entry.icon" :size="11" />
         {{ entry.label }}
       </button>
-      <span class="flex-1" />
-      <span v-for="fact in facts" :key="fact.label" class="text-[11px] text-muted-foreground">
+      <span class="min-w-2 flex-1" />
+      <span
+        v-for="fact in facts"
+        :key="fact.label"
+        class="hidden shrink-0 truncate whitespace-nowrap text-[11px] text-muted-foreground lg:inline"
+      >
         {{ fact.label }} <span class="text-foreground/80">{{ fact.value }}</span>
       </span>
     </nav>
@@ -480,7 +484,7 @@ watch(
                 <td :class="cn(TABLE.page.cell, 'w-24 font-mono text-[11px]')">{{ route.device }}</td>
               </tr>
               <tr v-if="(overview?.routes.length ?? 0) === 0">
-                <td :class="TABLE.page.emptyCell">{{ t("workbench.system.network.noRoutes") }}</td>
+                <td colspan="3" :class="TABLE.page.emptyCell">{{ t("workbench.system.network.noRoutes") }}</td>
               </tr>
             </tbody>
           </table>

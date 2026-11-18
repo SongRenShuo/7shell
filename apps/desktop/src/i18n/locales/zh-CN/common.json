@@ -3,7 +3,8 @@
     "action": {
       "close": "关闭",
       "cancel": "取消",
-      "retry": "重试"
+      "retry": "重试",
+      "done": "完成"
     },
     "status": {
       "loading": "正在连接后端…",

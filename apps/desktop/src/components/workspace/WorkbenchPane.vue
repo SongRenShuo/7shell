@@ -42,6 +42,7 @@ import {
   Network,
   Power,
   RotateCw,
+  Settings,
   Terminal,
   Trash2,
   X,
@@ -69,6 +70,7 @@ import {
   type DesktopShortcut,
 } from "@/lib/workbench/desktopIcons";
 import type { MenuEntry } from "@/lib/menu/types";
+import type { Session } from "@/types/session";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
 import {
   useTerminalsStore,
@@ -110,12 +112,21 @@ const connected = computed(() => props.tab.handle !== null && props.tab.failure 
  * person who saved it did not choose.
  */
 const wallpaper = computed(() => {
-  const wanted = session.value.workbench?.wallpaper;
+  const wanted = chosenWallpaper.value ?? session.value.workbench?.wallpaper;
   if (wanted === undefined || !WORKBENCH_WALLPAPER_IDS.includes(wanted as WorkbenchWallpaperId)) {
     return undefined;
   }
   return wanted;
 });
+
+/**
+ * The backdrop chosen in this window, before the vault has been written back.
+ *
+ * Saving a session answers with the stored one, but the tab's own copy is what the desktop draws
+ * from; keeping the choice here means the wallpaper changes the moment somebody picks it, and a
+ * save that fails leaves the old one on screen rather than a lie.
+ */
+const chosenWallpaper = ref<string | null>(null);
 
 const WALLPAPER_BACKDROPS: Readonly<Record<string, string>> = {
   aurora: "linear-gradient(165deg, #1e1b4b 0%, #312e81 45%, #155e75 100%)",
@@ -231,6 +242,51 @@ const trashOpen = ref(false);
  */
 const systemOpen = ref(false);
 
+/** Whether the desktop's own settings are open: the two choices a desktop has here. */
+const settingsOpen = ref(false);
+
+/**
+ * How wide the icon cells are, which is the desktop's density.
+ *
+ * A device preference rather than a session one: the same machine looks right at the same density
+ * on both of somebody's computers, and this is a window that may be small. It lives in the same
+ * storage as the shortcuts — the WebView's own — and defaults to comfortable.
+ */
+const ICON_DENSITY_KEY = "sevenshell-workbench-density";
+const iconDensity = ref<"comfortable" | "compact">(
+  (() => {
+    try {
+      return localStorage.getItem(ICON_DENSITY_KEY) === "compact" ? "compact" : "comfortable";
+    } catch {
+      return "comfortable";
+    }
+  })(),
+);
+
+function setDensity(next: "comfortable" | "compact"): void {
+  iconDensity.value = next;
+  try {
+    localStorage.setItem(ICON_DENSITY_KEY, next);
+  } catch {
+    // A window that cannot remember the choice still honours it for this run.
+  }
+}
+
+/** Picks a backdrop (or none) and writes the session back, leaving the old one on a failure. */
+async function chooseWallpaper(id: string | null): Promise<void> {
+  const next: Session = {
+    ...session.value,
+    workbench: { ...session.value.workbench, wallpaper: id ?? undefined },
+  };
+  try {
+    await backend.sessions.save(next);
+    chosenWallpaper.value = id;
+    toast(t("workbench.desktop.settings.saved"), "receipt");
+  } catch (error) {
+    toast(describeShellError(translate as Translate, asShellError(error, "session_save")).message, "failure");
+  }
+}
+
 function select(icon: DesktopIcon): void {
   selectedId.value = icon.id;
 }
@@ -266,11 +322,13 @@ function openIcon(icon: DesktopIcon): void {
       terminals.openInspect("system", session.value);
       return;
     case "system":
-      systemOpen.value = !systemOpen.value;
+      // Opening, not toggling: a desktop icon is a door, and a door that closed when somebody
+      // opened it twice in one gesture is a door that looks broken. The panel's own cross closes it.
+      systemOpen.value = true;
       trashOpen.value = false;
       return;
     case "trash":
-      trashOpen.value = !trashOpen.value;
+      trashOpen.value = true;
       systemOpen.value = false;
       return;
     case "shortcut":
@@ -314,8 +372,10 @@ function openDesktopMenu(event: MouseEvent): void {
       kind: "action",
       id: "desktop-settings",
       labelKey: "workbench.desktop.menu.settings",
-      disabled: true,
-      run: () => {},
+      icon: Settings,
+      run: () => {
+        settingsOpen.value = true;
+      },
     },
   ]);
 }
@@ -524,7 +584,10 @@ async function issuePower(): Promise<void> {
       @contextmenu="openDesktopMenu"
     >
       <div
-        class="grid max-w-full grid-cols-[repeat(auto-fill,6rem)] content-start justify-start gap-1 p-3"
+        class="grid max-w-full content-start justify-start gap-1 p-3"
+        :class="
+          iconDensity === 'compact' ? 'grid-cols-[repeat(auto-fill,4.5rem)]' : 'grid-cols-[repeat(auto-fill,6rem)]'
+        "
         data-workbench-icons
       >
         <button
@@ -576,7 +639,7 @@ async function issuePower(): Promise<void> {
       :session-id="session.id"
       :handle="tab.handle"
       :active="active"
-      class="border-t border-border bg-card"
+      class="h-[58%] shrink-0 border-t border-border bg-card"
       @close="systemOpen = false"
     />
 
@@ -585,7 +648,7 @@ async function issuePower(): Promise<void> {
       :session-id="session.id"
       :handle="tab.handle"
       :active="active"
-      class="border-t border-border bg-card"
+      class="h-[58%] shrink-0 border-t border-border bg-card"
       @close="trashOpen = false"
     />
     <footer
@@ -682,6 +745,84 @@ async function issuePower(): Promise<void> {
               @click="createShortcut()"
             >
               {{ t("workbench.desktop.shortcut.create") }}
+            </button>
+          </footer>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
+
+    <!--
+      The desktop's own settings: a backdrop and a density. Two choices, both of them about this
+      window rather than about the machine, and neither of them a question anybody is asked twice.
+    -->
+    <DialogRoot :open="settingsOpen" @update:open="settingsOpen = false">
+      <DialogPortal>
+        <DialogOverlay class="fixed inset-0 z-50 bg-overlay" />
+        <DialogContent
+          class="fixed left-1/2 top-1/2 z-50 w-[22rem] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-4 shadow-lg"
+          data-workbench-settings
+        >
+          <h2 class="text-sm font-medium">{{ t("workbench.desktop.settings.title") }}</h2>
+
+          <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.desktop.settings.wallpaper") }}
+          </h3>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              class="rounded-md border px-2 py-1 text-[11px] transition-colors"
+              :class="
+                wallpaper === undefined
+                  ? 'border-border bg-accent text-foreground'
+                  : 'border-border/60 text-muted-foreground hover:bg-accent/50'
+              "
+              @click="chooseWallpaper(null)"
+            >
+              {{ t("workbench.desktop.settings.wallpaperDefault") }}
+            </button>
+            <button
+              v-for="id in WORKBENCH_WALLPAPER_IDS"
+              :key="id"
+              type="button"
+              class="rounded-md border px-2 py-1 text-[11px] transition-colors"
+              :class="
+                wallpaper === id
+                  ? 'border-border bg-accent text-foreground'
+                  : 'border-border/60 text-muted-foreground hover:bg-accent/50'
+              "
+              @click="chooseWallpaper(id)"
+            >
+              {{ t(`workbench.desktop.settings.wallpapers.${id}`) }}
+            </button>
+          </div>
+
+          <h3 class="mb-1 mt-3 text-[11px] font-medium text-muted-foreground">
+            {{ t("workbench.desktop.settings.density") }}
+          </h3>
+          <div class="flex gap-1.5">
+            <button
+              v-for="density in ['comfortable', 'compact'] as const"
+              :key="density"
+              type="button"
+              class="rounded-md border px-2 py-1 text-[11px] transition-colors"
+              :class="
+                iconDensity === density
+                  ? 'border-border bg-accent text-foreground'
+                  : 'border-border/60 text-muted-foreground hover:bg-accent/50'
+              "
+              @click="setDensity(density)"
+            >
+              {{ t(`workbench.desktop.settings.densities.${density}`) }}
+            </button>
+          </div>
+
+          <footer class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90"
+              @click="settingsOpen = false"
+            >
+              {{ t("common.action.done") }}
             </button>
           </footer>
         </DialogContent>

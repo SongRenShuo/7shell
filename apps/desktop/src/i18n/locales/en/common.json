@@ -3,7 +3,8 @@
     "action": {
       "close": "Close",
       "cancel": "Cancel",
-      "retry": "Retry"
+      "retry": "Retry",
+      "done": "Done"
     },
     "status": {
       "loading": "Contacting the backend…",

@@ -30,6 +30,23 @@
         "placeholder": "/home/user/projects",
         "invalid": "Type a directory path. It cannot be empty and cannot carry control characters.",
         "create": "Create shortcut"
+      },
+      "settings": {
+        "title": "Desktop settings",
+        "wallpaper": "Backdrop",
+        "wallpaperDefault": "Interface default",
+        "wallpapers": {
+          "aurora": "Aurora",
+          "dawn": "Dawn",
+          "forest": "Forest",
+          "plain": "Plain"
+        },
+        "density": "Icon density",
+        "densities": {
+          "comfortable": "Comfortable",
+          "compact": "Compact"
+        },
+        "saved": "Backdrop saved."
       }
     },
     "power": {
