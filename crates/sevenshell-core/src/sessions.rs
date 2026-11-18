@@ -17,6 +17,8 @@ use sevenshell_types::{
 use sevenshell_vault::Vault;
 use tokio::sync::{Mutex, Notify, mpsc};
 
+use crate::container::decision_error;
+
 /// One event from an open terminal, on its way to the host.
 pub use sevenshell_session::SessionEvent as CoreEvent;
 
@@ -108,6 +110,9 @@ pub struct Core {
     /// desktop's Docker manager asks for its engine by session; opening again answers the
     /// connection the first open made.
     pub(crate) desktop_engines: Mutex<HashMap<String, String>>,
+    /// Stops for the line streams a tail window is following. Keyed by the id the host emitted,
+    /// so a stop button and a closing window use the same path.
+    pub(crate) tail_streams: Arc<Mutex<crate::tail::TailStreamStops>>,
     pub(crate) next_file: std::sync::atomic::AtomicU64,
     pub(crate) next_transfer: std::sync::atomic::AtomicU64,
     /// The matrix and the audit trail behind every unattended action. Replaced together, read
@@ -137,6 +142,7 @@ impl Core {
                 clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
                 container_streams: Arc::new(Mutex::new(HashMap::new())),
                 desktop_engines: Mutex::new(HashMap::new()),
+                tail_streams: Arc::new(Mutex::new(HashMap::new())),
                 next_file: std::sync::atomic::AtomicU64::new(1),
                 next_transfer: std::sync::atomic::AtomicU64::new(1),
                 // The default rule until a host replaces it: safe and caution run, the destructive
@@ -502,6 +508,141 @@ impl Core {
         for id in ids {
             let _ = self.close_tunnel(&id).await;
         }
+    }
+
+    /// Opens a forward at runtime, on the connection this session already holds.
+    ///
+    /// This is the "add a forward while the desktop is up" surface the forwards window drives, in
+    /// contrast to `bring_up_forwards`, which starts the forwards a session document saved. The
+    /// request arrives as the serialized [`LocalForward`] shape — an empty id means the interface
+    /// did not name it, and the registry names it `runtime-<uuid>` itself.
+    ///
+    /// The order is the one every unattended action takes: session, protocol, policy, carrier,
+    /// and only then the listener. `tunnel.open` is `Caution` for a loopback bind; an address
+    /// other machines could reach stops for a person, which is the "exposing a port" question.
+    ///
+    /// The tunnel is registered in the same registry the session's own forwards use, and its
+    /// record's handle is the terminal that shared this session's connection when the tunnel came
+    /// up — so `close_terminal` closes a runtime forward exactly like a saved one. A forward on a
+    /// carrier of its own (no terminal was open) has no handle to die with a terminal; it is
+    /// stopped by `tunnel_runtime_stop`, by `close_all`, or when the interface goes away.
+    pub async fn tunnel_open(&self, session_id: &str, request: LocalForward) -> Result<OpenTunnel, ShellError> {
+        let session = self.session(session_id)?;
+        match session.protocol {
+            // The workbench session speaks SSH in every mechanical sense, exactly as the terminal
+            // open does; only SSH carries the channels a forward is built from.
+            Protocol::Ssh | Protocol::LinuxDesk => {}
+            _ => {
+                return Err(ShellError::app_unsupported(
+                    "a forward can be opened only on a session that speaks SSH",
+                ));
+            }
+        }
+
+        let mode = match request.mode {
+            ForwardMode::Local => "local",
+            ForwardMode::Dynamic => "dynamic",
+        };
+        let verdict = sevenshell_policy::tunnel_open(mode, &request.bind_host);
+        let subject = format!("{}:{}", request.bind_host, request.bind_port);
+        let session_target = self.session_policy_target(session_id);
+        let target = session_target
+            .as_ref()
+            .map(|session| session.as_target())
+            .unwrap_or_default();
+        self.unattended_gate("tunnel.open", &verdict, target, Some(session_id), Some(&subject))?;
+
+        // Which terminal shares this session decides what dies with the tunnel. The lookup runs
+        // before the carrier so the same terminal that `open_carrier` will find is the one named.
+        let shared = self
+            .registry
+            .open_sessions()
+            .await
+            .into_iter()
+            .find(|open| open.session_id == session.id)
+            .map(|open| open.handle);
+        let handle = shared.unwrap_or_default();
+
+        let carrier = match self.open_carrier(&session).await? {
+            ConnectionOutcome::Ready(carrier) => carrier,
+            ConnectionOutcome::Decision(decision) => return Err(decision_error(*decision)),
+        };
+
+        // Which kind of listener to bring up is the whole difference: a local forward sends
+        // everything to one address, a dynamic one is told by whoever connects.
+        let requested = HopForward {
+            bind_host: request.bind_host.clone(),
+            bind_port: request.bind_port,
+            target_host: request.target_host.clone(),
+            target_port: request.target_port,
+        };
+        let tunnel = match request.mode {
+            ForwardMode::Local => Arc::clone(&carrier.connection).forward_local(requested).await?,
+            ForwardMode::Dynamic => Arc::clone(&carrier.connection).forward_dynamic(requested).await?,
+        };
+
+        let id = if request.id.trim().is_empty() {
+            format!("runtime-{}", uuid::Uuid::new_v4())
+        } else {
+            request.id.clone()
+        };
+        let open = OpenTunnel {
+            id: id.clone(),
+            handle: handle.clone(),
+            session_id: session.id.clone(),
+            bind_host: tunnel.listener.ip().to_string(),
+            bind_port: tunnel.listener.port(),
+            mode: request.mode,
+            target_host: request.target_host.clone(),
+            target_port: request.target_port,
+            connections: tunnel.connections(),
+        };
+
+        let replaced = self.tunnels.lock().await.insert(
+            id.clone(),
+            TunnelRecord {
+                id: id.clone(),
+                handle,
+                session_id: session.id.clone(),
+                spec: request.clone(),
+                tunnel,
+            },
+        );
+        if replaced.is_some() {
+            return Err(ShellError::app_internal(format!(
+                "a forward called {id} is already up; stop it before opening one with the same name"
+            )));
+        }
+        Ok(open)
+    }
+
+    /// Stops a forward at runtime, after the policy verdict for stopping one.
+    ///
+    /// The stop itself is the same `close_tunnel` path a saved forward's stop button drives, and
+    /// asking to stop a forward that is not up is an error here rather than a shrug: the interface
+    /// holds a row that names an id, and an id that answers nothing has a reason to.
+    pub async fn tunnel_runtime_stop(&self, tunnel_id: &str) -> Result<(), ShellError> {
+        let known = {
+            let tunnels = self.tunnels.lock().await;
+            tunnels
+                .get(tunnel_id)
+                .map(|record| (record.session_id.clone(), record.tunnel.listener.to_string()))
+        };
+        let Some((session_id, listener)) = known else {
+            return Err(ShellError::app_unsupported(&format!(
+                "the forward {tunnel_id} is not up, so there is nothing to stop"
+            )));
+        };
+
+        let verdict = sevenshell_policy::tunnel_stop();
+        let session_target = self.session_policy_target(&session_id);
+        let target = session_target
+            .as_ref()
+            .map(|session| session.as_target())
+            .unwrap_or_default();
+        self.unattended_gate("tunnel.stop", &verdict, target, Some(&session_id), Some(&listener))?;
+
+        self.close_tunnel(tunnel_id).await
     }
 
     /// Closes every terminal and every forward, for when the interface goes away.
@@ -1170,5 +1311,106 @@ mod tests {
         let _ = opening.await;
 
         assert!(!core.cancel_open("session-1").await, "nothing is in flight any more");
+    }
+
+    #[tokio::test]
+    async fn a_session_that_does_not_speak_ssh_is_refused_a_runtime_forward() {
+        let (_directory, vault, _) = vault_with_a_session();
+        let mut telnet = sample("session-1", "over telnet");
+        telnet.protocol = sevenshell_types::Protocol::Telnet;
+        vault.save_session(telnet, None).expect("save");
+        let (core, _events) = Core::new(vault);
+
+        let error = core
+            .tunnel_open("session-1", runtime_forward("127.0.0.1"))
+            .await
+            .expect_err("the protocol gate refuses");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::AppUnsupported);
+        assert!(
+            format!("{error:?}").contains("only on a session that speaks SSH"),
+            "the refusal says what the session lacks: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_denied_runtime_forward_is_journaled_with_the_bind_address() {
+        use std::sync::Mutex as StdMutex;
+
+        #[derive(Default)]
+        struct RecordingJournal {
+            events: StdMutex<Vec<sevenshell_policy::PolicyAuditEvent>>,
+        }
+
+        impl RecordingJournal {
+            fn events(&self) -> Vec<sevenshell_policy::PolicyAuditEvent> {
+                self.events.lock().expect("not poisoned").clone()
+            }
+        }
+
+        impl sevenshell_policy::PolicyJournal for RecordingJournal {
+            fn record(&self, event: sevenshell_policy::PolicyAuditEvent) {
+                self.events.lock().expect("not poisoned").push(event);
+            }
+        }
+
+        let (_directory, vault, _) = vault_with_a_session();
+        let (core, _events) = Core::new(vault);
+        let journal = Arc::new(RecordingJournal::default());
+        core.set_policy(
+            sevenshell_types::PolicyMatrix {
+                global: sevenshell_types::PolicyRule {
+                    safe: sevenshell_types::PolicyAction::Deny,
+                    caution: sevenshell_types::PolicyAction::Deny,
+                    destructive: sevenshell_types::PolicyAction::Deny,
+                    catastrophic: sevenshell_types::PolicyAction::Deny,
+                },
+                ..sevenshell_types::PolicyMatrix::default()
+            },
+            Some(Arc::clone(&journal) as Arc<dyn sevenshell_policy::PolicyJournal>),
+        );
+
+        // A loopback bind, so the refusal is the matrix's, not the expose rule's: one action, one
+        // line, and the line names the address the listener would have sat on.
+        let error = core
+            .tunnel_open("session-1", runtime_forward("127.0.0.1"))
+            .await
+            .expect_err("a deny refuses the forward");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        let recorded = journal.events();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].action, "tunnel.open");
+        assert_eq!(recorded[0].subject.as_deref(), Some("127.0.0.1:8080"));
+    }
+
+    #[tokio::test]
+    async fn stopping_a_forward_that_is_not_up_says_so() {
+        let (_directory, vault, _) = vault_with_a_session();
+        let (core, _events) = Core::new(vault);
+
+        let error = core
+            .tunnel_runtime_stop("runtime-that-never-was")
+            .await
+            .expect_err("an unknown forward is named");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::AppUnsupported);
+        assert!(
+            format!("{error:?}").contains("runtime-that-never-was"),
+            "the refusal names the id that answered nothing: {error:?}"
+        );
+    }
+
+    /// A runtime forward request shaped the way the interface sends it: no id, loopback bind,
+    /// port zero asking the system for a free one.
+    fn runtime_forward(bind_host: &str) -> LocalForward {
+        LocalForward {
+            id: String::new(),
+            bind_host: bind_host.to_owned(),
+            bind_port: 8080,
+            mode: ForwardMode::Local,
+            target_host: "127.0.0.1".to_owned(),
+            target_port: 22,
+        }
     }
 }

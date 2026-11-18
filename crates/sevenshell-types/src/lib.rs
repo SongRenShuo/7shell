@@ -23,6 +23,7 @@ mod snippet;
 mod sync;
 mod sysinfo;
 mod system;
+mod tail;
 mod trash;
 mod update;
 mod words;
@@ -125,6 +126,7 @@ pub use sysinfo::{
     RouteEntry, ServiceEntry, SystemOverview,
 };
 pub use system::HostSystem;
+pub use tail::{TailStreamEnd, TailStreamLine};
 pub use trash::{TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
 pub use update::{AvailableRelease, UpdateCheck, UpdateProgress};
 pub use words::CompletionWord;
