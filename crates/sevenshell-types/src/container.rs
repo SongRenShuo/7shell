@@ -4,6 +4,8 @@
 //! Nothing in this module carries a credential, and nothing carries a local path: an image archive
 //! or a kubeconfig is chosen in a native dialog and stays on the Rust side.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::session::SecretInput;
@@ -277,10 +279,35 @@ pub struct ContainerPortMapping {
 pub struct ContainerVolume {
     pub source: String,
     pub destination: String,
+    /// Mount the volume read-only. Absent means read-write, the way `docker run` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+}
+
+/// The CPU weight presets the create dialog offers, in fnOS's three steps. The engine turns each
+/// into the `--cpu-shares` count the runtime takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerCpuWeight {
+    High,
+    #[default]
+    Normal,
+    Low,
+}
+
+impl ContainerCpuWeight {
+    /// The share count each step maps to, matching fnOS's own three-step values.
+    pub const fn cpu_shares(self) -> u32 {
+        match self {
+            Self::High => 768,
+            Self::Normal => 512,
+            Self::Low => 256,
+        }
+    }
 }
 
 /// Everything the create dialog collects.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerCreateRequest {
     pub image: String,
@@ -301,6 +328,24 @@ pub struct ContainerCreateRequest {
     pub interactive: bool,
     #[serde(default)]
     pub tty: bool,
+    /// Run the container with the host's device access. The dialog asks twice before this is set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub privileged: bool,
+    /// One Linux capability per `--cap-add`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    /// One network per `--network`, in the order the dialog listed them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<String>,
+    /// The memory ceiling in MiB; the engine converts it to bytes for `--memory`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_limit_mb: Option<u64>,
+    /// The CPU weight preset, or none for the runtime's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_weight: Option<ContainerCpuWeight>,
+    /// The labels a person wrote as remarks. A map, so the same key cannot be written twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<BTreeMap<String, String>>,
 }
 
 /// A pull or a push.
