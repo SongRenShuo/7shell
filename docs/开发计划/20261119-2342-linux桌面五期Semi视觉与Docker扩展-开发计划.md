@@ -21,24 +21,41 @@
 **决策点 D2（推荐，形态评审门确认）**：桌面域品牌色从 teal 切换为 **fnOS/Semi 品牌蓝 `#0066FF`**（跟随"参考飞牛"的口径）；应用域（桌面之外的界面）保持现状不动。菜单/激活条/焦点环/选中态随之变蓝。
 **决策点 D3（推荐，形态评审门确认）**：窗口内容面板改 Semi 面板视觉（实底 + `--semi-shadow-app` + 1px 描边）；桌面 chrome（任务栏/启动器/壁纸之上的玻璃）保留毛玻璃但色值全部走 Semi 令牌。
 
-## 二、Docker 管理器对照（fnOS 模块 → 7shell 现状 → 批次）
+## 二、Docker 管理器对照 v2（2026-11-20 复分析；初版对照见 git 历史）
 
-fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现状 = 桌面窗口内 `ContainerPane` 双模式（desktop：概览/容器/镜像三页签）。
+fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现状 = 桌面窗口内 `ContainerPane` 双模式（desktop：概览/容器/镜像三页签 + 创建向导），引擎 24+ 命令（含 inspect/stats/exec/日志流/镜像全操作/registry 登录/命名空间），已有 `ContainerDetailDrawer`/`ImageDetailDrawer`/`ImageTaskPanel`/`RegistryLoginDialog`/`ContainerWizard`。
 
-| fnOS 模块 | 7shell 现状 | 引擎能力 | 批次 |
+### 2.1 模块对照
+
+| fnOS 模块 | 7shell 现状（含五期在途） | 引擎 | 批次 |
 |---|---|---|---|
-| 概览（摘要+实时图+健康灯） | ✅ 已有（四期） | stats 已有 | 二（Semi 化） |
-| 容器（9 态 tag/更多菜单/启停/删除确认） | ✅ 已有 | ✅ | 二（Semi 化） |
-| **创建容器向导**（基本/高级分区卡：端口/存储/环境变量/网络/capabilities/命令/资源限制） | ❌（仅引擎 create 命令） | create 已有 | 二 |
-| 容器终端（xterm+独立窗） | ✅（exec 已有） | ✅ | 二（Semi 化） |
-| 容器日志（运行日志/错误分离） | ✅（流已有） | ✅ | 二 |
-| 容器文件 | ✅ | ✅ | 二（Semi 化） |
-| **Compose 项目**（列表/创建：yml 编辑+路径选择/启停/日志/删除） | ❌ | **需新增固定动词**（真机探明 Compose v5.7.1 插件在） | 四 |
-| **本地镜像**（列表/更新流：5 步确认清单/防重复/「请先关闭容器」清单） | 部分（列表/拉取/删除） | pull/history 已有；比对逻辑前端 | 五 |
-| **镜像仓库设置**（加速源拖拽排序 + 代理设置） | ❌ | **只读**：`docker info` 可见 mirrors；写=改 daemon.json+重启 docker（侵入红线，见 §七） | 五 |
-| **网络**（列表/新增：子网 CIDR/网关/IPv6/驱动/删除护栏） | ❌ | **需新增固定动词**（真机探明 network 命令可用） | 三 |
-| 服务设置（开关/存储迁移） | ❌ | systemd 已有通道 | 不做（见 §八） |
-| 复制容器（默认不启动） | ❌ | inspect+create 组合 | 五（可选） |
+| 概览（摘要+实时图+健康灯） | ✅（四期+五期 Semi 化+蓝曲线） | stats ✅ | 已收口 |
+| 容器列表（9 态/更多菜单/搜索/斑马纹） | ✅（四期+五期 Semi 化） | ✅ | 已收口 |
+| **创建容器向导**（三步分区卡） | ✅ UI 完成（lane W；7 个高级字段「未接线」警示 chip 等引擎） | create 基础字段 ✅；privileged/capabilities/networks/内存/CPU 权重/labels/volume 只读 → **lane R 在途** | 三（引擎后摘牌接线） |
+| 容器操作（启停/重启/删除/改名） | ✅ | ✅ | — |
+| 容器终端 / 日志流 / 容器文件 | ✅ | ✅ | — |
+| **容器详情**（fnOS「详情」= inspect 结构化信息概览） | ⚠️ DetailDrawer 已有，字段完整度待比对 inspect 全量 | inspect ✅ | 七 |
+| **复制容器**（默认不启动） | ❌ | inspect+create 组合（UI 层） | 七 |
+| **按容器实时监控**（fnOS：每容器 CPU/内存/网络三图） | ❌（概览只有聚合图） | container_stats 按容器 ✅ | 七 |
+| **容器日志页**（fnOS：/logs 页 + 错误日志分离 + 空态） | ⚠️ 日志流有；错误分离/独立日志页形态 ❌ | ✅ | 七 |
+| **镜像更新流**（5 步确认/防重复/「请先关闭容器」清单弹窗） | ❌ | pull/history ✅ | 五 |
+| **镜像仓库**（加速源/代理） | ⚠️ registry 登录 ✅；加速源/代理只读展示 ❌ | `docker info` 只读 | 五 |
+| **Compose 项目** | ❌（lane R 引擎在途） | 固定动词在途 | 四 |
+| **网络** | ❌（lane R 引擎在途） | 固定动词在途 | 三 |
+| 服务设置（开关/存储迁移） | ❌ | systemd 通道 | 不做（§八） |
+
+### 2.2 UI 规律对照（fnOS §G9 逐条核对）
+
+| fnOS 规律 | 7shell | 批次 |
+|---|---|---|
+| 页面容器 min-w-[850px] + 内容 p-5/gap-3 | ⚠️ 桌面窗口可缩至 200px，表格挤压无横滚 | 七 |
+| 页头 = text-lg bold + 300px 搜索 + primary 主操作 | ✅（lane U） | 已收口 |
+| 状态 tag 浅底深字 | ✅（WbTag） | 已收口 |
+| 表单分区卡 + 行式增删 + 行内校验 | ✅（wizard） | 已收口 |
+| **loading 态文案枚举**（fnOS 11 种：starting/stopping/…） | ⚠️ 部分（start/stop 有；pulling/removing/restarting 枚举不全） | 七 |
+| 弹窗宽档 682px | ✅（wizard 42.5rem） | 已收口 |
+| 错误码→中文全量映射 | ✅ 机制（需随网络/Compose 扩展补码） | 三/四随行 |
+| 图表禁动画 + tooltip 统一 | ✅（自绘 SVG 禁动画） | 已收口 |
 
 ## 三、视觉重构范围（Semi 化清单）
 
@@ -124,11 +141,16 @@ fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现�
 
 ### 批次一（Semi 令牌层 + chrome 重构）
 
-（待回填：读数、提交哈希、形态评审结论、安装包哈希。）
+- 实施车道：车道 T（令牌层+chrome，工作树 lane-semi-t）+ 车道 U（窗口铬+Docker 页+基础件，工作树 lane-semi-u）并行；主控合并（f5000b2/c7bb3f6，零冲突）+ 令牌协调（b7b181a：`--workbench-panel` 实底面板、`--workbench-success`、壁纸之上恢复 blur）。
+- 形态评审：**通过**（2026-11-20 用户「通过」）。预览图存档 `assets/20261120-Semi视觉预览/`（暗色全景/暗色 Docker/亮色对照；初版亮色全屏截图系切换瞬间的陈旧帧，裁剪复核证明亮色正确，已换图 d7ed879）。
+- 读数：车道 T 138 例 + 车道 U 1305 例（宽回归）+ 合并后桌面域 551 例 + 收口门禁 **15/15 全绿**（rust tests 651.2s、supply chain 66.8s）；反向验证：T 摘 `--semi-brand-5` 守卫红、U 摘 WbTag 映射红，均成对还原。
+- 用户报障修复（本批次内）：显示桌面按钮空桌面死点击 → 空态禁用+tooltip（755962d）。
+- 遗留：亮色桌面门标签对比度可再抬一档（非阻塞，随批次七走查复核）。
 
 ### 批次二（Docker 页 Semi 化 + 创建向导）
 
-（待回填。）
+- 车道 U（Semi 化：SideNav/概览/镜像/容器列表 desktop 分支 + flat 零 diff 守卫）已随批次一合并；创建向导由车道 W 交付并合并（9da07a3）：三步分区卡、行式增删、行内校验、创建后启动 diff 逻辑、21 例 spec、i18n 51 键 ×2。
+- 引擎 7 字段扩展（privileged/capabilities/networks/内存/CPU 权重/labels/volume 只读）由车道 R 在途——落地后向导摘「未接线」警示 chip（接线属批次七前收尾）。
 
 ### 批次三（网络管理）
 
@@ -141,6 +163,19 @@ fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现�
 ### 批次五（镜像更新流 + 仓库设置）
 
 （待回填。）
+
+### 批次七：Docker 体验深化（2026-11-20 复分析新增）
+
+对照 v2（§2.1/§2.2）后仍欠 fnOS 的体验项，装进一个收尾批次：
+
+1. **按容器实时监控**：容器行「监控」→ 容器监控窗（CPU/内存/网络三图，`container_stats` 按容器流 + DockerOverview 同款自绘 SVG 组件抽取共用；采样纪律同概览）。
+2. **复制容器**：容器「更多」菜单「复制」→ 以 inspect 结果预填创建向导（名称自动 +copy 后缀、**默认不启动**——fnOS 语义），纯 UI 组合。
+3. **容器详情增强**：DetailDrawer 对齐 inspect 全量（挂载/网络/环境变量/标签分区折叠展示 + 复制 JSON）。
+4. **日志页形态**：错误日志分离（stderr 流拆分或关键字过滤，fnOS errLog 语义）+ 空态/获取中态接 WbEmpty。
+5. **loading 态枚举补齐**：pulling/removing/restarting/creating/pruning… en+zh 成对，全部写操作挂对应文案。
+6. **窄窗规范**：Docker 六页内容 `min-w-[850px]` + 横向滚动（fnOS §G9），窗口过窄不再挤压塌陷。
+
+验收：真机逐项走查 + 每项 spec；页宽规范以 400px 窗宽截图佐证不塌。
 
 ### 批次六（收口）
 
