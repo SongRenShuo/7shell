@@ -34,17 +34,25 @@ const props = defineProps<{
   tone: MenuTone;
 }>();
 
-/** On the desktop's teal sheet every row is white; on the card it follows the tokens. */
+/**
+ * On the desktop's Semi dropdown sheet the rows follow the menu's own face — the host's theme, not
+ * the wallpaper — so their colours come from the `--workbench-menu-*` tokens rather than from the
+ * on-picture remap; on the application card they follow the interface's tokens.
+ */
 const onDesktop = computed(() => props.tone === "desktop");
 
-/** The hairline between groups: the border colour on the card, white at a fifth on the teal. */
-const separatorClass = computed(() => (onDesktop.value ? "bg-white/25" : "bg-border"));
+/** The hairline between groups: the border colour on the card, the menu's own on the dropdown. */
+const separatorClass = computed(() => (onDesktop.value ? "bg-[var(--workbench-menu-separator)]" : "bg-border"));
 
 /** Where a row's icon (or its tick) sits, and the colour it is drawn in. */
-const slotClass = computed(() => (onDesktop.value ? "text-white/75" : "text-muted-foreground"));
+const slotClass = computed(() =>
+  onDesktop.value ? "text-[var(--workbench-menu-text-muted)]" : "text-muted-foreground",
+);
 
 /** A key or a submenu arrow: quieter than the label, on either sheet. */
-const quietClass = computed(() => (onDesktop.value ? "text-white/60" : "text-muted-foreground"));
+const quietClass = computed(() =>
+  onDesktop.value ? "text-[var(--workbench-menu-text-muted)]" : "text-muted-foreground",
+);
 
 /** One row's colours, keeping the one thing the tone does not change: danger reads as danger. */
 function rowClass(entry: MenuEntry, index: number): string {
@@ -52,15 +60,23 @@ function rowClass(entry: MenuEntry, index: number): string {
   const dangerous = entry.kind === "action" && entry.danger === true;
   const lit = props.active === index && !disabled;
   if (disabled) {
-    return onDesktop.value ? "cursor-not-allowed text-white/45" : "cursor-not-allowed text-muted-foreground/50";
+    return onDesktop.value
+      ? "cursor-not-allowed text-[var(--workbench-menu-text-muted)]"
+      : "cursor-not-allowed text-muted-foreground/50";
   }
   if (dangerous) {
     return onDesktop.value
-      ? cn("text-white", lit ? "bg-red-900/60" : "hover:bg-red-900/60")
+      ? cn(
+          "text-[var(--semi-color-danger)]",
+          lit ? "bg-[var(--semi-color-danger-light-default)]" : "hover:bg-[var(--semi-color-danger-light-hover)]",
+        )
       : cn("text-destructive", lit ? "bg-destructive/10" : "hover:bg-destructive/10");
   }
   return onDesktop.value
-    ? cn("text-white", lit ? "bg-white/20" : "hover:bg-white/15")
+    ? cn(
+        "text-[var(--workbench-menu-text)]",
+        lit ? "bg-[var(--semi-color-primary-light-default)]" : "hover:bg-[var(--workbench-menu-hover)]",
+      )
     : cn("hover:bg-accent hover:text-accent-foreground", lit ? "bg-accent" : undefined);
 }
 
