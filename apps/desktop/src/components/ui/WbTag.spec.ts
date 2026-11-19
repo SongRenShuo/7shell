@@ -38,8 +38,8 @@ describe("the four tones", () => {
   it("draws each state family on its own meaning colour", () => {
     const expectations: Record<WbTagTone, string> = {
       success: "var(--success)",
-      danger: "var(--destructive)",
-      warning: "var(--warning)",
+      danger: "var(--workbench-danger)",
+      warning: "var(--workbench-warning)",
       neutral: "var(--muted-foreground)",
     };
     for (const [tone, colour] of Object.entries(expectations) as [WbTagTone, string][]) {
