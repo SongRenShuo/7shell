@@ -11,11 +11,16 @@
  * wizard is wider; the overlay, the Escape rule and the busy refusal are drawn the same way.
  *
  * What the wire carries decides what the Create button sends. The engine's create request knows
- * the image, the name, the ports, the volumes' two paths, the environment, the restart policy and
- * the command — those are mapped exactly. The rest of the form (the remark, privileged,
- * capabilities, networks, the resource limits, a volume's read-only flag) has no field on the wire
- * yet, so those sections are drawn, plainly marked as not applied, and left for the engine to
- * grow into; the form already speaks their shape.
+ * the image, the name, the ports, the volumes (with the read-only flag), the environment, the
+ * restart policy, the command, and — since the engine grew the seven advanced fields — privileged,
+ * the capabilities, the networks, the memory ceiling, the CPU weight preset and the labels. Every
+ * one of those is mapped exactly, and every one that is empty stays off the request, because an
+ * absent field is the engine's own "unset" and a default is not a value somebody typed. The
+ * networks the field offers are the engine's own, listed by the bridge; where the listing is not
+ * available the field falls back to names typed by hand.
+ *
+ * The CPU weight always travels: the form's three steps are the engine's own three presets, and
+ * the middle one is a choice (the reference manager's 中, 512 shares) rather than an absence.
  *
  * "Start after creation" is the one promise the wizard keeps by hand: the engine's create answers
  * nothing about what it made, so the refreshed list is diffed against the one before the call —
@@ -29,11 +34,11 @@ import { useI18n } from "vue-i18n";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import Switch from "@/components/ui/Switch.vue";
 import WbButton from "@/components/ui/WbButton.vue";
-import WbTag from "@/components/ui/WbTag.vue";
 import { describeShellError, type DescribedError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
 import { CONTAINER_ACTIONS, useContainerStore } from "@/stores/container";
 import { useNotificationsStore } from "@/stores/notifications";
+import type { ContainerCpuWeight } from "@/types/container";
 import { IMAGE_TAG_PATTERN } from "./imageTags";
 
 const props = defineProps<{
@@ -88,18 +93,23 @@ interface EnvRow {
   value: string;
 }
 
+interface LabelRow {
+  name: string;
+  value: string;
+}
+
 type CpuWeight = "low" | "mid" | "high";
 
 const form = reactive({
   image: "",
   name: "",
-  remark: "",
   autostart: false,
   startNow: true,
   privileged: false,
   ports: [] as PortRow[],
   volumes: [] as VolumeRow[],
   env: [] as EnvRow[],
+  labels: [] as LabelRow[],
   networks: [] as string[],
   networksText: "",
   capabilities: [] as string[],
@@ -146,13 +156,13 @@ watch(
     }
     form.image = "";
     form.name = "";
-    form.remark = "";
     form.autostart = false;
     form.startNow = true;
     form.privileged = false;
     form.ports = [];
     form.volumes = [];
     form.env = [];
+    form.labels = [];
     form.networks = [];
     form.networksText = "";
     form.capabilities = [];
@@ -276,6 +286,28 @@ const envRowsProblem = computed(() => {
   return null;
 });
 
+/**
+ * A label row means something when it has a name; the value may be empty, because a label marks a
+ * container whether or not it carries a reading. The name cannot carry `=` — the wire is a map,
+ * and a key with a separator in it would be a different key than the one being typed.
+ */
+function labelRowProblem(row: LabelRow): string | null {
+  if (row.name.trim() === "" && row.value.trim() === "") {
+    return null;
+  }
+  return row.name.trim() === "" || row.name.includes("=") ? t("container.wizard.labelInvalid") : null;
+}
+
+const labelRowsProblem = computed(() => {
+  for (const row of form.labels) {
+    const problem = labelRowProblem(row);
+    if (problem) {
+      return problem;
+    }
+  }
+  return null;
+});
+
 const memoryProblem = computed(() => {
   if (!form.memoryLimited) {
     return null;
@@ -289,6 +321,7 @@ const advancedGate = computed(
     portRowsProblem.value !== null ||
     volumeRowsProblem.value !== null ||
     envRowsProblem.value !== null ||
+    labelRowsProblem.value !== null ||
     memoryProblem.value !== null,
 );
 
@@ -333,8 +366,6 @@ const networkNames = computed<string[]>(() => {
 interface ReviewRow {
   label: string;
   value: string;
-  /** The value is drawn, and the line says it is not going anywhere yet. */
-  skipped?: boolean;
 }
 
 const reviewRows = computed<ReviewRow[]>(() => {
@@ -344,9 +375,6 @@ const reviewRows = computed<ReviewRow[]>(() => {
     label: t("container.create.name"),
     value: form.name.trim() === "" ? t("container.wizard.reviewAuto") : form.name.trim(),
   });
-  if (form.remark.trim() !== "") {
-    rows.push({ label: t("container.wizard.remark"), value: form.remark.trim(), skipped: true });
-  }
   rows.push({
     label: t("container.wizard.autostart"),
     value: form.autostart ? t("container.wizard.reviewOn") : t("container.wizard.reviewOff"),
@@ -358,7 +386,6 @@ const reviewRows = computed<ReviewRow[]>(() => {
   rows.push({
     label: t("container.wizard.privileged"),
     value: form.privileged ? t("container.wizard.reviewOn") : t("container.wizard.reviewOff"),
-    skipped: form.privileged,
   });
 
   const ports = form.ports
@@ -372,10 +399,7 @@ const reviewRows = computed<ReviewRow[]>(() => {
     .filter((row) => volumeRowProblem(row) === null && (row.hostPath.trim() !== "" || row.containerPath.trim() !== ""))
     .map((row) => `${row.hostPath.trim()} → ${row.containerPath.trim()} (${row.readOnly ? "ro" : "rw"})`);
   if (volumes.length > 0) {
-    const readOnly = form.volumes.some(
-      (row) => volumeRowProblem(row) === null && row.readOnly && row.hostPath.trim() !== "",
-    );
-    rows.push({ label: t("container.create.volumes"), value: volumes.join("  "), skipped: readOnly });
+    rows.push({ label: t("container.create.volumes"), value: volumes.join("  ") });
   }
 
   const env = form.env
@@ -385,13 +409,20 @@ const reviewRows = computed<ReviewRow[]>(() => {
     rows.push({ label: t("container.create.env"), value: env.join("  ") });
   }
 
+  const labels = form.labels
+    .filter((row) => labelRowProblem(row) === null && row.name.trim() !== "")
+    .map((row) => `${row.name.trim()}=${row.value.trim()}`);
+  if (labels.length > 0) {
+    rows.push({ label: t("container.wizard.labels"), value: labels.join("  ") });
+  }
+
   const networks = networkNames.value;
   if (networks.length > 0) {
-    rows.push({ label: t("container.wizard.networks"), value: networks.join(", "), skipped: true });
+    rows.push({ label: t("container.wizard.networks"), value: networks.join(", ") });
   }
 
   if (form.capabilities.length > 0) {
-    rows.push({ label: t("container.wizard.capabilities"), value: form.capabilities.join(", "), skipped: true });
+    rows.push({ label: t("container.wizard.capabilities"), value: form.capabilities.join(", ") });
   }
 
   if (form.command.trim() !== "") {
@@ -401,13 +432,11 @@ const reviewRows = computed<ReviewRow[]>(() => {
   rows.push({
     label: t("container.wizard.cpuWeight"),
     value: cpuOptions.value.find((option) => option.value === form.cpuWeight)?.label ?? form.cpuWeight,
-    skipped: true,
   });
 
   rows.push({
     label: t("container.wizard.memoryLimit"),
     value: form.memoryLimited ? `${form.memoryLimitMb.trim()} MB` : t("container.wizard.reviewOff"),
-    skipped: form.memoryLimited,
   });
   return rows;
 });
@@ -425,10 +454,15 @@ function buildPorts(): { hostPort: number; containerPort: number; protocol: stri
     }));
 }
 
-function buildVolumes(): { source: string; destination: string }[] {
+/** A volume as the wire carries it: two paths, and the read-only flag only when it was asked for. */
+function buildVolumes(): { source: string; destination: string; readOnly?: boolean }[] {
   return form.volumes
     .filter((row) => row.hostPath.trim() !== "" && row.containerPath.trim() !== "")
-    .map((row) => ({ source: row.hostPath.trim(), destination: row.containerPath.trim() }));
+    .map((row) => ({
+      source: row.hostPath.trim(),
+      destination: row.containerPath.trim(),
+      ...(row.readOnly ? { readOnly: true } : {}),
+    }));
 }
 
 function buildEnv(): string[] {
@@ -437,9 +471,22 @@ function buildEnv(): string[] {
     .map((row) => `${row.key.trim()}=${row.value.trim()}`);
 }
 
+/** The labels as the wire carries them: a map, which is why a name may be written only once. */
+function buildLabels(): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const row of form.labels) {
+    const name = row.name.trim();
+    if (name !== "" && !name.includes("=")) {
+      labels[name] = row.value.trim();
+    }
+  }
+  return labels;
+}
+
 /**
- * The request the engine's create command reads. Everything the wire carries is here; everything
- * else stays on the form, marked as not applied, until the request grows the field for it.
+ * The request the engine's create command reads. Everything the wire carries is here; a field the
+ * form leaves empty stays off the request, because an absent field is the engine's own "unset" and
+ * a default is not a value somebody typed.
  */
 function buildRequest() {
   const image = form.image.trim();
@@ -448,14 +495,25 @@ function buildRequest() {
   const ports = buildPorts();
   const volumes = buildVolumes();
   const env = buildEnv();
+  const labels = buildLabels();
+  const networks = networkNames.value;
+  const memoryLimitMb = form.memoryLimited && memoryProblem.value === null ? Number(form.memoryLimitMb.trim()) : null;
   return {
     image,
     ...(name !== "" ? { name } : {}),
     ...(ports.length > 0 ? { ports } : {}),
     ...(volumes.length > 0 ? { volumes } : {}),
     ...(env.length > 0 ? { env } : {}),
+    ...(labels && Object.keys(labels).length > 0 ? { labels } : {}),
     restartPolicy: form.autostart ? "always" : "no",
     ...(command !== "" ? { command } : {}),
+    ...(form.privileged ? { privileged: true } : {}),
+    ...(form.capabilities.length > 0 ? { capabilities: [...form.capabilities] } : {}),
+    ...(networks.length > 0 ? { networks } : {}),
+    ...(memoryLimitMb !== null ? { memoryLimitMb } : {}),
+    // The three steps are the engine's own presets, and the middle one is a choice, not an
+    // absence: the reference manager's 中 carries 512 shares by explicit selection.
+    cpuWeight: (form.cpuWeight === "mid" ? "normal" : form.cpuWeight) as ContainerCpuWeight,
   };
 }
 
@@ -536,6 +594,10 @@ function addVolume(): void {
 
 function addEnv(): void {
   form.env.push({ key: "", value: "" });
+}
+
+function addLabel(): void {
+  form.labels.push({ name: "", value: "" });
 }
 
 function toggleNetwork(value: string): void {
@@ -655,23 +717,6 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
               />
               <span v-if="nameProblem" class="text-[10px] text-destructive">{{ nameProblem }}</span>
               <span v-else class="text-[10px] text-muted-foreground">{{ t("container.wizard.nameHint") }}</span>
-            </label>
-
-            <label class="flex flex-col gap-1">
-              <span class="text-[11px] text-muted-foreground">{{ t("container.wizard.remark") }}</span>
-              <input
-                v-model="form.remark"
-                type="text"
-                spellcheck="false"
-                data-wizard-remark
-                class="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none"
-                :placeholder="t('container.wizard.remarkPlaceholder')"
-                :aria-label="t('container.wizard.remark')"
-              />
-              <span class="flex items-center gap-1 text-[10px]" style="color: var(--warning)">
-                <TriangleAlert :size="10" class="shrink-0" aria-hidden="true" />
-                {{ t("container.wizard.notWired") }}
-              </span>
             </label>
 
             <div class="flex items-center justify-between gap-2">
@@ -806,10 +851,6 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
                   {{ t("container.create.addRow") }}
                 </button>
                 <span v-if="volumeRowsProblem" class="text-[10px] text-destructive">{{ volumeRowsProblem }}</span>
-                <span class="flex items-center gap-1 text-[10px]" style="color: var(--warning)">
-                  <TriangleAlert :size="10" class="shrink-0" aria-hidden="true" />
-                  {{ t("container.wizard.notWired") }}
-                </span>
               </div>
             </section>
 
@@ -859,6 +900,57 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
               </div>
             </section>
 
+            <!--
+              Labels: the annotations a container carries, one name and value to a row. The wire is
+              a map, so a name written twice is the same name written over — the row refuses a name
+              that is already on the list rather than letting the last one win silently.
+            -->
+            <section class="rounded-lg border border-border p-3">
+              <h4 class="mb-2 text-[11px] font-medium text-muted-foreground">{{ t("container.wizard.labels") }}</h4>
+              <div class="flex flex-col gap-1.5">
+                <div v-for="(row, index) in form.labels" :key="index" class="flex items-center gap-1.5">
+                  <input
+                    v-model="row.name"
+                    type="text"
+                    spellcheck="false"
+                    data-wizard-label-name
+                    class="w-40 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs focus:outline-none"
+                    :aria-label="t('container.wizard.labelName')"
+                    :placeholder="t('container.wizard.labelName')"
+                  />
+                  <span class="text-[11px] text-muted-foreground">=</span>
+                  <input
+                    v-model="row.value"
+                    type="text"
+                    spellcheck="false"
+                    data-wizard-label-value
+                    class="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs focus:outline-none"
+                    :aria-label="t('container.wizard.labelValue')"
+                    :placeholder="t('container.wizard.labelValue')"
+                  />
+                  <button
+                    type="button"
+                    class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    :title="t('container.create.removeRow')"
+                    :aria-label="t('container.create.removeRow')"
+                    @click="form.labels.splice(index, 1)"
+                  >
+                    <Trash2 :size="11" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  class="flex w-fit items-center gap-1 rounded-sm px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  data-wizard-add-label
+                  @click="addLabel()"
+                >
+                  <Plus :size="10" />
+                  {{ t("container.create.addRow") }}
+                </button>
+                <span v-if="labelRowsProblem" class="text-[10px] text-destructive">{{ labelRowsProblem }}</span>
+              </div>
+            </section>
+
             <section class="rounded-lg border border-border p-3">
               <h4 class="mb-2 text-[11px] font-medium text-muted-foreground">{{ t("container.wizard.networks") }}</h4>
               <div v-if="hasNetworkOptions" class="flex flex-wrap gap-1.5">
@@ -889,10 +981,6 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
                 />
                 <span class="text-[10px] text-muted-foreground">{{ t("container.wizard.networksHint") }}</span>
               </div>
-              <span class="mt-2 flex items-center gap-1 text-[10px]" style="color: var(--warning)">
-                <TriangleAlert :size="10" class="shrink-0" aria-hidden="true" />
-                {{ t("container.wizard.notWired") }}
-              </span>
             </section>
 
             <section class="rounded-lg border border-border p-3">
@@ -915,10 +1003,6 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
                   {{ name }}
                 </label>
               </div>
-              <span class="mt-2 flex items-center gap-1 text-[10px]" style="color: var(--warning)">
-                <TriangleAlert :size="10" class="shrink-0" aria-hidden="true" />
-                {{ t("container.wizard.notWired") }}
-              </span>
             </section>
 
             <section class="rounded-lg border border-border p-3">
@@ -969,10 +1053,6 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
                 <span class="text-[10px] text-muted-foreground">MB</span>
               </div>
               <span v-if="memoryProblem" class="mt-1 block text-[10px] text-destructive">{{ memoryProblem }}</span>
-              <span class="mt-2 flex items-center gap-1 text-[10px]" style="color: var(--warning)">
-                <TriangleAlert :size="10" class="shrink-0" aria-hidden="true" />
-                {{ t("container.wizard.notWired") }}
-              </span>
             </section>
           </div>
 
@@ -986,10 +1066,7 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
                 data-wizard-review-row
               >
                 <dt class="w-28 shrink-0 text-[11px] text-muted-foreground">{{ row.label }}</dt>
-                <dd class="min-w-0 flex-1 break-all font-mono text-[11px]">
-                  {{ row.value }}
-                  <WbTag v-if="row.skipped" tone="warning">{{ t("container.wizard.reviewSkipped") }}</WbTag>
-                </dd>
+                <dd class="min-w-0 flex-1 break-all font-mono text-[11px]">{{ row.value }}</dd>
               </div>
             </dl>
             <p v-if="failure" role="alert" class="text-[11px] text-destructive select-text">
