@@ -209,7 +209,11 @@ impl Core {
         request: &ContainerCreateRequest,
     ) -> Result<(), ShellError> {
         let verdict = sevenshell_policy::container_action("create");
-        let subject = if request.name.is_empty() { None } else { Some(request.name.as_str()) };
+        let subject = if request.name.is_empty() {
+            None
+        } else {
+            Some(request.name.as_str())
+        };
         self.container_unattended_gate("container.create", &verdict, subject)?;
         self.container_provider(connection_id)?.create(request).await
     }
