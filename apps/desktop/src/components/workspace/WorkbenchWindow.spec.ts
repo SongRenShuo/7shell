@@ -188,23 +188,30 @@ describe("the chrome", () => {
   });
 
   it("wears the focus ring only while it is the focused window", async () => {
-    expect(root().className).toContain("ring-primary/70");
+    expect(root().className).toContain("ring-[color-mix(in_srgb,var(--workbench-accent)_70%,transparent)]");
 
     focused.value = false;
     await nextTick();
 
-    expect(root().className).not.toContain("ring-primary/70");
+    expect(root().className).not.toContain("ring-[color-mix(in_srgb,var(--workbench-accent)");
   });
 
   it("dresses itself from the workbench tokens, not literals", () => {
     const className = root().className;
-    expect(className, "the pane is the glass token").toContain("bg-[var(--workbench-glass)]");
+    expect(className, "the pane is the solid surface token, the Semi panel treatment").toContain(
+      "bg-[var(--workbench-surface-2)]",
+    );
+    expect(className, "a solid face blurs nothing behind it").not.toContain("backdrop-blur");
     expect(className, "the edge is the glass-border token").toContain("border-[var(--workbench-glass-border)]");
     expect(className, "the shadow is the app tier").toContain("shadow-[var(--wb-shadow-app)]");
     expect(className, "the frame takes the window radius step").toContain("rounded-wb-window");
+    expect(titleBar().className, "the title bar is the reference's own 44px").toContain("min-h-[44px]");
     const close = document.querySelector("[data-workbench-window-close]");
     expect(close?.className, "the close button hovers to the danger token").toContain(
       "hover:bg-[var(--workbench-danger)]",
+    );
+    expect(close?.className, "red fill reads with the fixed white pair on it").toContain(
+      "hover:text-[var(--workbench-on-wallpaper)]",
     );
   });
 });
