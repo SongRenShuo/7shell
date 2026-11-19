@@ -35,8 +35,10 @@ const RANKS = new Map([
   ["sevenshell-agent", 7],
   ["sevenshell-mcp", 7],
   ["sevenshell-mcp-client", 7],
+  // The web host serves the interface over loopback; the desktop embeds it (PIP-0001), so the
+  // desktop sits a step above it and nothing else may follow.
   ["sevenshell-web", 8],
-  ["sevenshell-desktop", 8],
+  ["sevenshell-desktop", 9],
 ]);
 
 /** Crates allowed to know that Tauri exists. */
