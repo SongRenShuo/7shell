@@ -31,7 +31,7 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 |---|---|---|---|
 | 概览（摘要+实时图+健康灯） | ✅（四期+五期 Semi 化+蓝曲线） | stats ✅ | 已收口 |
 | 容器列表（9 态/更多菜单/搜索/斑马纹） | ✅（四期+五期 Semi 化） | ✅ | 已收口 |
-| **创建容器向导**（三步分区卡） | ✅ UI 完成（lane W；7 个高级字段「未接线」警示 chip 等引擎） | create 基础字段 ✅；privileged/capabilities/networks/内存/CPU 权重/labels/volume 只读 → **lane R 在途** | 三（引擎后摘牌接线） |
+| **创建容器向导**（三步分区卡） | ✅ UI 完成（lane W；7 个高级字段「未接线」警示 chip 等引擎） | create 基础字段 ✅；7 字段扩展已由 lane R 交付（aa361c4 合并）| 三（前端摘牌接线） |
 | 容器操作（启停/重启/删除/改名） | ✅ | ✅ | — |
 | 容器终端 / 日志流 / 容器文件 | ✅ | ✅ | — |
 | **容器详情**（the reference「详情」= inspect 结构化信息概览） | ⚠️ DetailDrawer 已有，字段完整度待比对 inspect 全量 | inspect ✅ | 七 |
@@ -40,8 +40,8 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 | **容器日志页**（the reference：/logs 页 + 错误日志分离 + 空态） | ⚠️ 日志流有；错误分离/独立日志页形态 ❌ | ✅ | 七 |
 | **镜像更新流**（5 步确认/防重复/「请先关闭容器」清单弹窗） | ❌ | pull/history ✅ | 五 |
 | **镜像仓库**（加速源/代理） | ⚠️ registry 登录 ✅；加速源/代理只读展示 ❌ | `docker info` 只读 | 五 |
-| **Compose 项目** | ❌（lane R 引擎在途） | 固定动词在途 | 四 |
-| **网络** | ❌（lane R 引擎在途） | 固定动词在途 | 三 |
+| **Compose 项目** | ❌ 前端页待建；引擎已交付（aa361c4：compose_ls/ps/up/down/restart/logs + 能力位） | ✅ | 四 |
+| **网络** | ❌ 前端页待建；引擎已交付（aa361c4：network_list/create/rm + IN-USE 护栏） | ✅ | 三 |
 | 服务设置（开关/存储迁移） | ❌ | systemd 通道 | 不做（§八） |
 
 ### 2.2 UI 规律对照（the reference §G9 逐条核对）
@@ -154,11 +154,16 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 
 ### 批次三（网络管理）
 
-（待回填。）
+- **引擎半场（lane R 交付，合并 aa361c4，零冲突）**：`network_list/inspect/create/rm` 固定动词 web+tauri 双宿主；护栏在引擎（rm 关联容器 >0 = `CONTAINER-NETWORK-IN-USE` 拒绝）；policy `container.network-create/remove` Caution；桥 `backend.dockerNetworks.{list,create,remove}`；能力位 `ContainerRuntimeInfo.networkAvailable?`。
+- 读数：container 160 例（含护栏正反例、逐字段映射）+ core lib 215 + policy 45 + contracts 25/25 + errors 11/11 + i18n 1689 键双语 + clippy 绿；真机 23.1s——list 4 行、自建 mem-net-test（172.62.0.0/24）、**护栏真机反向**（nginx 临时容器挂网 rm 被拒 → 摘容器后 rm 成功），零残留。
+- **前端半场（网络页）**：待车道 S 开工（Semi 视觉列表 + CIDR 校验 + 护栏文案；errors.spec 的 DOCKER_SURFACE 清单补新码随行）。
 
 ### 批次四（Compose 项目）
 
-（待回填。）
+- **引擎半场（lane R 交付，同 aa361c4）**：`compose_ls/ps/up/down/restart/logs_start/write_yaml` 固定动词双宿主；yml 经既有文件通道写盘；`desktop_engine_open` 探测 `docker compose version` 落能力位 `composeAvailable?`（缺席宿主按 the reference 语义裁页签只露概览）；policy up/down/restart/writeYaml Caution（down 文案含数据提示）；compose 日志/附着 up 复用 `onStreamLine/onStreamEnd` 既有流通道。
+- 读数：compose 单测 10 例 + 过滤 14 例；真机 38.8s——插件 v5.7.1 在，yml 写盘 → detach up → ps running → ls 折叠 services=1/containers=1 → logs 跟流 31 行 → down 后项目消失 → 目录清理；无文件 `compose -p <name> restart` 真机 exit 0；desktop_docker 回归 13 容器/13 stats/50 日志行 25.9s；零残留。
+- 已知边界：`compose ls --all/--format json`、`ps --all` 依赖插件 ≥v2.2 语义，老插件宿主报错即裁页签（the reference 降级语义）；up 非 detach 为流式跟随，停流不保证容器行为（文档随前端页注明）。
+- **前端半场（Compose 页）**：待车道 S 开工（项目列表/状态 tag/创建向导：名称规则+目录+yml 文本域缩进校验+「创建后立即启动」开关）。
 
 ### 批次五（镜像更新流 + 仓库设置）
 
