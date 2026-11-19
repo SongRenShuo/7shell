@@ -17,16 +17,19 @@
  * and the view keeping are the same in both — only the drawing differs, so the application tab
  * never sees the desktop's presentational choices.
  */
-import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, X } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { Blocks, Boxes, Gauge, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DockerImages from "@/components/container/DockerImages.vue";
+import DockerNetworks from "@/components/container/DockerNetworks.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
+import DockerCompose from "@/components/container/DockerCompose.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
-import Select from "@/components/ui/Select.vue";
+import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
+import { backend } from "@/lib/backend/api";
 import { cn } from "@/lib/utils";
 import { supportsNamespace, useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
@@ -46,7 +49,7 @@ const props = withDefaults(
   { layout: "flat" },
 );
 
-type ContainerView = "overview" | "containers" | "images";
+type ContainerView = "overview" | "containers" | "images" | "networks" | "compose";
 
 const { t } = useI18n();
 const containers = useContainerStore();
@@ -99,10 +102,12 @@ const namespaceOptions = computed(() => {
 });
 
 /**
- * The desktop rail's rows, and the rule it carries: an engine this session has not reached — not
- * connected yet, or failed to — offers the overview and nothing else. There is nothing to count
- * and nowhere to go, and a rail that pretended otherwise would be drawing buttons for an engine
- * that is not there.
+ * The desktop rail's rows, and the rules it carries: an engine this session has not reached — not
+ * connected yet, or failed to — offers the overview and nothing else; and a capability the engine
+ * says it does not have (a host without the Compose plugin, an engine that did not answer the
+ * network probe) trims its page from the rail, the way the reference manager trims its own. A bit
+ * that has not been probed yet is read as "has it" — a page the engine may yet answer for is
+ * drawn, and taken away if the answer is no.
  */
 const sideRail = computed<readonly SideNavItem[]>(() => {
   const current = session.value;
@@ -111,11 +116,26 @@ const sideRail = computed<readonly SideNavItem[]>(() => {
   if (!connected) {
     return [overview];
   }
-  return [
+  const items: SideNavItem[] = [
     overview,
     { id: "containers", label: t("container.rail.containers"), icon: Boxes, count: current.containers.length },
     { id: "images", label: t("container.rail.images"), icon: Layers, count: current.images.length },
   ];
+  if (current.info?.networkAvailable !== false) {
+    items.push({ id: "networks", label: t("container.rail.networks"), icon: Waypoints, count: null });
+  }
+  if (current.info?.composeAvailable !== false) {
+    items.push({ id: "compose", label: t("container.rail.compose"), icon: Blocks, count: null });
+  }
+  return items;
+});
+
+// A page trimmed from the rail while it was on screen is not a page to stay on: the rail decides
+// what may be open, so the view goes back to the overview the rail always keeps.
+watch(sideRail, (items) => {
+  if (!items.some((item) => item.id === view.value)) {
+    view.value = "overview";
+  }
 });
 
 function translate(key: string, params?: Record<string, string>): string {
@@ -150,6 +170,34 @@ function chooseNamespace(namespace: string): void {
   }
   void containers.setNamespace(props.tab.id, namespace);
 }
+
+/**
+ * The networks the wizard offers its networks field, read from the engine once each time the
+ * wizard opens — a list read when the dialog asks is current; a list cached from the pane's
+ * first minute is not. Where the engine does not answer (a host without the listing, a read
+ * that failed) the field falls back to names typed by hand, which is the wizard's own degrade.
+ */
+const wizardNetworks = ref<readonly SelectOption[]>([]);
+
+async function loadWizardNetworks(): Promise<void> {
+  const connectionId = session.value?.connectionId;
+  if (!connectionId || session.value?.info?.networkAvailable === false) {
+    wizardNetworks.value = [];
+    return;
+  }
+  try {
+    const networks = await backend.dockerNetworks.list(connectionId);
+    wizardNetworks.value = networks.map((network) => ({ value: network.name, label: network.name }));
+  } catch {
+    wizardNetworks.value = [];
+  }
+}
+
+watch(wizardOpen, (open) => {
+  if (open) {
+    void loadWizardNetworks();
+  }
+});
 
 onMounted(() => {
   void containers.connect(props.tab);
@@ -342,14 +390,24 @@ onBeforeUnmount(() => {
           :session="session"
           @view-related="showRelatedContainers"
         />
+        <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
+        <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
+        <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
       </div>
     </div>
 
     <!--
       The create wizard lives over this pane, wherever in the desktop's rail the reader is: it is a
-      modal of the window, not a view of the rail. The network choices stay empty until the bridge
-      grows the listing — the wizard degrades to typed names while it does.
+      modal of the window, not a view of the rail. The network choices are the engine's own, read
+      when the wizard opens; an engine that does not answer the listing leaves the field on its
+      typed-names degrade.
     -->
-    <ContainerWizard v-if="desktop" :open="wizardOpen" :tab-id="props.tab.id" @update:open="wizardOpen = $event" />
+    <ContainerWizard
+      v-if="desktop"
+      :open="wizardOpen"
+      :tab-id="props.tab.id"
+      :network-options="wizardNetworks"
+      @update:open="wizardOpen = $event"
+    />
   </section>
 </template>
