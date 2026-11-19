@@ -119,6 +119,10 @@ export interface ContainerRuntimeInfo {
   readonly imagesTotal: number;
   readonly imagesTagged: number;
   readonly imagesDangling: number;
+  /** Probed once when a desktop engine opened. Absent on connections that were never probed. */
+  readonly composeAvailable?: boolean;
+  /** A desktop engine is Docker by construction, so this arrives with the Compose bit. */
+  readonly networkAvailable?: boolean;
 }
 
 export interface ContainerStreamLine {
@@ -141,7 +145,12 @@ export interface ContainerPortMapping {
 export interface ContainerVolume {
   readonly source: string;
   readonly destination: string;
+  /** Mount the volume read-only (`:ro`). Absent means read-write. */
+  readonly readOnly?: boolean;
 }
+
+/** The CPU weight presets the create dialog offers, in fnOS's three steps. */
+export type ContainerCpuWeight = "high" | "normal" | "low";
 
 export interface ContainerCreateRequest {
   readonly image: string;
@@ -153,6 +162,18 @@ export interface ContainerCreateRequest {
   readonly command?: string;
   readonly interactive?: boolean;
   readonly tty?: boolean;
+  /** Run with the host's device access (`--privileged`). */
+  readonly privileged?: boolean;
+  /** One Linux capability per `--cap-add`, e.g. `NET_ADMIN`. */
+  readonly capabilities?: readonly string[];
+  /** One network per `--network`, in the order the wizard listed them. */
+  readonly networks?: readonly string[];
+  /** The memory ceiling in MiB; the engine converts it to bytes. `null` leaves it unset. */
+  readonly memoryLimitMb?: number | null;
+  /** The CPU weight preset, or `null` for the runtime's default. */
+  readonly cpuWeight?: ContainerCpuWeight | null;
+  /** Labels written as remarks. `null` leaves them unset. */
+  readonly labels?: Record<string, string> | null;
 }
 
 export interface ContainerImageTransfer {
@@ -174,4 +195,51 @@ export interface ContainerCommitRequest {
   readonly image: string;
   readonly author?: string;
   readonly message?: string;
+}
+
+/**
+ * Docker network wire types, mirroring `NetworkSummary`/`NetworkCreateRequest` in the Rust types.
+ *
+ * The address fields may be absent: the built-in networks answer them from the inspect, but a
+ * network whose driver has no IPAM at all does not. Read every optional one as "may not be there".
+ */
+export interface NetworkSummary {
+  readonly name: string;
+  readonly driver: string;
+  readonly scope?: string;
+  readonly subnet?: string;
+  readonly gateway?: string;
+  readonly ipRange?: string;
+  readonly ipv6: boolean;
+  readonly internal: boolean;
+  /** How many containers are attached; the removal guardrail reads the same number. */
+  readonly containers: number;
+}
+
+export interface NetworkCreateRequest {
+  readonly name: string;
+  readonly driver?: string;
+  readonly subnet?: string;
+  readonly gateway?: string;
+  readonly ipRange?: string;
+  readonly ipv6?: boolean;
+}
+
+/** One Compose project as the project list shows it. */
+export interface ComposeProject {
+  readonly name: string;
+  readonly status: string;
+  readonly configFiles?: string;
+  readonly services: number;
+  readonly containers: number;
+}
+
+/** One service of one Compose project, as the project's `ps` shows it. */
+export interface ComposeServiceRow {
+  readonly id: string;
+  readonly name: string;
+  readonly service: string;
+  readonly state: string;
+  readonly health?: string;
+  readonly status?: string;
 }

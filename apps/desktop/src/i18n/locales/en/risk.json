@@ -32,7 +32,16 @@
       "change": "Changes a container",
       "stop": "Stops a running container",
       "remove": "Removes a container or an image",
+      "networkCreate": "Creates a Docker network",
+      "networkRemove": "Removes a Docker network",
       "unknown": "A container action this version does not recognise"
+    },
+    "compose": {
+      "up": "Starts a Compose project from its file",
+      "restart": "Restarts a Compose project's containers",
+      "down": "Stops a Compose project: its containers will stop and be removed",
+      "writeYaml": "Writes a Compose file to the host",
+      "unknown": "A Compose action this version does not recognise"
     },
     "k8s": {
       "write": "Changes a cluster object",

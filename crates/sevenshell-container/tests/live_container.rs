@@ -102,6 +102,7 @@ async fn a_real_engine_lists_images_runs_a_container_logs_into_it_and_removes_it
         command: "sh -c 'echo live-ready; sleep 120'".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     provider
         .create(&request)

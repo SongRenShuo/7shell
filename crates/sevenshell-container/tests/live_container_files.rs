@@ -117,6 +117,7 @@ async fn a_real_container_is_listed_written_uploaded_and_downloaded() {
         command: "sleep 600".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     provider
         .create(&request)
@@ -364,6 +365,7 @@ async fn a_tree_past_the_old_transfer_ceiling_round_trips_through_a_container() 
         command: "sleep 600".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     provider
         .create(&request)
@@ -515,6 +517,7 @@ async fn a_streamed_file_crosses_an_ssh_channel_to_a_real_engine() {
         command: "sleep 300".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     provider
         .create(&request)

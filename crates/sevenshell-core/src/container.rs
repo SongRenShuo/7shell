@@ -90,6 +90,9 @@ impl Core {
             .lock()
             .await
             .retain(|_, mapped| mapped != connection_id);
+        // The capability bits went with the same open; they are facts about a connection that is
+        // no longer there.
+        self.desktop_engine_caps.lock().await.remove(connection_id);
     }
 
     /// Opens the Docker engine of a Linux desktop session on the connection that session holds.
@@ -125,12 +128,25 @@ impl Core {
 
         // Docker takes no namespace; that flag is a nerdctl concern (see `container_connect`).
         let id = format!("desktop-{}", uuid::Uuid::new_v4());
+        // The Compose probe rides the carrier once, now, so the capability bit is a fact about
+        // this open rather than a question every page answers again. A plugin that fails to
+        // answer is a bit that stays off — the interface shows the overview only — not an error
+        // that would refuse an engine the person can otherwise use.
+        let compose_available = runner
+            .clone()
+            .run(&["docker".to_owned(), "compose".to_owned(), "version".to_owned()])
+            .await
+            .is_ok();
         self.containers
             .connect(id.clone(), ContainerRuntime::Docker, "", runner)?;
         self.desktop_engines
             .lock()
             .await
             .insert(session_id.to_owned(), id.clone());
+        self.desktop_engine_caps
+            .lock()
+            .await
+            .insert(id.clone(), crate::compose::DesktopEngineCaps { compose_available });
         Ok(id)
     }
 
@@ -231,7 +247,16 @@ impl Core {
     }
 
     pub async fn container_runtime_info(&self, connection_id: &str) -> Result<ContainerRuntimeInfo, ShellError> {
-        self.container_provider(connection_id)?.runtime_info().await
+        let mut info = self.container_provider(connection_id)?.runtime_info().await?;
+        // A desktop engine carries the capability bits probed at open. Every other connection —
+        // a container session, a nerdctl tab — never answers them, and the absent fields are the
+        // honest answer rather than a guessed false.
+        if let Some(caps) = self.desktop_engine_caps.lock().await.get(connection_id) {
+            info.compose_available = caps.compose_available;
+            // A desktop engine is Docker by construction, so the network surface is always there.
+            info.network_available = true;
+        }
+        Ok(info)
     }
 
     pub async fn container_images(&self, connection_id: &str) -> Result<Vec<ContainerImage>, ShellError> {
@@ -387,11 +412,11 @@ impl Core {
             .await
     }
 
-    fn container_provider(&self, connection_id: &str) -> Result<Arc<Provider>, ShellError> {
+    pub(crate) fn container_provider(&self, connection_id: &str) -> Result<Arc<Provider>, ShellError> {
         self.containers.provider(connection_id)
     }
 
-    async fn spawn_container_stream(
+    pub(crate) async fn spawn_container_stream(
         &self,
         mut stream: LineStream,
         events: UnboundedSender<ContainerStreamLine>,
@@ -469,7 +494,7 @@ impl Core {
     /// acknowledgement of their own: the decision is on the trail either way, the default matrix's
     /// `Caution` runs, and where a layer names a question or a refusal the verb is refused with
     /// the rule named — the unattended gate's contract, the tail's and the runtime forwards'.
-    fn container_unattended_gate(
+    pub(crate) fn container_unattended_gate(
         &self,
         operation: &str,
         verdict: &RiskAssessment,
@@ -620,6 +645,7 @@ mod tests {
             command: String::new(),
             interactive: false,
             tty: false,
+            ..ContainerCreateRequest::default()
         };
         let error = core
             .container_create("connection-that-never-existed", &request)

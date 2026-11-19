@@ -14,7 +14,7 @@
 use sevenshell_error::ShellError;
 use sevenshell_types::{
     ContainerCommitRequest, ContainerCreateRequest, ContainerImageTransfer, ContainerPortMapping,
-    ContainerRegistryLogin, ContainerRuntime,
+    ContainerRegistryLogin, ContainerRuntime, NetworkCreateRequest,
 };
 
 /// The longest identifier (container id or name, tag, username) this build will pass on.
@@ -24,6 +24,9 @@ const MAX_IMAGE_REFERENCE_CHARS: usize = 255;
 const MAX_PLATFORM_CHARS: usize = 64;
 const MAX_AUTHOR_CHARS: usize = 256;
 const MAX_MESSAGE_CHARS: usize = 4096;
+/// The longest remote path a compose file may be named by. A path is not an identifier: it may
+/// contain almost anything, so the bound and the control-character rule are what keep it a path.
+const MAX_REMOTE_PATH_CHARS: usize = 1024;
 
 /// The template `ps` uses. `{{json .}}` is deliberately avoided: it includes `.Size`, which makes
 /// the CLI ask the daemon for per-container filesystem statistics — tens of seconds on a busy host.
@@ -407,6 +410,309 @@ pub(crate) fn version(runtime: ContainerRuntime, namespace: &str) -> Vec<String>
     argv
 }
 
+// -- Networks ----------------------------------------------------------------
+//
+// The network surface belongs to the desktop's Docker engine, which is always Docker: the other
+// runtimes' network dialects were never exercised here, and an untested command line is refused
+// rather than guessed at (see `compose` below for the same decision).
+
+fn require_docker(runtime: ContainerRuntime, what: &str) -> Result<(), ShellError> {
+    if runtime == ContainerRuntime::Docker {
+        return Ok(());
+    }
+    Err(ShellError::app_unsupported(what))
+}
+
+pub(crate) fn network_ls(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "network listing on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("network".to_owned());
+    argv.push("ls".to_owned());
+    argv.extend(json_format_flag(runtime));
+    Ok(argv)
+}
+
+/// Inspects the named networks in one call. The names come from the engine's own `ls`, never from
+/// a person, but each one still passes the identifier gate: an argv is an argv.
+pub(crate) fn network_inspect(runtime: ContainerRuntime, names: &[String]) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "network inspection on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("network".to_owned());
+    argv.push("inspect".to_owned());
+    for name in names {
+        argv.push(identifier("the network inspect request", "network name", name)?.to_owned());
+    }
+    Ok(argv)
+}
+
+pub(crate) fn network_create(
+    runtime: ContainerRuntime,
+    request: &NetworkCreateRequest,
+) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "network creation on this runtime")?;
+    let name = identifier("the network create request", "network name", &request.name)?;
+    let mut argv = base(runtime, "");
+    argv.push("network".to_owned());
+    argv.push("create".to_owned());
+    if !request.driver.trim().is_empty() {
+        argv.push("--driver".to_owned());
+        argv.push(network_driver("the network create request", &request.driver)?.to_owned());
+    }
+    if !request.subnet.trim().is_empty() {
+        argv.push("--subnet".to_owned());
+        argv.push(cidr("the network create request", "subnet", &request.subnet)?.to_owned());
+    }
+    if !request.gateway.trim().is_empty() {
+        argv.push("--gateway".to_owned());
+        argv.push(ip_address("the network create request", "gateway", &request.gateway)?.to_owned());
+    }
+    if !request.ip_range.trim().is_empty() {
+        argv.push("--ip-range".to_owned());
+        argv.push(cidr("the network create request", "IP range", &request.ip_range)?.to_owned());
+    }
+    if request.ipv6 {
+        argv.push("--ipv6".to_owned());
+    }
+    argv.push(name.to_owned());
+    Ok(argv)
+}
+
+pub(crate) fn network_rm(runtime: ContainerRuntime, name: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "network removal on this runtime")?;
+    let name = identifier("the network removal request", "network name", name)?;
+    let mut argv = base(runtime, "");
+    argv.push("network".to_owned());
+    argv.push("rm".to_owned());
+    argv.push(name.to_owned());
+    Ok(argv)
+}
+
+/// A network driver's name. It rides behind `--driver`, but a driver that begins with `-` or
+/// carries whitespace would still be read as two arguments or an option by the CLI.
+fn network_driver<'a>(operation: &str, value: &'a str) -> Result<&'a str, ShellError> {
+    let value = value.trim();
+    let valid = value.chars().count() <= MAX_IDENTIFIER_CHARS
+        && !value.starts_with('-')
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if valid {
+        Ok(value)
+    } else {
+        Err(ShellError::container_command_failed(
+            operation,
+            format!("{value} is not a network driver"),
+        ))
+    }
+}
+
+/// One bare IP address, for the flags that take an address rather than an address range.
+fn ip_address<'a>(operation: &str, kind: &str, value: &'a str) -> Result<&'a str, ShellError> {
+    let value = value.trim();
+    let valid = !value.is_empty()
+        && value.chars().count() <= MAX_IDENTIFIER_CHARS
+        && value.chars().all(|c| c.is_ascii_hexdigit() || matches!(c, '.' | ':'))
+        && !value.contains("..")
+        && (value.contains('.') || value.contains(':'));
+    if valid {
+        Ok(value)
+    } else {
+        Err(ShellError::container_command_failed(
+            operation,
+            format!("{value} is not a {kind} address"),
+        ))
+    }
+}
+
+/// A CIDR the daemon will re-check: the shape check here exists so a string that could be read as
+/// two arguments or an option never reaches the command line, not to second-guess the engine.
+fn cidr<'a>(operation: &str, kind: &str, value: &'a str) -> Result<&'a str, ShellError> {
+    let value = value.trim();
+    let Some((address, prefix)) = value.rsplit_once('/') else {
+        return Err(ShellError::container_command_failed(
+            operation,
+            format!("{value} is not a {kind} in CIDR form"),
+        ));
+    };
+    let prefix_ok = !prefix.is_empty()
+        && prefix.len() <= 3
+        && prefix.bytes().all(|byte| byte.is_ascii_digit())
+        // A dotted-quad address has 32 bits to divide; a coloned one has 128.
+        && prefix
+            .parse::<u8>()
+            .is_ok_and(|bits| bits <= if address.contains(':') { 128 } else { 32 });
+    let address_ok = !address.is_empty()
+        && address.chars().count() <= MAX_IDENTIFIER_CHARS
+        && address.chars().all(|c| c.is_ascii_hexdigit() || matches!(c, '.' | ':'))
+        && !address.contains("..")
+        && (address.contains('.') || address.contains(':'));
+    if prefix_ok && address_ok {
+        Ok(value)
+    } else {
+        Err(ShellError::container_command_failed(
+            operation,
+            format!("{value} is not a {kind} in CIDR form"),
+        ))
+    }
+}
+
+// -- Compose -----------------------------------------------------------------
+//
+// The Compose plugin rides the same `docker` program and the same argv discipline. The project
+// name, the file path and the verbs are all fixed here; a person's words reach the command line
+// only through the two validators below.
+
+/// Whether the Compose plugin answers at all. One call, one answer: this is the probe
+/// `desktop_engine_open` makes, and its verdict is what trims the interface.
+pub(crate) fn compose_version(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("version".to_owned());
+    Ok(argv)
+}
+
+pub(crate) fn compose_ls(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("ls".to_owned());
+    // Stopped projects stay visible: a project someone brought down is still a project.
+    argv.push("--all".to_owned());
+    argv.push("--format".to_owned());
+    argv.push("json".to_owned());
+    Ok(argv)
+}
+
+/// Every container that carries a Compose project label, running or not. One call feeds every
+/// row of the project list its service and container counts, instead of one call per project.
+pub(crate) fn compose_labelled_ps(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("ps".to_owned());
+    argv.push("-a".to_owned());
+    argv.push("--filter".to_owned());
+    argv.push("label=com.docker.compose.project".to_owned());
+    argv.extend(json_format_flag(runtime));
+    Ok(argv)
+}
+
+pub(crate) fn compose_ps(runtime: ContainerRuntime, project: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let project = compose_project_name(project)?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("--project-name".to_owned());
+    argv.push(project.to_owned());
+    argv.push("ps".to_owned());
+    argv.push("--all".to_owned());
+    argv.push("--format".to_owned());
+    argv.push("json".to_owned());
+    Ok(argv)
+}
+
+pub(crate) fn compose_up(
+    runtime: ContainerRuntime,
+    project: &str,
+    yml_path: &str,
+    detach: bool,
+) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let project = compose_project_name(project)?;
+    let path = remote_yml_path(yml_path)?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("--project-name".to_owned());
+    argv.push(project.to_owned());
+    argv.push("--file".to_owned());
+    argv.push(path.to_owned());
+    argv.push("up".to_owned());
+    if detach {
+        argv.push("--detach".to_owned());
+    }
+    Ok(argv)
+}
+
+pub(crate) fn compose_down(runtime: ContainerRuntime, project: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let project = compose_project_name(project)?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("--project-name".to_owned());
+    argv.push(project.to_owned());
+    argv.push("down".to_owned());
+    Ok(argv)
+}
+
+pub(crate) fn compose_restart(runtime: ContainerRuntime, project: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let project = compose_project_name(project)?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("--project-name".to_owned());
+    argv.push(project.to_owned());
+    argv.push("restart".to_owned());
+    Ok(argv)
+}
+
+pub(crate) fn compose_logs(runtime: ContainerRuntime, project: &str, tail: u32) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "compose projects on this runtime")?;
+    let project = compose_project_name(project)?;
+    let mut argv = base(runtime, "");
+    argv.push("compose".to_owned());
+    argv.push("--project-name".to_owned());
+    argv.push(project.to_owned());
+    argv.push("logs".to_owned());
+    argv.push("--tail".to_owned());
+    argv.push(tail.to_string());
+    argv.push("--follow".to_owned());
+    Ok(argv)
+}
+
+/// A Compose project name. The CLI lowercases and trims silently, which is exactly the silent
+/// disagreement this build refuses: the name asked for is the name the engine uses, or nothing
+/// runs. Compose's own grammar is `[a-z0-9][a-z0-9_-]*`.
+fn compose_project_name(project: &str) -> Result<&str, ShellError> {
+    let project = project.trim();
+    let valid = !project.is_empty()
+        && project.chars().count() <= MAX_IDENTIFIER_CHARS
+        && project
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && project
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-'));
+    if valid {
+        Ok(project)
+    } else {
+        Err(ShellError::container_command_failed(
+            "the compose request",
+            format!("{project} is not a Compose project name"),
+        ))
+    }
+}
+
+/// The remote path a Compose file lives at. It must be absolute — the command runs with the
+/// session's home as its working directory, and a relative path would name whatever happens to
+/// be there — and it cannot begin with anything the CLI would read as an option.
+fn remote_yml_path(path: &str) -> Result<&str, ShellError> {
+    let path = path.trim();
+    let valid = path.starts_with('/')
+        && path.chars().count() <= MAX_REMOTE_PATH_CHARS
+        && !path.chars().any(char::is_control)
+        && !path.contains("//")
+        && !path.ends_with('/');
+    if valid {
+        Ok(path)
+    } else {
+        Err(ShellError::container_command_failed(
+            "the compose request",
+            format!("{path} is not an absolute remote path"),
+        ))
+    }
+}
+
 pub(crate) fn create(
     runtime: ContainerRuntime,
     namespace: &str,
@@ -444,7 +750,11 @@ pub(crate) fn create(
         let source = identifier("the create request", "volume source", &volume.source)?;
         let destination = identifier("the create request", "volume destination", &volume.destination)?;
         argv.push("-v".to_owned());
-        argv.push(format!("{source}:{destination}"));
+        if volume.read_only {
+            argv.push(format!("{source}:{destination}:ro"));
+        } else {
+            argv.push(format!("{source}:{destination}"));
+        }
     }
     for entry in &request.env {
         argv.push("-e".to_owned());
@@ -455,6 +765,35 @@ pub(crate) fn create(
     {
         argv.push("--restart".to_owned());
         argv.push(policy.to_owned());
+    }
+    if request.privileged {
+        argv.push("--privileged".to_owned());
+    }
+    for capability in &request.capabilities {
+        argv.push("--cap-add".to_owned());
+        argv.push(capability_name("the create request", capability)?.to_owned());
+    }
+    for network in &request.networks {
+        argv.push("--network".to_owned());
+        argv.push(identifier("the create request", "network name", network)?.to_owned());
+    }
+    if let Some(megabytes) = request.memory_limit_mb {
+        let bytes = megabytes.checked_mul(1024 * 1024).ok_or_else(|| {
+            ShellError::container_command_failed(
+                "the create request",
+                format!("{megabytes} MiB is not a memory limit this build will pass on"),
+            )
+        })?;
+        argv.push("--memory".to_owned());
+        argv.push(bytes.to_string());
+    }
+    if let Some(weight) = request.cpu_weight {
+        argv.push("--cpu-shares".to_owned());
+        argv.push(weight.cpu_shares().to_string());
+    }
+    for (key, value) in request.labels.iter().flatten() {
+        argv.push("--label".to_owned());
+        argv.push(label_entry("the create request", key, value)?);
     }
     argv.push(image.to_owned());
     argv.extend(split_command_line("the create request", &request.command)?);
@@ -708,6 +1047,43 @@ fn port_mapping(operation: &str, port: &ContainerPortMapping) -> Result<String, 
     Ok(mapping)
 }
 
+/// One Linux capability, the way `--cap-add` takes it (`NET_ADMIN`, `SYS_TIME`, `ALL`).
+fn capability_name<'a>(operation: &str, value: &'a str) -> Result<&'a str, ShellError> {
+    let value = value.trim();
+    let valid = !value.is_empty()
+        && value.chars().count() <= MAX_IDENTIFIER_CHARS
+        && !value.starts_with('-')
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if valid {
+        Ok(value)
+    } else {
+        Err(ShellError::container_command_failed(
+            operation,
+            format!("{value} is not a Linux capability"),
+        ))
+    }
+}
+
+/// One `--label KEY=VALUE` pair. The key follows Docker's label grammar; the value is free text
+/// that only has to stay one argument.
+fn label_entry(operation: &str, key: &str, value: &str) -> Result<String, ShellError> {
+    let key = key.trim();
+    let key_valid = !key.is_empty()
+        && key.chars().count() <= MAX_IDENTIFIER_CHARS
+        && !key.starts_with('-')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && key.chars().next().is_some_and(|c| c.is_ascii_alphanumeric());
+    if !key_valid || value.chars().any(char::is_control) {
+        return Err(ShellError::container_command_failed(
+            operation,
+            format!("{key}={value} is not a KEY=VALUE label"),
+        ));
+    }
+    Ok(format!("{key}={value}"))
+}
+
 fn environment_entry(operation: &str, entry: &str) -> Result<String, ShellError> {
     let entry = entry.trim();
     let Some((key, _)) = entry.split_once('=') else {
@@ -944,7 +1320,10 @@ fn valid_digest(digest: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sevenshell_types::{ContainerImageTransfer, ContainerPortMapping, ContainerRegistryLogin, ContainerVolume};
+    use sevenshell_types::{
+        ContainerCpuWeight, ContainerImageTransfer, ContainerPortMapping, ContainerRegistryLogin, ContainerVolume,
+        NetworkCreateRequest,
+    };
 
     use super::*;
 
@@ -1219,12 +1598,14 @@ mod tests {
             volumes: vec![ContainerVolume {
                 source: "/data".to_owned(),
                 destination: "/usr/share/nginx/html".to_owned(),
+                read_only: false,
             }],
             env: vec!["MODE=fast".to_owned()],
             restart_policy: "unless-stopped".to_owned(),
             command: "nginx -g 'daemon off;'".to_owned(),
             interactive: true,
             tty: true,
+            ..ContainerCreateRequest::default()
         };
         assert_eq!(
             create(ContainerRuntime::Docker, "", &request).unwrap(),
@@ -1269,6 +1650,7 @@ mod tests {
             command: String::new(),
             interactive: false,
             tty: false,
+            ..ContainerCreateRequest::default()
         };
         let error = create(ContainerRuntime::Docker, "", &request).unwrap_err();
         assert_eq!(error.code(), sevenshell_error::ErrorCode::ContainerCommandFailed);
@@ -1286,6 +1668,7 @@ mod tests {
             command: String::new(),
             interactive: false,
             tty: false,
+            ..ContainerCreateRequest::default()
         };
         let argv = create(ContainerRuntime::Wslc, "", &request).unwrap();
         assert!(
@@ -1293,6 +1676,132 @@ mod tests {
             "WSLC's run does not recognise --restart: {argv:?}"
         );
         assert_eq!(argv, vec!["wslc", "run", "-d", "--name", "web", "nginx"]);
+    }
+
+    #[test]
+    fn the_create_dialogs_advanced_fields_become_their_flags() {
+        let request = ContainerCreateRequest {
+            image: "nginx:1.27".to_owned(),
+            name: "web".to_owned(),
+            volumes: vec![ContainerVolume {
+                source: "/srv/data".to_owned(),
+                destination: "/data".to_owned(),
+                read_only: true,
+            }],
+            privileged: true,
+            capabilities: vec!["NET_ADMIN".to_owned(), "SYS_TIME".to_owned()],
+            networks: vec!["mem-net".to_owned(), "bridge".to_owned()],
+            memory_limit_mb: Some(512),
+            cpu_weight: Some(ContainerCpuWeight::High),
+            labels: Some(
+                [("remark".to_owned(), "created from the wizard".to_owned())]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..ContainerCreateRequest::default()
+        };
+        assert_eq!(
+            create(ContainerRuntime::Docker, "", &request).unwrap(),
+            vec![
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                "web",
+                "-v",
+                "/srv/data:/data:ro",
+                "--privileged",
+                "--cap-add",
+                "NET_ADMIN",
+                "--cap-add",
+                "SYS_TIME",
+                "--network",
+                "mem-net",
+                "--network",
+                "bridge",
+                "--memory",
+                &(512u64 * 1024 * 1024).to_string(),
+                "--cpu-shares",
+                "768",
+                "--label",
+                "remark=created from the wizard",
+                "nginx:1.27"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_ordinary_create_leaves_no_trace_of_the_advanced_fields() {
+        let request = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            volumes: vec![ContainerVolume {
+                source: "/srv/data".to_owned(),
+                destination: "/data".to_owned(),
+                read_only: false,
+            }],
+            privileged: false,
+            capabilities: Vec::new(),
+            networks: Vec::new(),
+            memory_limit_mb: None,
+            cpu_weight: None,
+            labels: None,
+            ..ContainerCreateRequest::default()
+        };
+        let argv = create(ContainerRuntime::Docker, "", &request).unwrap();
+        for flag in [
+            "--privileged",
+            "--cap-add",
+            "--network",
+            "--memory",
+            "--cpu-shares",
+            "--label",
+        ] {
+            assert!(
+                !argv.iter().any(|argument| argument == flag),
+                "{flag} leaked into a plain create"
+            );
+        }
+        assert_eq!(
+            argv.iter().filter(|argument| *argument == "-v").count(),
+            1,
+            "one volume, mounted read-write"
+        );
+        assert_eq!(argv, vec!["docker", "run", "-d", "-v", "/srv/data:/data", "nginx"]);
+    }
+
+    #[test]
+    fn the_three_cpu_weight_steps_map_the_way_the_desktop_maps_them() {
+        assert_eq!(ContainerCpuWeight::High.cpu_shares(), 768);
+        assert_eq!(ContainerCpuWeight::Normal.cpu_shares(), 512);
+        assert_eq!(ContainerCpuWeight::Low.cpu_shares(), 256);
+        let parsed: ContainerCpuWeight = serde_json::from_value(serde_json::json!("high")).unwrap();
+        assert_eq!(parsed, ContainerCpuWeight::High);
+        assert!(
+            serde_json::from_value::<ContainerCpuWeight>(serde_json::json!("maximum")).is_err(),
+            "a word the dialog never offered is refused, not guessed at"
+        );
+    }
+
+    #[test]
+    fn an_advanced_field_that_could_be_an_option_is_refused() {
+        let bad_capability = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            capabilities: vec!["--privileged".to_owned()],
+            ..ContainerCreateRequest::default()
+        };
+        assert!(create(ContainerRuntime::Docker, "", &bad_capability).is_err());
+        let bad_network = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            networks: vec!["--network".to_owned()],
+            ..ContainerCreateRequest::default()
+        };
+        assert!(create(ContainerRuntime::Docker, "", &bad_network).is_err());
+        let bad_label = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            labels: Some([("-x".to_owned(), String::new())].into_iter().collect()),
+            ..ContainerCreateRequest::default()
+        };
+        assert!(create(ContainerRuntime::Docker, "", &bad_label).is_err());
     }
 
     #[test]
@@ -1432,5 +1941,256 @@ mod tests {
     fn a_container_id_cannot_be_smuggled_in_through_the_namespace() {
         assert!(validate_namespace("--namespace").is_err());
         assert!(validate_namespace("-r").is_err());
+    }
+
+    #[test]
+    fn network_listing_and_removal_are_docker_only() {
+        assert_eq!(
+            network_ls(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "network", "ls", "--format", "{{json .}}"]
+        );
+        assert_eq!(
+            network_rm(ContainerRuntime::Docker, "mem-net-test").unwrap(),
+            vec!["docker", "network", "rm", "mem-net-test"]
+        );
+        for runtime in [
+            ContainerRuntime::Podman,
+            ContainerRuntime::Nerdctl,
+            ContainerRuntime::Wslc,
+        ] {
+            assert_eq!(
+                network_ls(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+            assert_eq!(
+                network_rm(runtime, "web").unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
+    }
+
+    #[test]
+    fn network_inspect_takes_several_names_in_one_call_and_refuses_an_option_shaped_one() {
+        assert_eq!(
+            network_inspect(ContainerRuntime::Docker, &["bridge".to_owned(), "host".to_owned()]).unwrap(),
+            vec!["docker", "network", "inspect", "bridge", "host"]
+        );
+        assert!(network_inspect(ContainerRuntime::Docker, &["-x".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn network_create_places_every_option_before_the_name() {
+        let request = NetworkCreateRequest {
+            name: "mem-net-test".to_owned(),
+            driver: "bridge".to_owned(),
+            subnet: "172.30.0.0/24".to_owned(),
+            gateway: "172.30.0.1".to_owned(),
+            ip_range: "172.30.0.0/25".to_owned(),
+            ipv6: true,
+        };
+        assert_eq!(
+            network_create(ContainerRuntime::Docker, &request).unwrap(),
+            vec![
+                "docker",
+                "network",
+                "create",
+                "--driver",
+                "bridge",
+                "--subnet",
+                "172.30.0.0/24",
+                "--gateway",
+                "172.30.0.1",
+                "--ip-range",
+                "172.30.0.0/25",
+                "--ipv6",
+                "mem-net-test"
+            ]
+        );
+        // Empty fields leave no flag behind, and the name is always last.
+        let bare = NetworkCreateRequest {
+            name: "plain".to_owned(),
+            driver: String::new(),
+            subnet: String::new(),
+            gateway: String::new(),
+            ip_range: String::new(),
+            ipv6: false,
+        };
+        assert_eq!(
+            network_create(ContainerRuntime::Docker, &bare).unwrap(),
+            vec!["docker", "network", "create", "plain"]
+        );
+    }
+
+    #[test]
+    fn a_cidr_that_could_be_an_option_or_two_words_is_refused() {
+        for subnet in [
+            "--help",
+            "not-a-cidr",
+            "172.30.0.0",
+            "/24",
+            "172.30.0.0/",
+            "1.2.3.4/40",
+            "a b/24",
+        ] {
+            let request = NetworkCreateRequest {
+                name: "net".to_owned(),
+                driver: String::new(),
+                subnet: subnet.to_owned(),
+                gateway: String::new(),
+                ip_range: String::new(),
+                ipv6: false,
+            };
+            assert!(
+                network_create(ContainerRuntime::Docker, &request).is_err(),
+                "{subnet} was accepted"
+            );
+        }
+        for subnet in ["172.30.0.0/24", "10.0.0.0/8", "fd00::/8", "2001:db8::/32"] {
+            let request = NetworkCreateRequest {
+                name: "net".to_owned(),
+                driver: String::new(),
+                subnet: subnet.to_owned(),
+                gateway: String::new(),
+                ip_range: String::new(),
+                ipv6: false,
+            };
+            assert!(
+                network_create(ContainerRuntime::Docker, &request).is_ok(),
+                "{subnet} was refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_driver_that_could_be_an_option_is_refused() {
+        let request = NetworkCreateRequest {
+            name: "net".to_owned(),
+            driver: "--privileged".to_owned(),
+            subnet: String::new(),
+            gateway: String::new(),
+            ip_range: String::new(),
+            ipv6: false,
+        };
+        assert!(network_create(ContainerRuntime::Docker, &request).is_err());
+    }
+
+    #[test]
+    fn a_compose_project_name_follows_the_cli_grammar() {
+        assert!(compose_project_name("mem-compose-test").is_ok());
+        assert!(compose_project_name("web-1").is_ok());
+        for name in ["", "  ", "-x", "--help", "Web", "web/1", "a b", "has.dot"] {
+            assert!(compose_project_name(name).is_err(), "{name} was accepted");
+        }
+    }
+
+    #[test]
+    fn compose_verbs_are_fixed_and_the_name_and_path_are_validated() {
+        assert_eq!(
+            compose_ls(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "compose", "ls", "--all", "--format", "json"]
+        );
+        assert_eq!(
+            compose_version(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "compose", "version"]
+        );
+        assert_eq!(
+            compose_ps(ContainerRuntime::Docker, "web").unwrap(),
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "ps",
+                "--all",
+                "--format",
+                "json"
+            ]
+        );
+        assert_eq!(
+            compose_up(
+                ContainerRuntime::Docker,
+                "web",
+                "/root/mem-compose-test/docker-compose.yml",
+                true
+            )
+            .unwrap(),
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "--file",
+                "/root/mem-compose-test/docker-compose.yml",
+                "up",
+                "--detach"
+            ]
+        );
+        assert_eq!(
+            compose_up(
+                ContainerRuntime::Docker,
+                "web",
+                "/root/mem-compose-test/docker-compose.yml",
+                false
+            )
+            .unwrap(),
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "--file",
+                "/root/mem-compose-test/docker-compose.yml",
+                "up"
+            ]
+        );
+        assert_eq!(
+            compose_down(ContainerRuntime::Docker, "web").unwrap(),
+            vec!["docker", "compose", "--project-name", "web", "down"]
+        );
+        assert_eq!(
+            compose_restart(ContainerRuntime::Docker, "web").unwrap(),
+            vec!["docker", "compose", "--project-name", "web", "restart"]
+        );
+        assert_eq!(
+            compose_logs(ContainerRuntime::Docker, "web", 50).unwrap(),
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "logs",
+                "--tail",
+                "50",
+                "--follow"
+            ]
+        );
+        assert_eq!(
+            compose_labelled_ps(ContainerRuntime::Docker).unwrap(),
+            vec![
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "label=com.docker.compose.project",
+                "--format",
+                "{{json .}}"
+            ]
+        );
+        // A project name or path that could be an option, or a relative path, never reaches a run.
+        assert!(compose_ps(ContainerRuntime::Docker, "--help").is_err());
+        assert!(compose_up(ContainerRuntime::Docker, "web", "relative.yml", true).is_err());
+        assert!(compose_up(ContainerRuntime::Docker, "web", "/root//x.yml", true).is_err());
+        assert!(compose_up(ContainerRuntime::Docker, "web", "/root/dir/", true).is_err());
+        assert!(compose_down(ContainerRuntime::Docker, "web/1").is_err());
+        for runtime in [
+            ContainerRuntime::Podman,
+            ContainerRuntime::Nerdctl,
+            ContainerRuntime::Wslc,
+        ] {
+            assert_eq!(
+                compose_ls(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
     }
 }
