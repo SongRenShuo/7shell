@@ -82,7 +82,7 @@ function tab(): ContainerTab {
   };
 }
 
-async function mount(): Promise<void> {
+async function mount(networkOptions?: { value: string; label: string }[]): Promise<void> {
   const engine = tab();
   const pinia = createPinia();
   setActivePinia(pinia);
@@ -94,6 +94,7 @@ async function mount(): Promise<void> {
       h(ContainerWizard, {
         open: true,
         tabId: engine.id,
+        ...(networkOptions ? { networkOptions } : {}),
         "onUpdate:open": (value: boolean) => openValues.push(value),
       }),
   });
@@ -126,6 +127,35 @@ function type(name: string, value: string): void {
   const element = field(name);
   element.value = value;
   element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/**
+ * Chooses an option of one of the wizard's dropdowns, the way a pointer commits a choice: the
+ * trigger is pressed, the list opens beside it, and the option is chosen by moving onto it and
+ * letting go — the sequence the list's own library commits on.
+ */
+async function choose(ariaLabel: string, label: string): Promise<void> {
+  const trigger = document.querySelector<HTMLButtonElement>(`button[aria-label="${ariaLabel}"]`);
+  if (!trigger) {
+    throw new Error(`the wizard drew no “${ariaLabel}” dropdown on this step`);
+  }
+  trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+  await pause();
+  const option = [...document.querySelectorAll("[role='option']")].find((entry) =>
+    entry.textContent?.includes(label),
+  ) as HTMLElement | undefined;
+  if (!option) {
+    throw new Error(`the “${ariaLabel}” dropdown has no “${label}” option`);
+  }
+  option.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, button: 0 }));
+  option.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+  await pause();
+}
+
+/** The dropdown's library commits outside Vue's microtasks; a beat of real time lets it land. */
+async function pause(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await nextTick();
 }
 
 function words(): string {
@@ -195,8 +225,8 @@ describe("the three steps", () => {
     expect(labelled("Start on boot")).toContain("On");
     expect(labelled("Start after creation")).toContain("On");
     expect(labelled("Privileged")).toContain("On");
-    // The one the engine cannot carry is drawn, and says so on its own line.
-    expect(labelled("Privileged")).toContain("not applied");
+    // Every advanced field travels now: nothing on the review is marked "not applied" any more.
+    expect(words()).not.toContain("not applied");
   });
 
   it("goes back a step without losing what was typed", async () => {
@@ -371,7 +401,7 @@ describe("the request the Create button sends", () => {
 
   const cases: MappingCase[] = [
     {
-      name: "the minimum: an image, and the restart policy the switches decide",
+      name: "the minimum: an image, the restart policy the switches decide, and the CPU preset the form holds",
       fill: async () => {
         type("image", "nginx");
         await settle();
@@ -380,7 +410,7 @@ describe("the request the Create button sends", () => {
         button("next").click();
         await settle();
       },
-      expected: { image: "nginx", restartPolicy: "no" },
+      expected: { image: "nginx", restartPolicy: "no", cpuWeight: "normal" },
     },
     {
       name: "start on boot is the restart policy the engine spells always",
@@ -393,7 +423,7 @@ describe("the request the Create button sends", () => {
         button("next").click();
         await settle();
       },
-      expected: { image: "nginx", restartPolicy: "always" },
+      expected: { image: "nginx", restartPolicy: "always", cpuWeight: "normal" },
     },
     {
       name: "the carried advanced fields mapped whole, an empty value travelling as KEY=",
@@ -455,6 +485,7 @@ describe("the request the Create button sends", () => {
         env: ["KEY=VALUE", "KEY2="],
         restartPolicy: "always",
         command: "nginx -g 'daemon off;'",
+        cpuWeight: "normal",
       },
     },
     {
@@ -471,7 +502,68 @@ describe("the request the Create button sends", () => {
         button("next").click();
         await settle();
       },
-      expected: { image: "nginx", restartPolicy: "no" },
+      expected: { image: "nginx", restartPolicy: "no", cpuWeight: "normal" },
+    },
+    {
+      name: "the seven advanced fields the engine grew: privileged, capabilities, networks, labels, memory, CPU weight",
+      fill: async () => {
+        type("image", "nginx");
+        button("privileged").click();
+        await settle();
+        button("next").click();
+        await settle();
+        button("add-label").click();
+        await settle();
+        type("label-name", "team");
+        type("label-value", "infra");
+        button("add-label").click();
+        await settle();
+        const names = document.querySelectorAll<HTMLInputElement>("[data-wizard-label-name]");
+        const secondName = names[1];
+        if (!secondName) {
+          throw new Error("the second label row was not drawn");
+        }
+        secondName.value = "env";
+        secondName.dispatchEvent(new Event("input", { bubbles: true }));
+        const values = document.querySelectorAll<HTMLInputElement>("[data-wizard-label-value]");
+        const secondValue = values[1];
+        if (!secondValue) {
+          throw new Error("the second label row was not drawn");
+        }
+        secondValue.value = "";
+        secondValue.dispatchEvent(new Event("input", { bubbles: true }));
+        // Capabilities: two of the common list.
+        const checkboxes = [
+          ...document.querySelectorAll<HTMLInputElement>(
+            '[type="checkbox"][aria-label="NET_ADMIN"], [type="checkbox"][aria-label="SYS_CHROOT"]',
+          ),
+        ];
+        if (checkboxes.length !== 2) {
+          throw new Error(`expected the two capability checkboxes, drew ${checkboxes.length}`);
+        }
+        for (const box of checkboxes) {
+          box.click();
+        }
+        // Networks, typed: no options were handed to the wizard in this mount.
+        type("networks-text", "bridge, mem-net-test");
+        await settle();
+        button("memory-enabled").click();
+        await settle();
+        type("memory-limit", "512");
+        await settle();
+        button("next").click();
+        await settle();
+      },
+      expected: {
+        image: "nginx",
+        restartPolicy: "no",
+        privileged: true,
+        capabilities: ["NET_ADMIN", "SYS_CHROOT"],
+        networks: ["bridge", "mem-net-test"],
+        labels: { team: "infra", env: "" },
+        memoryLimitMb: 512,
+        cpuWeight: "normal",
+      },
     },
   ];
 
@@ -491,6 +583,91 @@ describe("the request the Create button sends", () => {
       expect(actionMock).not.toHaveBeenCalled();
     });
   }
+
+  it("travels a read-only volume with its flag, and reads it back as ro on the review", async () => {
+    await mount();
+
+    type("image", "nginx");
+    button("next").click();
+    await settle();
+    button("add-volume").click();
+    await settle();
+    type("volume-host", "/data");
+    type("volume-container", "/srv");
+    await choose("Access", "Read only");
+    await settle();
+
+    button("next").click();
+    await settle();
+    const rows = [...document.querySelectorAll("[data-wizard-review-row]")].map((row) => row.textContent ?? "");
+    expect(rows.find((row) => row.includes("/data"))).toContain("(ro)");
+
+    button("create").click();
+    await vi.waitFor(() => {
+      expect(createMock).toHaveBeenCalled();
+    });
+    expect(createMock).toHaveBeenCalledWith("conn-1", {
+      image: "nginx",
+      restartPolicy: "no",
+      volumes: [{ source: "/data", destination: "/srv", readOnly: true }],
+      cpuWeight: "normal",
+    });
+  });
+
+  it("carries the CPU weight the three steps name, the high one among them", async () => {
+    await mount();
+
+    type("image", "nginx");
+    button("next").click();
+    await settle();
+    await choose("CPU weight", "High");
+    await settle();
+
+    button("next").click();
+    await settle();
+    button("create").click();
+    await vi.waitFor(() => {
+      expect(createMock).toHaveBeenCalled();
+    });
+    expect(createMock).toHaveBeenCalledWith("conn-1", {
+      image: "nginx",
+      restartPolicy: "no",
+      cpuWeight: "high",
+    });
+  });
+
+  it("lists the engine's networks as choices when the pane hands them over, and sends the ones ticked", async () => {
+    await mount([
+      { value: "bridge", label: "bridge" },
+      { value: "mem-net-test", label: "mem-net-test" },
+    ]);
+
+    type("image", "nginx");
+    button("next").click();
+    await settle();
+
+    // The engine's own list replaced the typed-names fallback: the networks card is checkboxes.
+    const bridge = document.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label="bridge"]');
+    const typed = document.querySelector("[data-wizard-networks-text]");
+    expect(bridge, "the engine's networks are choices").not.toBeNull();
+    expect(typed, "the typed-names fallback is gone while the list is here").toBeNull();
+    expect(bridge?.checked, "nothing is ticked to start with").toBe(false);
+
+    (bridge as HTMLInputElement).click();
+    await settle();
+    button("next").click();
+    await settle();
+    button("create").click();
+    await vi.waitFor(() => {
+      expect(createMock).toHaveBeenCalled();
+    });
+    expect(createMock).toHaveBeenCalledWith("conn-1", {
+      image: "nginx",
+      restartPolicy: "no",
+      networks: ["bridge"],
+      cpuWeight: "normal",
+    });
+  });
 });
 
 describe("the start the review promised", () => {

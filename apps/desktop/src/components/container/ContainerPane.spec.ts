@@ -63,10 +63,11 @@ import { resolve } from "node:path";
 
 import ContainerPane from "@/components/container/ContainerPane.vue";
 import { i18n } from "@/i18n";
-import { containerConnect } from "@/lib/backend/tauri";
+import { containerConnect, containerRuntimeInfo } from "@/lib/backend/tauri";
 import type { ContainerTab } from "@/stores/terminals";
 
 const connectMock = vi.mocked(containerConnect);
+const infoMock = vi.mocked(containerRuntimeInfo);
 
 let app: App | undefined;
 let host: HTMLDivElement | undefined;
@@ -227,6 +228,35 @@ describe("the desktop layout", () => {
     // The flat row's five buttons collapse to the one menu on the desktop.
     const row = tag?.closest("tr");
     expect(row?.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("offers the networks and Compose pages beside the three when the bits are absent", async () => {
+    await mount(tab("docker"), "desktop");
+
+    // The engine answered with no capability bits at all — the reading is "has it", so both rows
+    // are drawn.
+    expect(document.querySelector('[data-side-nav-item="networks"]'), "the networks row is drawn").not.toBeNull();
+    expect(document.querySelector('[data-side-nav-item="compose"]'), "the compose row is drawn").not.toBeNull();
+  });
+
+  it("trims the rows whose capability the engine says it does not have", async () => {
+    infoMock.mockResolvedValue({
+      runtime: "docker",
+      cpus: 2,
+      memory: 1024,
+      containersTotal: 1,
+      containersByState: [{ state: "running", count: 1 }],
+      imagesTotal: 0,
+      imagesTagged: 0,
+      imagesDangling: 0,
+      composeAvailable: false,
+      networkAvailable: false,
+    });
+    await mount(tab("docker"), "desktop");
+
+    expect(document.querySelector('[data-side-nav-item="networks"]'), "the networks row is gone").toBeNull();
+    expect(document.querySelector('[data-side-nav-item="compose"]'), "the compose row is gone").toBeNull();
+    expect(document.querySelector('[data-side-nav-item="containers"]'), "the rest of the rail stands").not.toBeNull();
   });
 
   it("puts the create wizard's entry on the containers page's header, and nowhere else", async () => {
