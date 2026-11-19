@@ -149,6 +149,7 @@ async fn a_container_browser_answers_every_file_command_and_one_transfer_each_wa
         command: "sleep 600".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     core.container_create(&connection, &create)
         .await

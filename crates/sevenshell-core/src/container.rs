@@ -620,6 +620,7 @@ mod tests {
             command: String::new(),
             interactive: false,
             tty: false,
+            ..ContainerCreateRequest::default()
         };
         let error = core
             .container_create("connection-that-never-existed", &request)
