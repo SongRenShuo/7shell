@@ -14,7 +14,7 @@
  * including the guardrail's own sentence, which names the network and the count.
  */
 import { Ellipsis, LoaderCircle, RotateCw, X } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
