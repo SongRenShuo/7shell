@@ -1741,12 +1741,12 @@ function disconnect(): void {
                   ? 'bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_20%,transparent)] text-[var(--workbench-on-wallpaper)]'
                   : 'text-[color-mix(in_srgb,var(--workbench-on-wallpaper)_95%,transparent)] hover:bg-[color-mix(in_srgb,var(--workbench-on-wallpaper)_10%,transparent)]'
                 : selectedId === icon.id
-                  ? 'bg-accent text-foreground'
-                  : 'text-foreground hover:bg-accent/50',
+                  ? 'bg-[var(--semi-color-primary-light-default)] text-foreground'
+                  : 'text-foreground hover:bg-[var(--workbench-wash-hover)]',
               dragOverId === icon.id
                 ? onPicture
                   ? 'ring-2 ring-[color-mix(in_srgb,var(--workbench-on-wallpaper)_70%,transparent)]'
-                  : 'ring-2 ring-primary/60'
+                  : 'ring-2 ring-[color-mix(in_srgb,var(--semi-color-primary)_60%,transparent)]'
                 : undefined,
             ]"
             @click.stop="select(icon)"

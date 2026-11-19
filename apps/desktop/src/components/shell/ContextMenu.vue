@@ -54,10 +54,14 @@ const label = computed(() => t(title.value.key, title.value.params ?? {}));
  * The sheet the rows are drawn on.
  *
  * Two tones, and the difference is where the menu was opened rather than what it does: the
- * application's own card for its surfaces, and the desktop's teal for a menu opened on a wallpaper.
- * The teal is the reference desktop's, measured from its stylesheet, and named in the workbench
- * token block of `globals.css` — `--workbench-menu-bg` with `--workbench-menu-text` rows, a slight
- * blur behind it, and the dropdown tier of the `--wb-shadow-*` scale to lift it off a picture.
+ * application's own card for its surfaces, and the desktop's Semi dropdown card for a menu opened
+ * on the workbench. The desktop tone is the Semi dropdown skin named in the workbench token block
+ * of `globals.css` — `--workbench-menu-bg` with `--workbench-menu-text` rows, the dropdown tier of
+ * the `--wb-shadow-*` scale to lift it off the desk, and the control radius (6px at the default
+ * corner style). It keeps the host's face — white over a light host, dark over a dark one — the
+ * way the reference's own dropdowns do, so it is deliberately *not* re-pointed by the on-picture remap; the
+ * card is a floating surface, not paint on the wallpaper. No blur sits behind it: a Semi dropdown
+ * is a solid card, and a blur behind an opaque ground draws nothing.
  *
  * A menu is chrome rather than a document: a drag across it is somebody leaving in a hurry, and a
  * selection smeared over a list of verbs is noise. `select-none` on the box is inherited by both
@@ -65,10 +69,10 @@ const label = computed(() => t(title.value.key, title.value.params ?? {}));
  */
 const boxClass = computed(() =>
   cn(
-    "fixed z-[70] max-w-72 min-w-44 rounded-lg py-1 shadow-xl outline-none cursor-default select-none",
+    "fixed z-[70] max-w-72 min-w-44 py-1 shadow-xl outline-none cursor-default select-none",
     tone.value === "desktop"
-      ? "border border-[var(--workbench-menu-border)] bg-[var(--workbench-menu-bg)] text-[var(--workbench-menu-text)] shadow-[var(--wb-shadow-dropdown)] backdrop-blur-[7px]"
-      : "border border-border bg-card",
+      ? "rounded-[var(--wb-radius-control)] border border-[var(--workbench-menu-border)] bg-[var(--workbench-menu-bg)] text-[var(--workbench-menu-text)] shadow-[var(--wb-shadow-dropdown)]"
+      : "rounded-lg border border-border bg-card",
   ),
 );
 const rootActiveId = computed(() => rowId(ROOT, entries.value[active.value]));

@@ -124,20 +124,49 @@ describe("the context menu", () => {
     expect(document.querySelectorAll('[role="separator"]')).toHaveLength(1);
   });
 
-  it("draws the desktop's teal sheet when the region asks for one", async () => {
+  it("draws the desktop's Semi dropdown card when the region asks for one", async () => {
     await open(
       entries(() => {}),
       "menu.terminal",
       "desktop",
     );
-    expect(menu()?.className, "the sheet the reference desktop draws over a picture").toContain(
+    // The Semi dropdown skin: the theme-faced card named by the menu tokens, lifted by the
+    // dropdown shadow tier and rounded at the control radius (6px at the default corner style).
+    expect(menu()?.className, "the card the desktop draws over its wallpaper").toContain(
       "bg-[var(--workbench-menu-bg)]",
+    );
+    expect(menu()?.className, "the dropdown tier lifts it off the desk").toContain(
+      "shadow-[var(--wb-shadow-dropdown)]",
+    );
+    expect(menu()?.className, "the Semi control radius, not the interface's large step").toContain(
+      "rounded-[var(--wb-radius-control)]",
     );
 
     // The next menu without the ask is the application's own card again: the tone belongs to the
-    // menu that was opened, not to the one window.
+    // menu that was opened, not to the one window — and the card keeps the interface's radius.
     await open(entries(() => {}));
     expect(menu()?.className, "every other region keeps the card").not.toContain("bg-[var(--workbench-menu-bg)]");
+    expect(menu()?.className, "the application card keeps its own radius").toContain("rounded-lg");
+  });
+
+  it("marks the row the pointer is on with the brand, and a dangerous row with the danger pale ground", async () => {
+    const run = vi.fn();
+    const mixed: MenuEntry[] = [
+      { kind: "action", id: "copy", labelKey: "menu.copy", run: () => run("copy") },
+      { kind: "action", id: "remove", labelKey: "menu.paste", danger: true, run: () => run("remove") },
+    ];
+    await open(mixed, "menu.terminal", "desktop");
+
+    await pointAt(items()[0]);
+    expect(items()[0]?.className, "the selected row wears the brand's pale ground, the Semi selected state").toContain(
+      "bg-[var(--semi-color-primary-light-default)]",
+    );
+
+    await pointAt(items()[1]);
+    expect(items()[1]?.className, "danger stays danger, on its own pale ground").toContain(
+      "bg-[var(--semi-color-danger-light-default)]",
+    );
+    expect(items()[1]?.className).toContain("text-[var(--semi-color-danger)]");
   });
 
   it("cancels the browser's own menu for the region that opened it", async () => {
