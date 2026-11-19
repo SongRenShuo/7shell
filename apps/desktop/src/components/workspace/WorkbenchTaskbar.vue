@@ -51,6 +51,8 @@ defineProps<{
     starter: string;
     /** What the desktop button is called: it empties the desk, or brings everything back. */
     desktop: string;
+    /** What the desktop button says on an empty desk, where the press would be a no-op. */
+    desktopEmpty: string;
     /** What the clock button is called, since the time alone does not say what it opens. */
     clock: string;
     /** What the bell is called. */
@@ -94,12 +96,19 @@ const emit = defineEmits<{
         <LayoutGrid :size="30" />
       </button>
 
+      <!--
+        The desktop cell answers only when there is something on the desk to put away or bring
+        back: on an empty desk the press would be a silent no-op, and a control that does nothing
+        without saying so reads as broken. Disabled says it: the tooltip names the empty desk.
+      -->
       <button
         type="button"
         data-workbench-taskbar-desktop
         class="taskbar-cell"
-        :title="labels.desktop"
-        :aria-label="labels.desktop"
+        :class="entries.length === 0 ? 'is-idle' : undefined"
+        :disabled="entries.length === 0"
+        :title="entries.length === 0 ? labels.desktopEmpty : labels.desktop"
+        :aria-label="entries.length === 0 ? labels.desktopEmpty : labels.desktop"
         @click="emit('desktop')"
       >
         <Monitor :size="26" />
@@ -241,6 +250,16 @@ const emit = defineEmits<{
 .taskbar-clock:hover,
 .taskbar-power:hover {
   background: var(--workbench-surface-3);
+}
+
+/* The empty-desk state: nothing to put away, so the cell stands down instead of eating presses. */
+.taskbar-cell.is-idle {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.taskbar-cell.is-idle:hover {
+  background: transparent;
 }
 
 .taskbar-cell:focus-visible,

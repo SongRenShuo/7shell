@@ -2046,6 +2046,7 @@ function disconnect(): void {
       :labels="{
         starter: t('workbench.desktop.shell.starter'),
         desktop: t('workbench.desktop.shell.desktop'),
+        desktopEmpty: t('workbench.desktop.shell.desktopEmpty'),
         clock: t('workbench.desktop.clock.title'),
         notices: t('workbench.notices.bell'),
       }"
