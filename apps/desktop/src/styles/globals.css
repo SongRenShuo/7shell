@@ -339,6 +339,14 @@
   --workbench-danger: var(--semi-color-danger);
   /* The threshold amber the widgets wear at 90-95% usage. */
   --workbench-warning: var(--semi-color-warning);
+  /* The running-and-healthy green the state tags wear. */
+  --workbench-success: var(--semi-color-success);
+  /*
+   * The window panel: solid, because the window chrome dropped its blur when it went Semi — a
+   * translucent value behind an opaque-content window would show the desk through. Glass surfaces
+   * that still want translucency keep their own tokens; this one is the app base, per theme.
+   */
+  --workbench-panel: rgba(var(--semi-white), 1);
 
   /*
    * The fixed wallpaper-text pair: white, and the step dimmer under it. Declared here, in the
@@ -454,6 +462,8 @@
   --workbench-surface-1: rgba(var(--semi-grey-0), 0.55);
   --workbench-surface-2: rgba(var(--semi-grey-1), 0.94);
   --workbench-surface-3: rgba(var(--semi-white), 0.12);
+  /* The window panel over a dark host: the app base, solid. */
+  --workbench-panel: rgba(var(--semi-grey-1), 1);
 
   /* The Semi dropdown skin over a dark host: a dark grey card and its white hairline. */
   --workbench-menu-bg: rgba(var(--semi-grey-2), 1);
@@ -487,6 +497,12 @@
   --workbench-surface-1: rgba(var(--semi-grey-0), 0.55);
   --workbench-surface-2: rgba(var(--semi-grey-1), 0.94);
   --workbench-surface-3: rgba(var(--semi-white), 0.12);
+  /*
+   * The window panel over a picture: the pane re-asks for its blur here, because a solid panel
+   * on a wallpaper would read as a hole in the picture — this stays glass, a step more solid
+   * than the surfaces, so the window's content still owns the contrast.
+   */
+  --workbench-panel: rgba(var(--semi-grey-0), 0.8);
 }
 
 /*

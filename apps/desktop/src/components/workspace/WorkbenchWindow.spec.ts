@@ -198,10 +198,10 @@ describe("the chrome", () => {
 
   it("dresses itself from the workbench tokens, not literals", () => {
     const className = root().className;
-    expect(className, "the pane is the solid surface token, the Semi panel treatment").toContain(
-      "bg-[var(--workbench-surface-2)]",
+    expect(className, "the pane is the solid panel token, the Semi panel treatment").toContain(
+      "bg-[var(--workbench-panel)]",
     );
-    expect(className, "a solid face blurs nothing behind it").not.toContain("backdrop-blur");
+    expect(className, "the solid face keeps its blur for the over-picture glass").toContain("backdrop-blur");
     expect(className, "the edge is the glass-border token").toContain("border-[var(--workbench-glass-border)]");
     expect(className, "the shadow is the app tier").toContain("shadow-[var(--wb-shadow-app)]");
     expect(className, "the frame takes the window radius step").toContain("rounded-wb-window");

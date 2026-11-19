@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 export type WbTagTone = "success" | "danger" | "warning" | "neutral";
 
 const TONE_VARS: Record<WbTagTone, string> = {
-  success: "var(--success)",
+  success: "var(--workbench-success)",
   danger: "var(--workbench-danger)",
   warning: "var(--workbench-warning)",
   neutral: "var(--muted-foreground)",
