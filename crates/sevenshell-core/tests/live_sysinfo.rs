@@ -188,6 +188,20 @@ async fn a_real_host_answers_the_whole_overview_in_one_round_trip() {
         "with sizes a ring can be drawn from"
     );
 
+    // The listeners came from `ss -tlnp` on the same round trip: every row that arrived names a
+    // real port and an address, and a named process is named without the quoting around it. The
+    // list itself may be empty only where `ss` answered nothing — a host that runs listeners but
+    // lists none is the parse failing, and the assertion below is what catches that on a host
+    // this script reaches.
+    eprintln!("overview: listeners={}", overview.listeners.len());
+    for listener in &overview.listeners {
+        assert!(listener.port > 0, "a listener names a port: {listener:?}");
+        assert!(
+            !listener.address.is_empty(),
+            "a listener names an address: {listener:?}"
+        );
+    }
+
     // Cron and logins may legitimately be empty on a minimal host; when they are not, the shapes
     // are the ones the panel draws — a job line, and a login row with a start and a status.
     for job in &overview.crontab {

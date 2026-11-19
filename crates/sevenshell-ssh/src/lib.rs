@@ -37,7 +37,7 @@ pub use credential::{Credential, KeyDescription, describe_key};
 pub use exec::{ExecCapture, ExecOutcome, MAX_OUTPUT_BYTES};
 pub use hostkey::{fingerprint, probe_host_key, probe_host_key_via};
 pub use keygen::{GeneratedKey, generate, public_line};
-pub use route::{BoxedStream, LocalForward, Route, TunnelHandle, TunnelStream};
+pub use route::{BoxedStream, LocalForward, RemoteDial, RemoteDialer, Route, TcpDialer, TunnelHandle, TunnelStream};
 pub use scp::{ByteProgress, TransferOptions, TransferReport, TransferredEntry};
 pub use scp_listing::{ListingFormat, ShellCapabilities, ShellEntry, ShellListing};
 pub use session::{ExecCommand, ExecInput, ExecOutput, PtyExecChannel, SshSession};

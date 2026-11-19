@@ -583,7 +583,11 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
         "tunnel_runtime_open" => {
             let session_id: String = from_args(&args, "sessionId")?;
             let forward: LocalForward = from_args(&args, "forward")?;
-            to_value(state.core.tunnel_open(&session_id, forward).await?)
+            // A remote forward is the one kind that always needs a person; the flag is the answer
+            // the forwards window's confirmation carries. An older caller that sends none has not
+            // acknowledged anything, which is the safe reading of a missing field.
+            let acknowledged = from_args(&args, "acknowledged").unwrap_or(false);
+            to_value(state.core.tunnel_open(&session_id, forward, acknowledged).await?)
         }
         "tunnel_runtime_stop" => {
             let tunnel_id: String = from_args(&args, "tunnelId")?;
