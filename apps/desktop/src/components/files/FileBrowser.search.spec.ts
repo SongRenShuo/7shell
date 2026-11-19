@@ -245,9 +245,11 @@ describe("the directory's search field", () => {
     expect(drawn()).toEqual(["logs", "LOGS-old.txt"]);
 
     // The store answers the navigation; the field follows the panel, not the old directory.
+    // The browser is the one `render` opened, so the entry is there: the assertion is what tells
+    // the strict indexer so, and keeping it leaves every other field of the record required.
     const files = useFilesStore();
     files.browsers[HANDLE] = {
-      ...files.browsers[HANDLE],
+      ...files.browsers[HANDLE]!,
       path: "/var/log",
       entries: [{ name: "journal", path: "/var/log/journal", kind: "directory", size: 0 }],
     };
