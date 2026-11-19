@@ -12,6 +12,8 @@ import type { AppInfo, AppSettings, PolicyAuditEvent } from "@/types/app";
 import type { BatchOutcome, BatchProgress, BatchRequest, RiskAssessment } from "@/types/batch";
 import type { CompletionExecuteRequest, CompletionExecuteResult } from "@/types/completion";
 import type {
+  ComposeProject,
+  ComposeServiceRow,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -24,6 +26,8 @@ import type {
   ContainerStreamLine,
   ContainerSummary,
   ImageLayer,
+  NetworkCreateRequest,
+  NetworkSummary,
 } from "@/types/container";
 import type {
   K8sExecRequest,
@@ -901,6 +905,46 @@ export const backend = {
       desktop.onContainerStreamLine(listener),
     onStreamEnd: (listener: (payload: ContainerStreamEnd) => void): Promise<() => void> =>
       desktop.onContainerStreamEnd(listener),
+  },
+
+  /**
+   * The Docker networks of one desktop engine.
+   *
+   * A removal the engine refuses because containers are still attached answers
+   * CONTAINER-NETWORK-IN-USE — the guardrail is the engine's, so what arrives here is its verdict.
+   */
+  dockerNetworks: {
+    list: (connectionId: string): Promise<NetworkSummary[]> =>
+      forward("network_list", () => desktop.networkList(connectionId)),
+    create: (connectionId: string, request: NetworkCreateRequest): Promise<void> =>
+      forward("network_create", () => desktop.networkCreate(connectionId, request)),
+    remove: (connectionId: string, name: string): Promise<void> =>
+      forward("network_remove", () => desktop.networkRemove(connectionId, name)),
+  },
+
+  /**
+   * The Compose projects of one desktop engine.
+   *
+   * A project's logs and an attached `up` follow on the same stream the container surface uses,
+   * so the subscriptions live on `containers` and serve both.
+   */
+  compose: {
+    list: (connectionId: string): Promise<ComposeProject[]> =>
+      forward("compose_ls", () => desktop.composeLs(connectionId)),
+    ps: (connectionId: string, name: string): Promise<ComposeServiceRow[]> =>
+      forward("compose_ps", () => desktop.composePs(connectionId, name)),
+    /** Detached answers `null`; attached answers a stream id followed on `containers.onStreamLine`. */
+    up: (connectionId: string, name: string, ymlPath: string, detach: boolean): Promise<string | null> =>
+      forward("compose_up", () => desktop.composeUp(connectionId, name, ymlPath, detach)),
+    down: (connectionId: string, name: string): Promise<void> =>
+      forward("compose_down", () => desktop.composeDown(connectionId, name)),
+    restart: (connectionId: string, name: string): Promise<void> =>
+      forward("compose_restart", () => desktop.composeRestart(connectionId, name)),
+    logsStart: (connectionId: string, name: string, tail: number): Promise<string> =>
+      forward("compose_logs_start", () => desktop.composeLogsStart(connectionId, name, tail)),
+    /** Writes the Compose file through the session's file channel; the path is what policy sees. */
+    writeYaml: (connectionId: string, ymlPath: string, yml: string): Promise<void> =>
+      forward("compose_write_yaml", () => desktop.composeWriteYaml(connectionId, ymlPath, yml)),
   },
 
   /** Cluster connections and the generic resource API they answer. */
