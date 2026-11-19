@@ -12,6 +12,7 @@
 //! struct the classifier produces — so this crate is the rules and nothing else.
 
 pub mod command_risk;
+pub mod compose_risk;
 pub mod container_risk;
 pub mod matrix;
 pub mod process_risk;
@@ -22,7 +23,8 @@ pub mod tunnel_risk;
 pub mod workbench_risk;
 
 pub use command_risk::classify;
-pub use container_risk::{container_action, kubernetes_request};
+pub use compose_risk::compose_action;
+pub use container_risk::{container_action, kubernetes_request, network_action};
 pub use matrix::{PolicyAuditEvent, PolicyDecision, PolicySource, PolicyTarget, decide};
 pub use process_risk::process_kill;
 pub use service_risk::service_action;
