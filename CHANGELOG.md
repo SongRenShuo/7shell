@@ -82,6 +82,21 @@ All notable changes to 7Shell are documented in this file. The format is
   whole, "start after creation" starting the container the engine just made, and the sections the
   request cannot carry yet drawn and marked as not applied. The application tab's own create
   dialog is untouched (39fae03, 699ea39).
+- The Docker window grows a **networks** page in the reference manager's shape: name, driver,
+  subnet, gateway, IPv6 and attached-container count under a 300px search, a create form that
+  checks the subnet's CIDR and the gateway as they are typed, and removal behind the
+  confirmation — a network the engine refuses because containers are still attached answers with
+  the engine's own sentence on the page bar. The list reads when asked, never on a timer
+  (9c18ef3; the engine's verbs and in-use refusal rode in with aa361c4).
+- The Docker window grows a **Compose** page: projects with status tags and folded
+  service-and-container counts, a creation wizard (the engine's name rule, an absolute directory,
+  a YAML field that refuses broken indentation line by line, start after creation), up, down and
+  restart behind the Caution gate — down says plainly the containers stop and are removed — and a
+  log window that follows the engine's stream. A host whose engine cannot reach compose keeps
+  only the overview, the way the reference degrades (6254720).
+- The create wizard's seven advanced fields now reach the request: privileged, capabilities,
+  networks chosen from the machine's own list, a memory limit, CPU weight, labels as rows, and
+  per-volume read-only — the "not applied" markers leave the review (3b86ae5).
 
 #### Linux desktop workbench
 
