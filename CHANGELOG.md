@@ -75,6 +75,13 @@ All notable changes to 7Shell are documented in this file. The format is
   the tag as it is typed, and a removal confirmation that says plainly that the container's data
   goes with it. The application's container tab is unchanged — the same pane draws both, and the
   tab's layout is the untouched default (03d1bf3).
+- The Docker window's containers page grows the reference manager's create wizard: the header's
+  one primary button opens three steps — basic settings, advanced settings in partition cards
+  (ports, volumes, environment, networks, capabilities, command, resource limits), and a review —
+  with every row checked as it is typed, the fields the engine's create request carries mapped
+  whole, "start after creation" starting the container the engine just made, and the sections the
+  request cannot carry yet drawn and marked as not applied. The application tab's own create
+  dialog is untouched (39fae03, 699ea39).
 
 #### Linux desktop workbench
 
