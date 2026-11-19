@@ -7,6 +7,8 @@
  * The rows are handed in already translated — the panel imports no words — so the fixtures speak
  * plain English and the assertions are about the reading, not the translating.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type App, createApp, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -177,5 +179,17 @@ describe("the empty state", () => {
     expect(empty, "the shared drawing, not a bare sentence").not.toBeNull();
     expect(empty?.dataset.scenario).toBe("noData");
     expect(host.querySelector("[data-workbench-notices]")?.textContent).toContain("Nothing has happened.");
+  });
+});
+
+describe("the panel's skin", () => {
+  it("draws from the workbench tokens, with no literal colour left in the sheet", () => {
+    // The panel's glass is scoped CSS, invisible to DOM assertions here; the probe is the source:
+    // the Semi-era sheet tokens are named and no literal colour is left behind.
+    const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchNotices.vue"), "utf8");
+    expect(source, "the sheet is the raised surface").toContain("var(--workbench-surface-2)");
+    expect(source, "the modal tier lifts it").toContain("var(--wb-shadow-elevated)");
+    expect(source, "the unread mark is the brand").toContain("var(--workbench-accent)");
+    expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

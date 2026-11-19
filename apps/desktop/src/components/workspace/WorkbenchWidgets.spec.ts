@@ -7,6 +7,8 @@
  * and network need two samples a known distance apart, and a rate invented from one sample would
  * always render, and always be about nothing.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type App, createApp, defineComponent, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -208,5 +210,17 @@ describe("the widgets column", () => {
     } finally {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     }
+  });
+});
+
+describe("the cards' skin", () => {
+  it("draws from the workbench tokens, thresholds and all, with no literal colour left", () => {
+    // The cards' glass is scoped CSS, invisible to DOM assertions here; the probe is the source:
+    // the Semi-era card tokens are named and the 90/95 thresholds wear the semantic pair.
+    const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchWidgets.vue"), "utf8");
+    expect(source, "the cards are the bar surface").toContain("var(--workbench-surface-1)");
+    expect(source, "90-95 wears the Semi warning").toContain("var(--workbench-warning)");
+    expect(source, "past 95 wears the Semi danger").toContain("var(--workbench-danger)");
+    expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });
