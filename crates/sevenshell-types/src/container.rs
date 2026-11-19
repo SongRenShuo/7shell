@@ -243,6 +243,15 @@ pub struct ContainerRuntimeInfo {
     pub images_tagged: u32,
     #[serde(default)]
     pub images_dangling: u32,
+    /// Whether the engine's Compose plugin answered when the engine was opened. Absent on the
+    /// connections that were never probed, and on engines where the plugin is missing — which is
+    /// the interface's cue to show the overview only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compose_available: bool,
+    /// Whether the network surface can be asked. A desktop engine is Docker by construction, so
+    /// this is true wherever the Compose bit is; it is absent elsewhere so the mirror stays honest.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_available: bool,
 }
 
 /// One line of a stream the backend is following, tagged with the stream it belongs to.

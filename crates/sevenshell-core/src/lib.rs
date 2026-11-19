@@ -10,6 +10,7 @@
 mod archive;
 mod batch;
 mod completion;
+mod compose;
 mod container;
 mod desktop;
 mod files;
