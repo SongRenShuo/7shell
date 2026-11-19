@@ -416,7 +416,7 @@ pub struct NetworkSummary {
 ///
 /// Every address field is a CIDR the daemon will check again; the shape check here exists so an
 /// option-shaped string never reaches the command line, not to second-guess the engine.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkCreateRequest {
     pub name: String,

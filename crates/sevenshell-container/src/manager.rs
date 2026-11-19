@@ -372,6 +372,19 @@ impl Provider {
         self.runner.run(&argv).await.map(|_| ())
     }
 
+    /// Removes a network, but only when the engine says nothing is attached to it.
+    ///
+    /// This is the removal guardrail, and it lives here rather than in the interface: the count
+    /// is the engine's own inspect answer, and a `rm` that would strand running containers never
+    /// reaches the command line at all.
+    pub async fn network_remove_guarded(&self, name: &str) -> Result<(), ShellError> {
+        let attached = self.network_container_count(name).await?;
+        if attached > 0 {
+            return Err(ShellError::container_network_in_use(name, attached));
+        }
+        self.network_remove(name).await
+    }
+
     // -- Compose -------------------------------------------------------------
     //
     // The Compose plugin rides the same engine; whether it is installed is one cheap probe whose
@@ -1170,19 +1183,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_network_guardrail_counts_and_the_removal_reaches_the_engine() {
+    async fn the_removal_guardrail_refuses_a_network_that_still_holds_containers_and_passes_an_empty_one() {
+        // A network with two containers attached: the inspect answers, the `rm` never runs.
         let recorder = Arc::new(RecordingRunner {
             output: "[{\"Name\":\"mem-net\",\"Containers\":{\"a\":{\"Name\":\"web\"},\"b\":{\"Name\":\"api\"}}}]"
                 .to_owned(),
             ..RecordingRunner::default()
         });
         let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
-        assert_eq!(provider.network_container_count("mem-net").await.unwrap(), 2);
-        provider.network_remove("mem-net").await.unwrap();
+        let error = provider.network_remove_guarded("mem-net").await.unwrap_err();
+        assert_eq!(error.code(), ErrorCode::ContainerNetworkInUse);
         assert_eq!(
-            recorder.calls()[1],
-            vec!["docker", "network", "rm", "mem-net"],
-            "the guardrail answers before the rm, which is what makes it a guardrail"
+            recorder.calls(),
+            vec![vec!["docker", "network", "inspect", "mem-net"]],
+            "the refusal is the guardrail's, so there is no rm on the trail"
+        );
+
+        // The same network with nothing attached: the inspect answers, then the rm goes out.
+        let recorder = Arc::new(RecordingRunner {
+            output: "[{\"Name\":\"mem-net\",\"Containers\":{}}]".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        provider.network_remove_guarded("mem-net").await.unwrap();
+        assert_eq!(
+            recorder.calls(),
+            vec![
+                vec!["docker", "network", "inspect", "mem-net"],
+                vec!["docker", "network", "rm", "mem-net"]
+            ]
         );
     }
 
