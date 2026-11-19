@@ -28,6 +28,7 @@ import {
   HardDrive,
   LoaderCircle,
   RefreshCw,
+  Search,
   Upload,
   X,
 } from "@lucide/vue";
@@ -548,8 +549,28 @@ onUnmounted(() => {
  * a directory and back out of it.
  */
 const order = ref<Order>(INITIAL_ORDER);
-/** What the server sent, in the order the headings say to draw it. */
-const ordered = computed(() => orderEntries(browser.value?.entries ?? [], order.value, typeOf));
+
+/**
+ * What this panel's search field holds, and whether it is filtering.
+ *
+ * A view of this panel rather than a fact about the directory, for the same reason the selection and
+ * the order are held here: the field is session state — it survives the window being hidden and the
+ * tab being switched (the panes stay mounted), it is written nowhere, and walking into another
+ * directory leaves it behind, because a filter asked for in one directory has no business hiding
+ * half of the next one before anybody has seen it.
+ */
+const searchQuery = ref("");
+const searchActive = computed(() => searchQuery.value.trim() !== "");
+
+/** What the server sent, in the order the headings say to draw it, minus what the field filters out. */
+const ordered = computed(() => {
+  const entries = orderEntries(browser.value?.entries ?? [], order.value, typeOf);
+  const needle = searchQuery.value.trim().toLowerCase();
+  if (needle === "") {
+    return entries;
+  }
+  return entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+});
 
 /** The paths the listing is showing, in the order it draws them: what the selection is made of. */
 const rows = computed(() => ordered.value.map((entry) => entry.path));
@@ -712,6 +733,9 @@ watch(rows, (current) => {
 watch(
   () => browser.value?.path,
   () => {
+    // A filter asked for in one directory does not follow into the next: the field empties, so the
+    // new directory arrives whole rather than pre-filtered by a word somebody typed elsewhere.
+    searchQuery.value = "";
     void nextTick(() => {
       if (listing.value) {
         listing.value.scrollTop = 0;
@@ -1460,6 +1484,44 @@ function openAreaMenu(event: MouseEvent): void {
         >
           <ClipboardPaste :size="12" />
         </button>
+
+        <!--
+          The search field, at the strip's end so the address bar keeps its room. It filters what this
+          directory has already loaded — a view of the listing, not another round trip — and Escape
+          puts it away the way a browser's find bar does. The match count stands beside it only while
+          it is actually filtering, so the strip keeps one shape the rest of the time.
+        -->
+        <div class="relative ml-1 flex shrink-0 items-center">
+          <Search :size="11" class="pointer-events-none absolute left-2 text-muted-foreground" />
+          <input
+            v-model="searchQuery"
+            data-search-input
+            type="text"
+            spellcheck="false"
+            class="h-6 w-28 rounded-md bg-muted/40 py-0.5 pl-6 pr-5 text-[11px] placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+            :aria-label="t('files.search.label')"
+            :placeholder="t('files.search.placeholder')"
+            @keydown.escape.prevent="searchQuery = ''"
+          />
+          <button
+            v-if="searchQuery !== ''"
+            type="button"
+            class="absolute right-1 grid size-4 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            :title="t('files.search.clear')"
+            :aria-label="t('files.search.clear')"
+            @click="searchQuery = ''"
+          >
+            <X :size="10" />
+          </button>
+        </div>
+        <span
+          v-if="searchActive"
+          data-search-count
+          class="shrink-0 text-[10px] whitespace-nowrap text-muted-foreground"
+          role="status"
+        >
+          {{ t("files.search.matches", { count: ordered.length }) }}
+        </span>
       </div>
 
       <div
@@ -1641,7 +1703,14 @@ function openAreaMenu(event: MouseEvent): void {
           </div>
 
           <p
-            v-if="!browser.loading && browser.entries.length === 0"
+            v-if="!browser.loading && searchActive && ordered.length === 0"
+            class="px-3 py-6 text-center text-xs text-muted-foreground"
+          >
+            {{ t("files.search.noMatches", { query: searchQuery.trim() }) }}
+          </p>
+
+          <p
+            v-else-if="!browser.loading && browser.entries.length === 0"
             class="px-3 py-6 text-center text-xs text-muted-foreground"
           >
             {{ t("files.empty") }}

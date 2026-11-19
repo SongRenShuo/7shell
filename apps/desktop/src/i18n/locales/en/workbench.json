@@ -98,8 +98,7 @@
           "remote": "A remote forward turns it around: the port opens on the server, answered by this machine. Whoever can reach the server reaches that service, which is why opening one always passes the policy gate first — the window asks, and the answer rides the open; a matrix set to deny still refuses, and loosening it is the only way past a denial."
         }
       },
-      "iconUnavailable": "This icon cannot be opened on this session.",
-      "dropUpload": {
+"dropUpload": {
         "hintOne": "Release to upload 1 file to {target}",
         "hintMany": "Release to upload {count} files to {target}",
         "targetHome": "the home directory",
