@@ -36,6 +36,7 @@
         "docker": "Docker",
         "transfers": "传输",
         "forwards": "转发",
+        "services": "服务",
         "tail": "日志",
         "batch": "批量"
       },
@@ -76,14 +77,25 @@
         "modeLabel": "类型",
         "modeLocal": "本地转发",
         "modeDynamic": "动态转发（SOCKS5）",
+        "modeRemote": "远程转发",
+        "modeRemoteTag": "远程",
+        "remoteDirection": "由本机提供",
         "bindHost": "监听地址",
         "bindPort": "监听端口",
+        "bindHostServer": "监听地址（服务器）",
+        "bindPortServer": "监听端口（服务器）",
         "targetHost": "目标主机",
         "targetPort": "目标端口",
+        "targetHostLocal": "本机主机",
+        "targetPortLocal": "本机端口",
         "add": "添加转发",
+        "open": "打开",
+        "openAskTitle": "打开这条转发？",
+        "openAskMessage": "策略矩阵对这一条要问：远程转发会在服务器上监听端口，能连上服务器的人就能触达它背后的服务。确认后你的回答会随打开请求一起送达闸门。",
         "hint": {
           "local": "本地转发：把服务器里的服务映射到本地，例如监听 127.0.0.1，目标 127.0.0.1:25433，本地的这个端口就是那台机器的数据库。",
-          "dynamic": "动态转发：把服务器变成一个 SOCKS5 入口，例如监听 127.0.0.1 端口 1080，指向它的流量都从那台机器出去。"
+          "dynamic": "动态转发：把服务器变成一个 SOCKS5 入口，例如监听 127.0.0.1 端口 1080，指向它的流量都从那台机器出去。",
+          "remote": "远程转发把方向反过来：端口开在服务器上，由本机应答。能连上服务器的人就能触达该服务，因此打开它必先过策略闸门——窗口会先问，你的回答随请求一起发送；矩阵设为拒绝时依然拒开，放宽矩阵是越过拒绝的唯一办法。"
         }
       },
       "iconUnavailable": "该图标在本会话中无法打开。",
@@ -92,6 +104,16 @@
         "hintMany": "松开即上传 {count} 个文件到 {target}",
         "targetHome": "主目录",
         "leaveWarning": "上传仍在进行，现在离开会中断它们。"
+      },
+      "services": {
+        "listTitle": "这台机器正在监听的端口",
+        "refresh": "刷新",
+        "empty": "主机没有返回任何监听端口。",
+        "unnamed": "未知进程",
+        "openTunnel": "开隧道",
+        "openBrowser": "浏览器打开",
+        "tunnelOpened": "隧道已建立：本地 {bind}，转发到 {target}。",
+        "browserOpened": "浏览器已打开 {url}。"
       },
       "menu": {
         "open": "打开",
@@ -120,6 +142,7 @@
           "monitor": "这台主机的监控系统页。",
           "system": "这台机器的系统面板。",
           "trash": "这台机器的回收站。",
+          "services": "这台机器正在监听的端口，每个都带着一条到达它的路。",
           "shortcut": "下方路径处的文件浏览器。"
         }
       },
@@ -216,7 +239,9 @@
       "emptyState": "回收站是空的。",
       "emptyHint": "删除到回收站的文件会列在这里，直到被放回或永久删除。",
       "emptyTitle": "清空回收站？",
-      "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。"
+      "emptyMessage": "其中全部 {count} 项都会被永久删除，无法恢复。",
+      "removeTitle": "永久删除 {name}？",
+      "removeMessage": "“{name}”将被永久删除，无法恢复。"
     },
     "notices": {
       "title": "通知中心",

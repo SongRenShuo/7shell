@@ -110,6 +110,15 @@ export interface LoginRecord {
   readonly stillLoggedIn: boolean;
 }
 
+/** One TCP port the host is listening on, with the process that holds it. */
+export interface SystemListener {
+  readonly port: number;
+  /** The address the listener binds, exactly as the host reported it (`127.0.0.1`, `0.0.0.0`, `::`). */
+  readonly address: string;
+  /** The process name behind the listener, or the empty string when the host could not name one. */
+  readonly process: string;
+}
+
 /** The host's firewall, as far as the two tools on it would say. */
 export interface FirewallStatus {
   /** `ufw` or `firewalld`, whichever answered. Empty when neither did — see `installed`. */
@@ -156,4 +165,11 @@ export interface SystemOverview {
   readonly kernel?: string;
   readonly uptimeSeconds: number;
   readonly timezone?: string;
+  /**
+   * The TCP ports the host is listening on, each with the process behind it — or **absent** when
+   * the host answered with nothing. The Rust side omits an empty vector on the wire, so a mirror
+   * that insists it is always there throws on the first payload that leaves it out; read it as
+   * `overview.listeners ?? []` and never through a single optional link.
+   */
+  readonly listeners?: readonly SystemListener[];
 }

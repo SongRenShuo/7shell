@@ -12,9 +12,10 @@
  *    be paired, or whose Path line failed the judgement, leaves the file listable — deleting it is
  *    somebody's decision — but restoring it would be a guess at where it used to live, and a guess
  *    that writes to the wrong place is worse than a disabled button.
- * 2. **Emptying is the one destructive verb, and it is the shell's gate that decides.** The panel
- *    asks first (a question naming the count) and passes the answer along; the policy matrix and
- *    the audit line live in `Core::trash_empty`, not here.
+ * 2. **Both destructive verbs ask first, and the shell's gate decides.** The panel puts a question
+ *    in front of each — emptying names the count, deleting names the entry — and passes the answer
+ *    along; the policy matrix and the audit line live in `Core::trash_empty` and `Core::trash_remove`,
+ *    not here.
  * 3. **The list is read on open and after every change.** There is no poll: the trash changes when
  *    somebody changes it, and a background read of a remote directory every few seconds would be a
  *    cost paid by the machine for a panel that is mostly not on screen.
@@ -55,6 +56,7 @@ const reading = ref(false);
 const failure = ref<ReturnType<typeof asShellError> | null>(null);
 const busy = ref<string | null>(null);
 const askingEmpty = ref(false);
+const askingRemove = ref<TrashEntry | null>(null);
 
 const readable = computed(() => describe(failure.value));
 const count = computed(() => entries.value.length);
@@ -102,6 +104,7 @@ async function restore(entry: TrashEntry): Promise<void> {
 }
 
 async function remove(entry: TrashEntry): Promise<void> {
+  askingRemove.value = null;
   busy.value = entry.id;
   try {
     await backend.files.trashRemove(props.handle, props.sessionId, entry.id, true);
@@ -217,7 +220,7 @@ watch(
                   class="rounded-md px-2 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
                   :disabled="busy === entry.id"
                   :title="t('workbench.trash.deleteForever')"
-                  @click="remove(entry)"
+                  @click="askingRemove = entry"
                 >
                   <Trash2 :size="11" />
                 </button>
@@ -253,6 +256,16 @@ watch(
       danger
       @confirm="emptyTrash()"
       @update:open="askingEmpty = false"
+    />
+
+    <ConfirmDialog
+      :open="askingRemove !== null"
+      :title="t('workbench.trash.removeTitle')"
+      :message="t('workbench.trash.removeMessage', { name: askingRemove?.name ?? '' })"
+      :confirm-label="t('workbench.trash.deleteForever')"
+      danger
+      @confirm="remove(askingRemove as TrashEntry)"
+      @update:open="askingRemove = null"
     />
   </section>
 </template>

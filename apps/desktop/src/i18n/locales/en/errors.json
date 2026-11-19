@@ -65,7 +65,8 @@
       "bundleInvalid": "That file is not a session export from this application, or it has been damaged.",
       "bundleIo": "The session file could not be read or written.",
       "bundlePassphrase": "That passphrase did not open this file.",
-      "bundlePassphraseShort": "A passphrase for an export needs at least {minimum} characters."
+      "bundlePassphraseShort": "A passphrase for an export needs at least {minimum} characters.",
+      "closed": "The session is no longer connected."
     },
     "sync": {
       "snapshotInvalid": "That file is not a backup from this application, or it has been damaged.",

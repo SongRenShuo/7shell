@@ -7,6 +7,7 @@
 //! only touched after the connection is already known to be talking to the right machine.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -80,6 +81,14 @@ pub struct SshSession {
     /// A connection opened over a channel dies with the connection carrying it, so dropping these
     /// would quietly kill this session. They are held rather than read.
     pub(crate) upstream: Vec<Arc<SshSession>>,
+    /// The remote forwards waiting for their connections, keyed by the port the far side bound.
+    ///
+    /// A connection to a port the server is remote-forwarding arrives as a channel the *server*
+    /// opens here, and the handler is where channels arrive. This map is the handoff between the
+    /// two: [`forward_remote`](crate::route) puts a sender under its bound port, the handler looks
+    /// the arriving channel's port up and passes the channel through, and a port with no entry is
+    /// refused — nothing on this connection asked for it.
+    pub(crate) remote_accepts: Arc<Mutex<HashMap<u16, mpsc::Sender<Channel<Msg>>>>>,
 }
 
 impl SshSession {
@@ -239,6 +248,29 @@ impl SshSession {
             .map_err(|error| self.channel_failure(&format!("a channel to {host}:{port} could not be opened"), &error))
     }
 
+    /// Asks the far side to listen on `host:port` for a remote forward, and answers the port it
+    /// actually bound — which is not the one asked for when the caller said zero.
+    pub(crate) async fn request_remote_listen(&self, host: &str, port: u16) -> Result<u16, ShellError> {
+        let bound = self
+            .handle
+            .tcpip_forward(host, u32::from(port))
+            .await
+            .map_err(|error| {
+                self.channel_failure(&format!("the far side would not listen on {host}:{port}"), &error)
+            })?;
+        u16::try_from(bound)
+            .map_err(|_| ShellError::app_internal(format!("the far side named a port outside the range: {bound}")))
+    }
+
+    /// Takes the far side's listener back down.
+    ///
+    /// The request has a reply waited on: stopping a forward without this would leave the port
+    /// open on the server long after the interface has said it stopped, which is the one state a
+    /// person reading the forwards list would be misled by.
+    pub(crate) async fn retract_remote_listen(&self, host: &str, port: u16) {
+        let _ = self.handle.cancel_tcpip_forward(host, u32::from(port)).await;
+    }
+
     /// The failure shape for everything that happens on an established session.
     pub(crate) fn channel_failure(&self, what: &str, error: &russh::Error) -> ShellError {
         ShellError::ssh_channel_failed(&self.host, self.port, format!("{what}: {error}"))
@@ -277,12 +309,16 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
     // Shared with the handler, which decides whether a channel the server opens for the agent is
     // bridged to this machine's agent. Set below, once the session channel exists.
     let agent_forwarding = Arc::new(AtomicBool::new(false));
+    // Shared with the handler, which hands the server's forward connections to whichever tunnel
+    // asked for that port. Empty until a remote forward opens, and refused while it stays empty.
+    let remote_accepts: Arc<Mutex<HashMap<u16, mpsc::Sender<Channel<Msg>>>>> = Arc::new(Mutex::new(HashMap::new()));
     let check = KeyCheck {
         expected: ExpectedKey::new(&expected_host_key.key_type, &expected_host_key.public_key),
         host: target.host.clone(),
         port: target.port,
         ending: Arc::clone(&ending),
         agent_forwarding: Arc::clone(&agent_forwarding),
+        remote_accepts: Arc::clone(&remote_accepts),
     };
 
     // A route through a hop is the same handshake on a different stream: the channel behaves like
@@ -340,6 +376,7 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
         host: target.host,
         port: target.port,
         upstream,
+        remote_accepts,
     })
 }
 
@@ -808,6 +845,10 @@ struct KeyCheck {
     /// is where the answer has to be checked: without this flag a server that never had forwarding
     /// offered could still open the channel and ask this machine's agent to sign.
     agent_forwarding: Arc<AtomicBool>,
+    /// The remote forwards this connection carries, by the port the far side bound. A forwarded
+    /// connection is answered only when its port is one this side asked for — the same rule the
+    /// agent channel keeps, applied to the ports a server could otherwise open on its own say-so.
+    remote_accepts: Arc<Mutex<HashMap<u16, mpsc::Sender<Channel<Msg>>>>>,
 }
 
 impl client::Handler for KeyCheck {
@@ -855,6 +896,47 @@ impl client::Handler for KeyCheck {
 
         reply.accept().await;
         bridge_to_agent(channel);
+        Ok(())
+    }
+
+    /// The far side is answering a remote forward: somebody connected to a port the server is
+    /// listening on because this side asked it to, and the connection arrives as a channel here.
+    ///
+    /// Answered only when the port is one a forward on this connection asked for, in which case
+    /// the channel is handed to that forward's task — which dials the real target on this machine
+    /// and copies the bytes across. A port nobody asked for is refused with silence, the way an
+    /// unoffered agent channel is: a server that can open a channel at all is a server that could
+    /// otherwise reach this machine whenever it pleased.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: russh::client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let port = u16::try_from(connected_port).unwrap_or(0);
+        let accepted = self
+            .remote_accepts
+            .lock()
+            .ok()
+            .and_then(|slots| slots.get(&port).cloned());
+        match accepted {
+            Some(sender) => {
+                reply.accept().await;
+                // The forward's task owns the connection from here. A sender that is already gone
+                // means its forward stopped between the accept and the handoff, and a dropped
+                // channel closes it — the same end a stopped forward's port would have given.
+                let _ = sender.send(channel).await;
+            }
+            None => {
+                reply
+                    .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
+                    .await;
+            }
+        }
         Ok(())
     }
 

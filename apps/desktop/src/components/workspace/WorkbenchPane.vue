@@ -31,30 +31,7 @@ export type WorkbenchWallpaperId = (typeof WORKBENCH_WALLPAPER_IDS)[number];
  * it is asked about first: the buttons open the same plain confirmation every destructive action
  * here uses, and the acknowledgement that a person answered it is what travels with the command.
  */
-import {
-  ArrowUpDown,
-  Boxes,
-  Container,
-  Cpu,
-  ExternalLink,
-  FileText,
-  Folder,
-  FolderPlus,
-  Globe,
-  HardDrive,
-  House,
-  Info,
-  LayoutGrid,
-  ListChecks,
-  ListTree,
-  Network,
-  Power,
-  RotateCw,
-  Settings,
-  Terminal,
-  Trash2,
-  X,
-} from "@lucide/vue";
+import { ExternalLink, Folder, FolderPlus, Info, LayoutGrid, Power, RotateCw, Settings, X } from "@lucide/vue";
 import type { Component } from "vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -68,6 +45,7 @@ import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import SystemPanel from "@/components/workspace/SystemPanel.vue";
 import TrashWindow from "@/components/workspace/TrashWindow.vue";
 import WorkbenchDockerWindow from "@/components/workspace/WorkbenchDockerWindow.vue";
+import WorkbenchServicesWindow from "@/components/workspace/WorkbenchServicesWindow.vue";
 import WorkbenchTransfersWindow from "@/components/workspace/WorkbenchTransfersWindow.vue";
 import WorkbenchForwardsWindow from "@/components/workspace/WorkbenchForwardsWindow.vue";
 import WorkbenchTailWindow from "@/components/workspace/WorkbenchTailWindow.vue";
@@ -87,6 +65,7 @@ import { useFilesStore } from "@/stores/files";
 import { useNotificationsStore, type WorkbenchNotice } from "@/stores/notifications";
 import { usePreferencesStore } from "@/stores/preferences";
 import type { NoticeSourceKey } from "@/components/workspace/WorkbenchNotices.vue";
+import { WORKBENCH_DOORS, workbenchIconOf, workbenchToneOf } from "@/lib/workbench/desktopApps";
 import { clearIconOrder, moveIcon, normalizeIconOrder, readIconOrder, writeIconOrder } from "@/lib/workbench/iconOrder";
 import { readHiddenDoors, writeHiddenDoors } from "@/lib/workbench/hiddenDoors";
 import {
@@ -257,6 +236,7 @@ interface DesktopIcon {
     | "docker"
     | "transfers"
     | "forwards"
+    | "services"
     | "tail"
     | "batch"
     | "shortcut";
@@ -304,27 +284,19 @@ function setWidget(id: WorkbenchWidgetId, on: boolean): void {
 /**
  * The doors every desktop has, in the order the grid draws them, minus the ones this desktop hides.
  *
- * The monitor door and the system-information door lead to the same page on purpose: the readings
- * the first release drew on cards live on the monitor's system page, and both names are ways of
- * asking for it. Home and the trash are never hidden: a desktop without a home, or without a
- * trash, is not a desktop.
+ * The doors themselves are read out of `desktopApps` — the single source of what a door is called
+ * and what it looks like, shared with the starter, the taskbar and the windows' title bars, so a
+ * door cannot be one glyph here and another there. Home and the trash are never hidden: a desktop
+ * without a home, or without a trash, is not a desktop.
  */
 const systemIcons = computed<DesktopIcon[]>(() => {
   const hidden = new Set(hiddenDoors.value);
-  const doors: DesktopIcon[] = [
-    { id: "system-home", kind: "home", label: t("workbench.desktop.icons.home"), icon: House },
-    { id: "system-terminal", kind: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal },
-    { id: "system-docker", kind: "docker", label: t("workbench.desktop.icons.docker"), icon: Container },
-    { id: "system-monitor", kind: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree },
-    { id: "system-info", kind: "systemInfo", label: t("workbench.desktop.icons.systemInfo"), icon: Info },
-    { id: "system-panel", kind: "system", label: t("workbench.desktop.icons.system"), icon: Boxes },
-    { id: "system-transfers", kind: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown },
-    { id: "system-forwards", kind: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network },
-    { id: "system-tail", kind: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText },
-    { id: "system-batch", kind: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks },
-    { id: "system-trash", kind: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2 },
-  ];
-  return doors.filter((icon) => !hidden.has(icon.id));
+  return WORKBENCH_DOORS.map((door) => ({
+    id: door.id,
+    kind: door.kind as DesktopIcon["kind"],
+    label: t(door.labelKey),
+    icon: door.icon,
+  })).filter((icon) => !hidden.has(icon.id));
 });
 
 /**
@@ -429,7 +401,7 @@ function endDrag(): void {
 
 /**
  * Measured budget (2026-11-19, `WorkbenchPane.perf.spec.ts`): on the fullest desktop the product
- * allows — 24 shortcuts over 11 doors — ten full drag sequences with hover stops run in ~70ms
+ * allows — 24 shortcuts over 12 doors — ten full drag sequences with hover stops run in ~70ms
  * total, and no icon element is remounted: the keyed list patches in place, so writing the whole
  * order array here and letting `icons` rebuild is comfortably inside budget. The spec stays in the
  * tree as the regression guard.
@@ -761,6 +733,16 @@ function reconnectWindow(id: string): void {
   }
 }
 
+/**
+ * Asks the store to reconnect this desktop's own connection — the one the system panel and the
+ * trash read through. For a workbench tab a reconnect is an open of the session again, so the
+ * fresh desktop arrives as its own tab and this one is gone; that is the same answer the status
+ * bar's sentence describes, said from inside a window that was left behind by the drop.
+ */
+function reconnectDesktop(): void {
+  void terminals.reconnect(props.tab.id);
+}
+
 function homeOf(id: string): string | undefined {
   return payloads.value[id]?.path;
 }
@@ -768,72 +750,6 @@ function homeOf(id: string): string | undefined {
 /** The SFTP browser a file window draws, or null before its open answered. */
 function fileHandleOf(id: string): string | null {
   return payloads.value[id]?.fileHandle ?? null;
-}
-
-/** The window icon, drawn beside its title: the same door the desktop icon draws. */
-function iconOf(kind: string): Component {
-  switch (kind) {
-    case "terminal":
-      return Terminal;
-    case "files":
-      return Folder;
-    case "monitor":
-      return Cpu;
-    case "system":
-      return HardDrive;
-    case "docker":
-      return Container;
-    case "transfers":
-      return ArrowUpDown;
-    case "forwards":
-      return Network;
-    case "tail":
-      return FileText;
-    case "batch":
-      return ListChecks;
-    case "trash":
-      return Trash2;
-    default:
-      return Globe;
-  }
-}
-
-/**
- * The colour of an icon's plate.
- *
- * The reference desktop's icons are app stickers — a coloured square with a bright glyph — rather
- * than line drawings, and a plate is what gives a lucide glyph the same weight at desktop size
- * without copying the reference's artwork. One tone per door, the same in the grid, the starter and
- * the taskbar, so the same application is the same colour wherever it is named.
- */
-function toneOf(kind: string): string {
-  switch (kind) {
-    case "terminal":
-      return "bg-emerald-500/90";
-    case "files":
-    case "home":
-    case "shortcut":
-      return "bg-amber-500/90";
-    case "monitor":
-    case "systemInfo":
-      return "bg-sky-500/90";
-    case "system":
-      return "bg-violet-500/90";
-    case "docker":
-      return "bg-sky-600/90";
-    case "transfers":
-      return "bg-cyan-600/90";
-    case "forwards":
-      return "bg-indigo-600/90";
-    case "tail":
-      return "bg-teal-600/90";
-    case "batch":
-      return "bg-orange-600/90";
-    case "trash":
-      return "bg-rose-500/90";
-    default:
-      return "bg-slate-500/90";
-  }
 }
 
 // -- opening things ----------------------------------------------------------
@@ -881,6 +797,9 @@ function openIcon(icon: DesktopIcon): void {
       return;
     case "forwards":
       openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
+      return;
+    case "services":
+      openRecord("services", t("workbench.desktop.icons.services"), "services");
       return;
     case "tail":
       openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
@@ -964,21 +883,21 @@ interface StarterApp {
  * The applications the starter offers: the same doors the desktop has, minus the ones it hides, plus
  * the settings. A door hidden from the grid is hidden from the sheet too — two places saying one
  * thing is a lie about the desktop, whichever of them is looked at.
+ *
+ * The tiles are read out of `desktopApps` as well, so the sheet's tiles are the grid's doors to the
+ * glyph and to the plate — the `/90` contract opacity included. The system-information door is not
+ * on the sheet: the monitor door and it open the same page, and the sheet says that page once.
  */
 const starterApps = computed<StarterApp[]>(() => {
   const hidden = new Set(hiddenDoors.value);
   return [
-    { id: "home", label: t("workbench.desktop.icons.home"), icon: House, tone: "bg-amber-500/85" },
-    { id: "terminal", label: t("workbench.desktop.icons.terminal"), icon: Terminal, tone: "bg-emerald-500/85" },
-    { id: "docker", label: t("workbench.desktop.icons.docker"), icon: Container, tone: "bg-sky-600/85" },
-    { id: "monitor", label: t("workbench.desktop.icons.monitor"), icon: ListTree, tone: "bg-sky-500/85" },
-    { id: "system", label: t("workbench.desktop.icons.system"), icon: Boxes, tone: "bg-violet-500/85" },
-    { id: "transfers", label: t("workbench.desktop.icons.transfers"), icon: ArrowUpDown, tone: "bg-cyan-600/85" },
-    { id: "forwards", label: t("workbench.desktop.icons.forwards"), icon: Network, tone: "bg-indigo-600/85" },
-    { id: "tail", label: t("workbench.desktop.icons.tail"), icon: FileText, tone: "bg-teal-600/85" },
-    { id: "batch", label: t("workbench.desktop.icons.batch"), icon: ListChecks, tone: "bg-orange-600/85" },
-    { id: "trash", label: t("workbench.desktop.icons.trash"), icon: Trash2, tone: "bg-rose-500/85" },
-    { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/85" },
+    ...WORKBENCH_DOORS.filter((door) => door.kind !== "systemInfo").map((door) => ({
+      id: door.kind,
+      label: t(door.labelKey),
+      icon: door.icon,
+      tone: door.tone,
+    })),
+    { id: "settings", label: t("workbench.desktop.menu.settings"), icon: Settings, tone: "bg-slate-500/90" },
   ].filter((app) => !hidden.has(`system-${app.id}`));
 });
 
@@ -1005,6 +924,9 @@ function launch(appId: string): void {
       return;
     case "forwards":
       openRecord("forwards", t("workbench.desktop.icons.forwards"), "forwards");
+      return;
+    case "services":
+      openRecord("services", t("workbench.desktop.icons.services"), "services");
       return;
     case "tail":
       openRecord("tail", t("workbench.desktop.icons.tail"), "tail");
@@ -1268,8 +1190,8 @@ const taskbarEntries = computed<TaskbarEntry[]>(() =>
     .map((window) => ({
       id: window.id,
       label: window.title,
-      icon: iconOf(window.kind),
-      tone: toneOf(window.kind),
+      icon: workbenchIconOf(window.kind),
+      tone: workbenchToneOf(window.kind),
       active: window.focused && window.mode !== "min",
     })),
 );
@@ -1600,6 +1522,7 @@ const HIDEABLE_DOOR_LABEL_KEYS: Readonly<Record<string, string>> = {
   "system-panel": "system",
   "system-transfers": "transfers",
   "system-forwards": "forwards",
+  "system-services": "services",
   "system-tail": "tail",
   "system-batch": "batch",
 };
@@ -1856,7 +1779,7 @@ function disconnect(): void {
             -->
             <span
               class="grid size-10 shrink-0 place-items-center rounded-[0.6rem] text-white shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
-              :class="toneOf(icon.kind)"
+              :class="workbenchToneOf(icon.kind)"
             >
               <component :is="icon.icon" :size="22" :stroke-width="1.8" />
             </span>
@@ -1892,7 +1815,7 @@ function disconnect(): void {
         :key="window.id"
         :id="window.id"
         :title="window.title"
-        :icon="iconOf(window.kind)"
+        :icon="workbenchIconOf(window.kind)"
         :state="window.mode"
         :focused="window.focused"
         :left="window.left"
@@ -1973,6 +1896,18 @@ function disconnect(): void {
           tail's `active` prop is the long-stream rule: a window nobody is watching stops reading.
         -->
         <WorkbenchForwardsWindow v-else-if="window.kind === 'forwards'" :session-id="session.id" class="h-full" />
+        <!--
+          The ports the host is listening on, each with its way in — a tunnel or a browser at the
+          local end of one. It reads through this desktop's own connection, so it draws only while
+          there is one, and a drop answers with the disconnected sentence below.
+        -->
+        <WorkbenchServicesWindow
+          v-else-if="window.kind === 'services' && tab.handle !== null"
+          :session-id="session.id"
+          :handle="tab.handle"
+          :active="window.focused"
+          class="h-full"
+        />
         <WorkbenchTailWindow
           v-else-if="window.kind === 'tail'"
           :session-id="session.id"
@@ -2003,6 +1938,27 @@ function disconnect(): void {
           class="h-full"
           @close="close(window.id)"
         />
+        <!--
+          The connection these two read through has gone down. The terminal answers the same moment
+          with its ended sentence and a way back, and these two do not get to be quieter about it
+          than the terminal is: a frame with nothing in it says nothing about what happened or what
+          to do, which is the one answer a desktop may never leave blank.
+        -->
+        <div
+          v-else-if="window.kind === 'system' || window.kind === 'trash' || window.kind === 'services'"
+          class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"
+          data-workbench-window-disconnected
+        >
+          <p class="text-xs text-muted-foreground">{{ t("workbench.tab.ended") }}</p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+            @click="reconnectDesktop()"
+          >
+            <RotateCw :size="12" />
+            {{ t("workbench.tab.retry") }}
+          </button>
+        </div>
       </WorkbenchWindow>
 
       <!--

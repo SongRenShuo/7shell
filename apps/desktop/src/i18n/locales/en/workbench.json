@@ -36,6 +36,7 @@
         "docker": "Docker",
         "transfers": "Transfers",
         "forwards": "Forwards",
+        "services": "Services",
         "tail": "Logs",
         "batch": "Batch"
       },
@@ -76,14 +77,25 @@
         "modeLabel": "Kind",
         "modeLocal": "Local",
         "modeDynamic": "Dynamic (SOCKS5)",
+        "modeRemote": "Remote",
+        "modeRemoteTag": "remote",
+        "remoteDirection": "Exposed by this machine",
         "bindHost": "Listen on",
         "bindPort": "Port",
+        "bindHostServer": "Listen on (server)",
+        "bindPortServer": "Port (server)",
         "targetHost": "Destination host",
         "targetPort": "Destination port",
+        "targetHostLocal": "This machine's host",
+        "targetPortLocal": "This machine's port",
         "add": "Add forward",
+        "open": "Open",
+        "openAskTitle": "Open this forward?",
+        "openAskMessage": "The policy matrix asks about this one: a remote forward listens on the server, and whoever reaches the server reaches the service behind it. Confirming carries your answer to the gate.",
         "hint": {
           "local": "A local forward maps a service inside the machine onto a port here: listen on 127.0.0.1, destination 127.0.0.1:25433, and that port here is the machine's database.",
-          "dynamic": "A dynamic forward turns the machine into a SOCKS5 door: listen on 127.0.0.1, choose port 1080, and anything pointed at it goes out from the machine."
+          "dynamic": "A dynamic forward turns the machine into a SOCKS5 door: listen on 127.0.0.1, choose port 1080, and anything pointed at it goes out from the machine.",
+          "remote": "A remote forward turns it around: the port opens on the server, answered by this machine. Whoever can reach the server reaches that service, which is why opening one always passes the policy gate first — the window asks, and the answer rides the open; a matrix set to deny still refuses, and loosening it is the only way past a denial."
         }
       },
       "iconUnavailable": "This icon cannot be opened on this session.",
@@ -92,6 +104,16 @@
         "hintMany": "Release to upload {count} files to {target}",
         "targetHome": "the home directory",
         "leaveWarning": "Uploads are still running. Leaving now abandons them."
+      },
+      "services": {
+        "listTitle": "Ports this machine is listening on",
+        "refresh": "Refresh",
+        "empty": "The host did not report any listening ports.",
+        "unnamed": "unnamed process",
+        "openTunnel": "Open a tunnel",
+        "openBrowser": "Open in browser",
+        "tunnelOpened": "The tunnel listens on {bind}, forwarded to {target}.",
+        "browserOpened": "The browser opened at {url}."
       },
       "menu": {
         "open": "Open",
@@ -120,6 +142,7 @@
           "monitor": "The monitor's system page for this machine.",
           "system": "This machine's system panel.",
           "trash": "This machine's trash.",
+          "services": "The ports this machine is listening on, each with a way to reach it.",
           "shortcut": "The file browser, at the path below."
         }
       },
@@ -216,7 +239,9 @@
       "emptyState": "The trash is empty.",
       "emptyHint": "Files deleted into the trash are listed here until they are put back or deleted for good.",
       "emptyTitle": "Empty the trash?",
-      "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone."
+      "emptyMessage": "Every entry ({count}) is deleted for good. This cannot be undone.",
+      "removeTitle": "Delete {name} for good?",
+      "removeMessage": "\"{name}\" is deleted for good. This cannot be undone."
     },
     "notices": {
       "title": "Notifications",

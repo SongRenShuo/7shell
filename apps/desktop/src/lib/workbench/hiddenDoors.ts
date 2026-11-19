@@ -31,6 +31,7 @@ export const WORKBENCH_HIDEABLE_DOOR_IDS = [
   "system-panel",
   "system-transfers",
   "system-forwards",
+  "system-services",
   "system-tail",
   "system-batch",
 ] as const;

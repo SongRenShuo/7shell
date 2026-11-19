@@ -75,11 +75,12 @@ const { toast } = useToast();
 const busyUnit = ref<string | null>(null);
 
 /**
- * The stop question, which is the one verb that asks here.
+ * The stop question, which is the one verb the panel asks about.
  *
- * Starting and restarting go through the policy matrix too — the shell refuses an unacknowledged
- * action either way — but interrupting a service is the one a person should read a sentence about
- * before it happens, so the panel asks in its own words and passes the answer along.
+ * The other verbs are sent with no acknowledgement: under the default matrix they are `Caution`
+ * and simply run, and where a group or host layer raises an `Ask`, the shell refuses with the rule
+ * named rather than the panel answering the question behind the person's back. Interrupting a
+ * service is the one the panel asks in its own words first, so its answer travels with the call.
  */
 const askingStop = ref<{ unit: string } | null>(null);
 const failure = ref<ShellError | null>(null);
@@ -194,13 +195,17 @@ function ringDash(mount: DiskUsage): string {
   return `${drawn} ${RING_CIRCUMFERENCE}`;
 }
 
-/** One verb on one unit. The acknowledgement is `verb !== "stop"`, because only stop asks. */
+/**
+ * One verb on one unit. The acknowledgement is only for the verb the panel asked about — sending
+ * `true` for the rest would answer a layer-raised `Ask` nobody saw, so those go unacknowledged
+ * and the shell's refusal names the rule where a stricter matrix wants a question.
+ */
 async function act(unit: string, verb: "start" | "restart" | "stop" | "enable" | "disable"): Promise<void> {
   if (verb === "stop") {
     askingStop.value = { unit };
     return;
   }
-  await issue(unit, verb, true);
+  await issue(unit, verb, false);
 }
 
 async function issue(unit: string, verb: string, acknowledged: boolean): Promise<void> {

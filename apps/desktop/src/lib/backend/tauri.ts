@@ -971,9 +971,19 @@ export function tunnelClose(id: string): Promise<void> {
   return invoke<void>("tunnel_close", { id });
 }
 
-/** Opens one forward at runtime on a desktop session's own connection. */
-export function tunnelRuntimeOpen(sessionId: string, request: ForwardRequest): Promise<OpenTunnel> {
-  return invoke<OpenTunnel>("tunnel_runtime_open", { sessionId, forward: request });
+/**
+ * Opens one forward at runtime on a desktop session's own connection.
+ *
+ * `acknowledged` is the person's answer to the question a stricter verdict asks — a remote forward
+ * is the one kind that always asks, and the call that opens it is the one that carries the
+ * confirmation. Left out, nothing has been acknowledged, which is the safe reading.
+ */
+export function tunnelRuntimeOpen(
+  sessionId: string,
+  request: ForwardRequest,
+  acknowledged = false,
+): Promise<OpenTunnel> {
+  return invoke<OpenTunnel>("tunnel_runtime_open", { sessionId, forward: request, acknowledged });
 }
 
 /** Stops a runtime forward. The engine's stop is the same one `tunnel_close` drives. */

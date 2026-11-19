@@ -4,7 +4,7 @@
  *
  * The functional suites say what dragging *does* (WorkbenchPane.spec.ts) and what a minimised
  * window *shows*; what can only be seen here is the cost — that reordering the fullest desktop
- * the product allows (24 shortcuts over 11 doors) does not remount one of them, and that six
+ * the product allows (24 shortcuts over 12 doors) does not remount one of them, and that six
  * windows' worth of mounted components stay mounted and idle
  * when nobody is looking at them. The wall-time bounds are deliberately generous smoke guards
  * (LESSONS I43: a tight millisecond threshold turns red on a slow runner for reasons that have

@@ -30,6 +30,8 @@ vi.mock("@/lib/backend/tauri", () => ({
   trashList: vi.fn(async () => []),
   systemOverview: vi.fn(),
   systemJournal: vi.fn(),
+  tunnelRuntimeOpen: vi.fn(),
+  tunnelRuntimeStop: vi.fn(async () => {}),
   trashRestore: vi.fn(),
   trashRemove: vi.fn(),
   trashEmpty: vi.fn(),
@@ -52,6 +54,7 @@ import {
   sessionOpen,
   systemOverview,
   trashList,
+  tunnelRuntimeOpen,
   workbenchPower,
 } from "@/lib/backend/tauri";
 import {
@@ -132,6 +135,7 @@ const DEFAULT_ICON_LABELS = [
   "System panel",
   "Transfers",
   "Forwards",
+  "Services",
   "Logs",
   "Batch",
   "Trash",
@@ -368,6 +372,88 @@ describe("the workbench desktop", () => {
     expect(trash(), "a desktop puts each surface in its own window, so both stand").not.toBeNull();
     expect(host.querySelectorAll("[data-workbench-window]"), "two windows, one per surface").toHaveLength(2);
     expect(systemOverviewMock).toHaveBeenCalledWith("w1");
+  });
+
+  it("answers a dropped connection with the ended sentence instead of an empty frame, and offers the way back", async () => {
+    // The connection is gone before the trash is opened: the window exists, its body does not.
+    await render(desk, null);
+
+    iconByLabel("Trash").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const body = host.querySelector<HTMLElement>("[data-workbench-window-disconnected]");
+    expect(body, "the window says why it is empty").not.toBeNull();
+    expect(body?.textContent).toContain("not connected");
+
+    sessionOpenMock.mockResolvedValue({
+      kind: "opened",
+      handle: "w2",
+      sessionId: "desk-1",
+      tunnels: [],
+      tunnelFailures: [],
+    });
+    body?.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(sessionOpenMock, "the button asks the store to open the session again").toHaveBeenCalledWith("desk-1");
+  });
+
+  it("opens the services door onto the host's listeners, and a tunnel from a row rides the session's connection", async () => {
+    systemOverviewMock.mockResolvedValue({
+      services: [],
+      disks: [],
+      accounts: [],
+      interfaces: [],
+      routes: [],
+      dns: [],
+      crontab: [],
+      logins: [],
+      mounts: [],
+      uptimeSeconds: 60,
+      listeners: [{ port: 8080, address: "0.0.0.0", process: "nginx" }],
+    });
+    const tunnelOpenMock = vi.mocked(tunnelRuntimeOpen);
+    tunnelOpenMock.mockReset().mockResolvedValue({
+      id: "t-1",
+      handle: "w1",
+      sessionId: "desk-1",
+      bindHost: "127.0.0.1",
+      bindPort: 41233,
+      mode: "local",
+      targetHost: "127.0.0.1",
+      targetPort: 8080,
+      connections: 0,
+    });
+    await render();
+
+    iconByLabel("Services").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(host.querySelectorAll("[data-workbench-services-row]")).toHaveLength(1);
+    });
+
+    const row = host.querySelector<HTMLElement>("[data-workbench-services-row]");
+    expect(row?.textContent).toContain("0.0.0.0:8080");
+    expect(row?.textContent).toContain("nginx");
+
+    const openTunnel = [...(row?.querySelectorAll("button") ?? [])].find((entry) =>
+      entry.textContent?.includes("Open a tunnel"),
+    );
+    openTunnel?.click();
+    await vi.waitFor(() => {
+      expect(tunnelOpenMock).toHaveBeenCalledWith(
+        "desk-1",
+        {
+          mode: "local",
+          bindHost: "127.0.0.1",
+          bindPort: 0,
+          targetHost: "127.0.0.1",
+          targetPort: 8080,
+        },
+        false,
+      );
+    });
   });
 
   it("draws a disk tree whose leaves carry no children key, the shape the shell actually sends", async () => {
@@ -687,6 +773,7 @@ describe("the workbench desktop", () => {
       "System panel",
       "Transfers",
       "Forwards",
+      "Services",
       "Logs",
       "Batch",
     ];
@@ -707,6 +794,7 @@ describe("the workbench desktop", () => {
       "system-panel",
       "system-transfers",
       "system-forwards",
+      "system-services",
       "system-tail",
       "system-batch",
     ]);
@@ -731,6 +819,7 @@ describe("the workbench desktop", () => {
       "System panel",
       "Transfers",
       "Forwards",
+      "Services",
       "Logs",
       "Batch",
       "Trash",
@@ -754,6 +843,7 @@ describe("the workbench desktop", () => {
       "System panel",
       "Transfers",
       "Forwards",
+      "Services",
       "Logs",
       "Batch",
       "data",
@@ -778,7 +868,7 @@ describe("the workbench desktop", () => {
     expect(
       document.body.querySelectorAll("[data-workbench-setting-door]").length,
       "the mutable doors can be checked off; home and the trash are not anybody's to hide",
-    ).toBe(9);
+    ).toBe(10);
 
     settingDoor("system-docker").click();
     await nextTick();
@@ -832,6 +922,7 @@ describe("the workbench desktop", () => {
       "System panel",
       "Transfers",
       "Forwards",
+      "Services",
       "Logs",
       "Trash",
     ];
