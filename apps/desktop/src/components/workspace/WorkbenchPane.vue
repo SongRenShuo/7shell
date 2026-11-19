@@ -186,8 +186,6 @@ interface DesktopIcon {
     | "shortcut";
   readonly label: string;
   readonly icon: Component;
-  /** Drawn, but not openable: the placeholder is the whole of what it says. */
-  readonly disabled?: boolean;
   /** Where a shortcut opens, when this icon is one. */
   readonly path?: string;
   /** The shortcut's own id in storage, which its removal is named by. */
@@ -275,10 +273,6 @@ const draggingId = ref<string | null>(null);
 const dragOverId = ref<string | null>(null);
 
 function beginDrag(event: DragEvent, icon: DesktopIcon): void {
-  if (icon.disabled) {
-    event.preventDefault();
-    return;
-  }
   draggingId.value = icon.id;
   event.dataTransfer?.setData("text/plain", icon.id);
   if (event.dataTransfer) {
@@ -540,9 +534,6 @@ function clearSelection(): void {
  * it, so nothing is opened twice and no connection is made for a window.
  */
 function openIcon(icon: DesktopIcon): void {
-  if (icon.disabled) {
-    return;
-  }
   selectedId.value = icon.id;
   switch (icon.kind) {
     case "home":
@@ -851,9 +842,6 @@ function refreshDesktop(): void {
 
 /** What an icon offers when it is right-clicked: the door, its removal, and what it is. */
 function openIconMenu(event: MouseEvent, icon: DesktopIcon): void {
-  if (icon.disabled) {
-    return;
-  }
   const entries: MenuEntry[] = [
     {
       kind: "action",
@@ -1194,9 +1182,7 @@ function disconnect(): void {
             type="button"
             data-workbench-icon
             :data-icon-id="icon.id"
-            :disabled="icon.disabled"
             draggable="true"
-            :title="icon.disabled ? t('workbench.desktop.iconUnavailable') : undefined"
             class="flex h-[5.25rem] w-[5.25rem] flex-col items-center justify-start gap-1.5 rounded-lg px-1 py-2 text-center transition duration-150 active:scale-[0.96]"
             :class="[
               onPicture
