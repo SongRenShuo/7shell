@@ -387,7 +387,7 @@ impl Core {
             .await
     }
 
-    fn container_provider(&self, connection_id: &str) -> Result<Arc<Provider>, ShellError> {
+    pub(crate) fn container_provider(&self, connection_id: &str) -> Result<Arc<Provider>, ShellError> {
         self.containers.provider(connection_id)
     }
 
@@ -469,7 +469,7 @@ impl Core {
     /// acknowledgement of their own: the decision is on the trail either way, the default matrix's
     /// `Caution` runs, and where a layer names a question or a refusal the verb is refused with
     /// the rule named — the unattended gate's contract, the tail's and the runtime forwards'.
-    fn container_unattended_gate(
+    pub(crate) fn container_unattended_gate(
         &self,
         operation: &str,
         verdict: &RiskAssessment,
