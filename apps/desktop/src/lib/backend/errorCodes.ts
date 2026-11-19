@@ -138,6 +138,7 @@ export const ERROR_CATALOG = {
   // Application
   "APP-NOT-READY": "errors.app.notReady",
   "APP-NO-TRANSPORT": "errors.app.noTransport",
+  "BROWSER-HOST-UNAVAILABLE": "errors.browser.hostUnavailable",
   "APP-UNSUPPORTED": "errors.app.unsupported",
   "APP-INTERNAL": "errors.app.internal",
 } as const satisfies Record<string, string>;

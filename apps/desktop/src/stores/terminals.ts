@@ -1052,6 +1052,65 @@ export const useTerminalsStore = defineStore("terminals", () => {
     }
   }
 
+  // -- the browser handover ---------------------------------------------------
+
+  /**
+   * The desktops a system browser is drawing, by session id, each with the handover URL that opened
+   * it. Keyed by session rather than by tab because the browser rides the session's connection —
+   * the fact "this desktop is hosted" is the session's, whichever of its views is on screen. Never
+   * written anywhere: a handover is a fact about the running application, not about the person's
+   * library, and an application restart ends it the way the host's own idle stop does.
+   */
+  const hostedUrls = ref<Record<string, string>>({});
+
+  /** The handover URL the browser tab was opened with, or null when this desktop is not hosted. */
+  function hostedUrl(sessionId: string): string | null {
+    return hostedUrls.value[sessionId] ?? null;
+  }
+
+  /**
+   * Hands one desktop to the system browser and puts its tab into the hosted state.
+   *
+   * The tab stays and its connection is not touched: the stub keeps it, which is what "closing the
+   * browser tab does not end the connection" means. A refusal — an unknown session, a locked vault,
+   * a host that will not start — is toasted here, where the ask was made, and the tab stays
+   * unhosted.
+   */
+  async function hostInBrowser(tabId: string): Promise<void> {
+    const tab = tabs.value.find((entry): entry is WorkbenchTab => entry.kind === "workbench" && entry.id === tabId);
+    if (tab === undefined) {
+      return;
+    }
+    try {
+      const url = await backend.desktopBrowser.open(tab.session.id);
+      hostedUrls.value = { ...hostedUrls.value, [tab.session.id]: url };
+    } catch (error) {
+      toast(describeShellError(translate, asShellError(error, "desktop_browser_open")).message, "failure");
+    }
+  }
+
+  /**
+   * Asks for the handover URL again, for the card's "take the URL again".
+   *
+   * The host stops itself when the last browser session leaves, and a fresh start may answer on
+   * another port — so the card shows what comes back now rather than what was remembered.
+   */
+  async function refreshHostedUrl(sessionId: string): Promise<void> {
+    try {
+      const url = await backend.desktopBrowser.url(sessionId);
+      hostedUrls.value = { ...hostedUrls.value, [sessionId]: url };
+    } catch (error) {
+      toast(describeShellError(translate, asShellError(error, "desktop_browser_url")).message, "failure");
+    }
+  }
+
+  /** Takes the desktop back into the application: the stub goes and the pane draws again. */
+  function unhost(sessionId: string): void {
+    const next = { ...hostedUrls.value };
+    delete next[sessionId];
+    hostedUrls.value = next;
+  }
+
   /**
    * Opens one of the monitor's pages for a session, or goes to the one that is already open.
    *
@@ -2112,6 +2171,10 @@ export const useTerminalsStore = defineStore("terminals", () => {
     openContainerFiles,
     openPodFiles,
     openDesktop,
+    hostedUrl,
+    hostInBrowser,
+    refreshHostedUrl,
+    unhost,
     reopen,
     goTo,
     openTabsOf,

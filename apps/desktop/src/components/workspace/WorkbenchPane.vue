@@ -107,6 +107,7 @@ import {
 } from "@/lib/workbench/windows";
 import type { MenuEntry } from "@/lib/menu/types";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
+import { isDesktopRuntime } from "@/lib/runtime";
 import { memorableRect, rememberedRect, writeWindowMemory } from "@/lib/workbench/windowMemory";
 import {
   DEFAULT_DRAFT_COLOR,
@@ -140,6 +141,8 @@ function translate(key: string, params?: Record<string, string>): string {
 
 const session = computed(() => props.tab.session);
 const connected = computed(() => props.tab.handle !== null && props.tab.failure === null);
+/** Only the desktop shell runs the embedded host a browser handover needs; a browser cannot ask. */
+const browserOpenable = isDesktopRuntime();
 
 /**
  * The backdrop the session asked for, or nothing for the interface's own background.
@@ -1677,6 +1680,15 @@ function openPowerMenu(): void {
 function disconnect(): void {
   terminals.closeTab(props.tab.id);
 }
+
+/**
+ * Hands this desktop to the system browser: the shell starts its embedded host, opens the handover
+ * URL there, and this tab collapses to a stub card while the browser draws the face. Only offered
+ * where the host exists — the desktop shell — which is what the status bar's visibility reads.
+ */
+function hostInBrowser(): void {
+  void terminals.hostInBrowser(props.tab.id);
+}
 </script>
 
 <template>
@@ -1692,8 +1704,13 @@ function disconnect(): void {
       :user="session.user"
       :clock="`${clockTime} · ${clockDate}`"
       :connected="connected"
-      :labels="{ disconnect: t('workbench.desktop.shell.disconnect') }"
+      :browser-openable="browserOpenable"
+      :labels="{
+        disconnect: t('workbench.desktop.shell.disconnect'),
+        browserOpen: t('workbench.desktop.shell.browserOpen'),
+      }"
       @disconnect="disconnect()"
+      @open-in-browser="hostInBrowser()"
     />
 
     <div

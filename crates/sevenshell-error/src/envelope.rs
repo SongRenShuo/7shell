@@ -893,6 +893,15 @@ impl ShellError {
         Self::new(ErrorCode::AppInternal, Origin::new(Subsystem::App)).with_detail(detail)
     }
 
+    /// Handing a desktop to the system browser asks the desktop shell, because the embedded host
+    /// lives there. A page that already runs in a browser has nothing to ask — this says so rather
+    /// than letting the call fail mysteriously.
+    pub fn browser_host_unavailable(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::BrowserHostUnavailable, Origin::new(Subsystem::App))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
     pub fn container_unavailable(runtime: &str, detail: impl AsRef<str>) -> Self {
         Self::new(ErrorCode::ContainerUnavailable, Origin::new(Subsystem::Container))
             .with_param("runtime", runtime)

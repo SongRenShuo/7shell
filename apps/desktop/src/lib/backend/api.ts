@@ -1048,6 +1048,18 @@ export const backend = {
   },
 
   /**
+   * Handing a desktop to the system browser: the desktop shell starts its embedded host and opens
+   * the handover URL there. In a browser there is no host to ask — both calls answer
+   * `BROWSER-HOST-UNAVAILABLE` in that host, and the interface hides the entries that would ask.
+   */
+  desktopBrowser: {
+    open: (sessionId: string): Promise<string> =>
+      forward("desktop_browser_open", () => desktop.desktopBrowserOpen(sessionId)),
+    url: (sessionId: string): Promise<string> =>
+      forward("desktop_browser_url", () => desktop.desktopBrowserUrl(sessionId)),
+  },
+
+  /**
    * The desktop workbench's one action that reaches the far side. Everything else it shows is a
    * reading of the connection the session already carries; this is the one thing somebody can ask
    * the machine to do, and the acknowledgement it carries is the answer the policy gate acts on.

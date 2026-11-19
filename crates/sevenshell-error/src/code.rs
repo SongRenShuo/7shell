@@ -299,6 +299,8 @@ error_catalog! {
     AppNotReady => "APP-NOT-READY", "errors.app.notReady";
     #[doc = "No backend transport is available, for example a browser without the desktop shell."]
     AppNoTransport => "APP-NO-TRANSPORT", "errors.app.noTransport";
+    #[doc = "Handing a desktop to the browser asked something other than the desktop shell, which is the only place the embedded host lives."]
+    BrowserHostUnavailable => "BROWSER-HOST-UNAVAILABLE", "errors.browser.hostUnavailable";
     #[doc = "The requested capability is declared but not implemented in this build."]
     AppUnsupported => "APP-UNSUPPORTED", "errors.app.unsupported";
     #[doc = "An unexpected internal failure."]
