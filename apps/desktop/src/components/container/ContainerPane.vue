@@ -17,13 +17,14 @@
  * and the view keeping are the same in both — only the drawing differs, so the application tab
  * never sees the desktop's presentational choices.
  */
-import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
+import { Blocks, Boxes, Gauge, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DockerImages from "@/components/container/DockerImages.vue";
 import DockerNetworks from "@/components/container/DockerNetworks.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
+import DockerCompose from "@/components/container/DockerCompose.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
@@ -48,7 +49,7 @@ const props = withDefaults(
   { layout: "flat" },
 );
 
-type ContainerView = "overview" | "containers" | "images" | "networks";
+type ContainerView = "overview" | "containers" | "images" | "networks" | "compose";
 
 const { t } = useI18n();
 const containers = useContainerStore();
@@ -122,6 +123,9 @@ const sideRail = computed<readonly SideNavItem[]>(() => {
   ];
   if (current.info?.networkAvailable !== false) {
     items.push({ id: "networks", label: t("container.rail.networks"), icon: Waypoints, count: null });
+  }
+  if (current.info?.composeAvailable !== false) {
+    items.push({ id: "compose", label: t("container.rail.compose"), icon: Blocks, count: null });
   }
   return items;
 });
@@ -388,6 +392,7 @@ onBeforeUnmount(() => {
         />
         <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
         <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
+        <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
       </div>
     </div>
 
