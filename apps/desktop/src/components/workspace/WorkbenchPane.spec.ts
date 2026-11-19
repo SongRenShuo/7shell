@@ -615,7 +615,30 @@ describe("the workbench desktop", () => {
     const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchPane.vue"), "utf8");
     expect(source, "wallpapers come from the workbench tokens").toContain("var(--workbench-wallpaper-");
     expect(source, "icon labels carry the the reference two-layer shadow").toContain("var(--wb-shadow-text-picture)");
+    expect(source, "an icon selects on the brand's pale ground (D2)").toContain(
+      "var(--semi-color-primary-light-default)",
+    );
     expect(source, "no literal colour is left in the pane").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  it("derives the desktop's accent from the Semi brand, one way only", () => {
+    // The one-way rule the Semi layer is built on (开发计划 §七.2): `--workbench-*` names
+    // `var(--semi-*)` and never restates a colour. The accent is the probe — its declaration must
+    // still be a var() reference, and the brand step it names must still be a defined triplet, so
+    // emptying the definition in globals.css turns this red rather than silently greying the
+    // desktop (reverse-verified; LESSONS I7/I8).
+    const sheet = readFileSync(resolve("apps/desktop/src/styles/globals.css"), "utf8");
+    const accent = sheet.match(/--workbench-accent:\s*([^;]+);/);
+    expect(accent, "the accent is declared once in the workbench layer").not.toBeNull();
+    expect(accent![1], "the accent derives from the Semi brand step 5").toContain("var(--semi-brand-5)");
+    expect(sheet, "the brand step is a defined triplet, not an emptied slot").toMatch(/--semi-brand-5:\s*\d/);
+    expect(sheet, "danger flows from the Semi semantic layer").toMatch(
+      /--workbench-danger:\s*var\(--semi-color-danger\)/,
+    );
+    expect(sheet, "warning flows from the Semi semantic layer").toMatch(
+      /--workbench-warning:\s*var\(--semi-color-warning\)/,
+    );
+    expect(sheet, "the Semi layer exists ahead of the workbench layer it feeds").toMatch(/--semi-color-primary:/);
   });
 
   it("opens the session's own file browser in a window on a double-click of Home, not on a single click", async () => {
@@ -780,7 +803,7 @@ describe("the workbench desktop", () => {
     expect(iconLabels()).toEqual(arranged);
     expect(terminals.tabs, "a drag opens nothing").toHaveLength(1);
     expect(iconByLabel("Trash").className, "and it does not select what it picked up, either").not.toContain(
-      "bg-accent text-foreground",
+      "bg-[var(--semi-color-primary-light-default)]",
     );
 
     // What storage holds is ids, not slots: the same icon stays the same entry when the list grows.
