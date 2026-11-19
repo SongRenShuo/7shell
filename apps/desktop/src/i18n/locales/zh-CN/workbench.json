@@ -255,7 +255,8 @@
         "transfer": "传输",
         "container": "容器",
         "tail": "日志追踪",
-        "power": "系统"
+        "power": "系统",
+        "browser": "浏览器交接"
       },
       "transfer": {
         "doneUpload": "上传完成",
@@ -278,6 +279,9 @@
       "power": {
         "issuedReboot": "已向 {name} 发送重启指令。",
         "issuedShutdown": "已向 {name} 发送关机指令。"
+      },
+      "deepLink": {
+        "missing": "链接指向的桌面不在会话库中（{id}）。"
       }
     },
     "system": {

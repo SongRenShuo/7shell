@@ -2,9 +2,13 @@
  * The browser transport: the same backend contract as the desktop shell, carried over the local
  * service's HTTP endpoint and event socket.
  *
- * The token comes from the URL the launcher printed. It is sent with every call and on the event
- * socket; the service refuses anything else, including the other applications on this machine.
+ * The token comes from the URL the page was opened with — the handover fragment the desktop
+ * shell appends, or the query the standalone launcher printed. It is sent with every call and on
+ * the event socket; the service refuses anything else, including the other applications on this
+ * machine.
  */
+
+import { handoverToken } from "@/lib/hosted/handover";
 
 import { noTransportError } from "./errors";
 
@@ -13,9 +17,9 @@ type Unlisten = () => void;
 type WebEvent = { event: string; id: number; payload: unknown };
 type Listener = (event: WebEvent) => void;
 
-const token = typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("token") ?? "");
+const token = handoverToken();
 
-/** The token the launcher put in the page URL, for the file endpoints the browser opens directly. */
+/** The token the page was opened with, for the file endpoints the browser opens directly. */
 export function webTokenValue(): string {
   return token;
 }
