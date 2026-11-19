@@ -17,12 +17,14 @@ const USER = "root";
 const CLOCK = "14:32";
 
 let disconnects = 0;
+let browserOpens = 0;
 let app: App | undefined;
 let root: HTMLDivElement | undefined;
 
 /** Mounts the strip over one session, connected unless the case says otherwise. */
-function mount(connected = true): void {
+function mount(connected = true, browserOpenable = false): void {
   disconnects = 0;
+  browserOpens = 0;
   const Host = defineComponent({
     setup() {
       return () =>
@@ -31,9 +33,13 @@ function mount(connected = true): void {
           user: USER,
           clock: CLOCK,
           connected,
-          labels: { disconnect: "Disconnect" },
+          browserOpenable,
+          labels: { disconnect: "Disconnect", browserOpen: "Open in browser" },
           onDisconnect: () => {
             disconnects += 1;
+          },
+          onOpenInBrowser: () => {
+            browserOpens += 1;
           },
         });
     },
@@ -106,5 +112,30 @@ describe("the strip along the top of the desktop", () => {
     const bar = part("host").parentElement as HTMLElement;
     expect(bar.className).toContain("bg-[var(--workbench-surface-1)]");
     expect(bar.className).toContain("text-[var(--workbench-on-picture)]");
+  });
+});
+
+describe("the strip's open-in-browser control", () => {
+  it("is not drawn where the running host cannot make the move", () => {
+    app?.unmount();
+    document.body.innerHTML = "";
+    mount(true, false);
+
+    expect(document.querySelector("[data-workbench-status-browser]")).toBeNull();
+  });
+
+  it("is drawn and named where the desktop shell carries the embedded host", () => {
+    app?.unmount();
+    document.body.innerHTML = "";
+    mount(true, true);
+
+    const button = part("browser");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("the open-in-browser control is not a button");
+    }
+    expect(button.getAttribute("aria-label")).toBe("Open in browser");
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(browserOpens, "the ask goes to the owner, like the disconnect does").toBe(1);
+    expect(disconnects).toBe(0);
   });
 });

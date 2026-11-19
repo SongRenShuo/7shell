@@ -19,6 +19,8 @@ vi.mock("@/lib/backend/tauri", () => ({
   filesClose: vi.fn(),
   transfersOpen: vi.fn(),
   desktopOpen: vi.fn(),
+  desktopBrowserOpen: vi.fn(),
+  desktopBrowserUrl: vi.fn(),
   desktopTrust: vi.fn(),
   desktopInput: vi.fn(),
   desktopResize: vi.fn(),
@@ -42,6 +44,8 @@ vi.mock("@/lib/terminal/bus", async (importOriginal) => {
 });
 
 import {
+  desktopBrowserOpen,
+  desktopBrowserUrl,
   filesClose,
   filesList,
   filesOpen,
@@ -87,6 +91,8 @@ const filesOpenPodMock = vi.mocked(filesOpenPod);
 const filesListMock = vi.mocked(filesList);
 const filesCloseMock = vi.mocked(filesClose);
 const transfersOpenMock = vi.mocked(transfersOpen);
+const desktopBrowserOpenMock = vi.mocked(desktopBrowserOpen);
+const desktopBrowserUrlMock = vi.mocked(desktopBrowserUrl);
 const onTerminalEndedMock = vi.mocked(onTerminalEnded);
 const endedTerminalMock = vi.mocked(endedTerminal);
 
@@ -1869,5 +1875,123 @@ describe("the desktop workbench", () => {
 
     expect(store.tabs, "the dead tab went, a fresh one took its answer").toHaveLength(1);
     expect(workbenchTabOrFail(store).handle).toBe("handle-2");
+  });
+});
+
+describe("the browser handover of a desktop", () => {
+  /** A Linux desktop session: the shape a handover hands over. */
+  const desk: Session = { ...session, id: "desk-1", name: "lab desk", protocol: "linuxDesk" };
+
+  /** The handover URL the shell answers with, token in the fragment and the desktop named after it. */
+  const handoverUrl = "http://127.0.0.1:4225/#token=t-1&open=desktop:desk-1";
+
+  function workbenchTab(store: ReturnType<typeof useTerminalsStore>): WorkbenchTab | undefined {
+    return store.tabs.find((tab): tab is WorkbenchTab => tab.kind === "workbench");
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    usePreferencesStore().sessionLayout = "terminal";
+    endedListeners.length = 0;
+    localStorage.clear();
+    sessionOpenMock.mockReset();
+    sessionSystemMock.mockReset().mockResolvedValue({ name: null, kernel: null, distro: null, distroLike: [] });
+    terminalCloseMock.mockReset().mockResolvedValue(undefined);
+    tunnelsOpenMock.mockReset().mockResolvedValue([]);
+    transfersOpenMock.mockReset().mockResolvedValue([]);
+    desktopBrowserOpenMock.mockReset();
+    desktopBrowserUrlMock.mockReset();
+    onTerminalEndedMock.mockReset().mockImplementation((listener: (handle: string, reason?: string) => void) => {
+      endedListeners.push(listener);
+      return () => {};
+    });
+    endedTerminalMock.mockReset().mockReturnValue(undefined);
+  });
+
+  it("hosts a desktop with the URL the shell answers, keyed by the session, and keeps the connection", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    desktopBrowserOpenMock.mockResolvedValue(handoverUrl);
+
+    const store = useTerminalsStore();
+    await store.open(desk);
+    const tab = workbenchTab(store);
+    if (tab === undefined) {
+      throw new Error("the workspace has no workbench tab");
+    }
+
+    await store.hostInBrowser(tab.id);
+
+    expect(desktopBrowserOpenMock).toHaveBeenCalledWith(desk.id);
+    expect(store.hostedUrl(desk.id), "the fact is the session's, not the tab's").toBe(handoverUrl);
+    expect(tab.handle, "the stub keeps the connection; closing the browser tab does not end it").toBe("handle-1");
+  });
+
+  it("does nothing for an id that is not a workbench tab", async () => {
+    const store = useTerminalsStore();
+
+    await store.hostInBrowser("no-such-tab");
+
+    expect(desktopBrowserOpenMock).not.toHaveBeenCalled();
+    expect(store.hostedUrl("desk-1")).toBeNull();
+  });
+
+  it("leaves the tab unhosted and says so when the shell refuses the handover", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    desktopBrowserOpenMock.mockRejectedValue({
+      code: "VAULT-LOCKED",
+      messageKey: "errors.vault.locked",
+      messageParams: {},
+    });
+
+    const store = useTerminalsStore();
+    await store.open(desk);
+    const tab = workbenchTab(store);
+    if (tab === undefined) {
+      throw new Error("the workspace has no workbench tab");
+    }
+
+    await store.hostInBrowser(tab.id);
+
+    expect(store.hostedUrl(desk.id)).toBeNull();
+    expect(tab.handle).toBe("handle-1");
+    expect(useToast().tier.value, "the refusal is said where the ask was made").toBe("failure");
+  });
+
+  it("taking the URL again replaces the remembered one, for a host that stopped itself", async () => {
+    const again = "http://127.0.0.1:51777/#token=t-2&open=desktop:desk-1";
+    sessionOpenMock.mockResolvedValue(opened());
+    desktopBrowserOpenMock.mockResolvedValue(handoverUrl);
+    desktopBrowserUrlMock.mockResolvedValue(again);
+
+    const store = useTerminalsStore();
+    await store.open(desk);
+    const tab = workbenchTab(store);
+    if (tab === undefined) {
+      throw new Error("the workspace has no workbench tab");
+    }
+    await store.hostInBrowser(tab.id);
+
+    await store.refreshHostedUrl(desk.id);
+
+    expect(desktopBrowserUrlMock).toHaveBeenCalledWith(desk.id);
+    expect(store.hostedUrl(desk.id)).toBe(again);
+  });
+
+  it("taking the desktop back ends the hosting, and the connection is still the tab's", async () => {
+    sessionOpenMock.mockResolvedValue(opened());
+    desktopBrowserOpenMock.mockResolvedValue(handoverUrl);
+
+    const store = useTerminalsStore();
+    await store.open(desk);
+    const tab = workbenchTab(store);
+    if (tab === undefined) {
+      throw new Error("the workspace has no workbench tab");
+    }
+    await store.hostInBrowser(tab.id);
+
+    store.unhost(desk.id);
+
+    expect(store.hostedUrl(desk.id)).toBeNull();
+    expect(tab.handle).toBe("handle-1");
   });
 });

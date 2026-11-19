@@ -9,6 +9,7 @@
       "title": "桌面",
       "shell": {
         "disconnect": "断开连接",
+        "browserOpen": "在浏览器中打开",
         "starter": "应用",
         "starterSearch": "搜索应用",
         "starterNoResults": "没有匹配的应用",
@@ -384,6 +385,16 @@
         "stopConfirm": "停止服务",
         "actionFailed": "机器没有接受这次操作。"
       }
+    },
+    "hosted": {
+      "title": "{name} 已在浏览器标签页中打开。",
+      "urlLabel": "交接链接",
+      "copy": "复制链接",
+      "copied": "链接已复制到剪贴板。",
+      "copyFailed": "链接复制失败。",
+      "explanation": "浏览器标签页承接这个桌面的画面；连接仍归本应用，关闭那个标签页不会断开连接。宿主在最后一个浏览器会话离开后会自动停止——重新拿链接会再次启动它，端口可能变化。",
+      "refresh": "重新拿链接",
+      "takeBack": "收回应用内"
     }
   }
 }

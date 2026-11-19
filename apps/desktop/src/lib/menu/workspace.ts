@@ -10,7 +10,18 @@
  * modifier keys: this strip has no place to print a shortcut, and a menu that is only reachable with
  * the mouse should not need one.
  */
-import { CircleX, Copy, PanelLeftClose, PanelRightClose, Plug, Power, RotateCw, SquareX, X } from "@lucide/vue";
+import {
+  CircleX,
+  Copy,
+  ExternalLink,
+  PanelLeftClose,
+  PanelRightClose,
+  Plug,
+  Power,
+  RotateCw,
+  SquareX,
+  X,
+} from "@lucide/vue";
 
 import type { MenuEntry } from "./types";
 
@@ -26,6 +37,12 @@ export interface TabMenuState {
   readonly total: number;
   /** How many terminal tabs in the strip are not open, which is what "connect all" would reach. */
   readonly reconnectable: number;
+  /**
+   * Whether handing this desktop to the system browser is a move the running host can make: only
+   * the desktop shell carries the embedded host, so a browser never sees the entry at all rather
+   * than seeing one that can only answer with an error.
+   */
+  readonly browserOpenable?: boolean;
 }
 
 export interface TabMenuActions {
@@ -38,6 +55,8 @@ export interface TabMenuActions {
   readonly reconnect: () => void;
   readonly reconnectAll: () => void;
   readonly disconnect: () => void;
+  /** Hands the desktop to the system browser; present only where the state may ask for it. */
+  readonly openInBrowser?: () => void;
 }
 
 /** Whether this tab is one the interface would offer a retry for. */
@@ -146,6 +165,23 @@ export function tabMenu(state: TabMenuState, actions: TabMenuActions): MenuEntry
         run: () => actions.reconnect(),
       },
       { kind: "separator", id: "sep-close" },
+      ...closing,
+    ];
+  }
+
+  // A desktop tab is the one shape whose face can be drawn somewhere else: the desktop shell hands
+  // it to the system browser, the application's own tab collapses to a stub, and "open in browser"
+  // again just re-asks — the shell reuses its host or starts it again.
+  if (state.kind === "workbench" && state.browserOpenable === true) {
+    return [
+      {
+        kind: "action",
+        id: "open-in-browser",
+        labelKey: "menu.openInBrowser",
+        icon: ExternalLink,
+        run: () => actions.openInBrowser?.(),
+      },
+      { kind: "separator", id: "sep-browser" },
       ...closing,
     ];
   }

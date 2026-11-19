@@ -158,6 +158,9 @@
       "unsupported": "{what} is not implemented in this version yet.",
       "internal": "Something went wrong inside the application."
     },
+    "browser": {
+      "hostUnavailable": "Handing a desktop to the browser needs the desktop application: the embedded host lives there."
+    },
     "service": {
       "actionFailed": "The machine did not accept the service action. {detail}"
     }
