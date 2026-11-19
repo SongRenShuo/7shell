@@ -114,16 +114,17 @@ describe("backend facade", () => {
 describe("the Docker window's error surface", () => {
   /**
    * The Docker window renders every failure through the catalog — the code's own sentence, never
-   * a raw string. This pins the codes that surface can raise: the engine's three container codes,
-   * the SSH codes an engine-over-SSH fails with, and the policy gate's two. The engine's catalog
-   * and this one are compared in both directions by the contract suite; what this adds is the
-   * Docker window's own claim — that the codes its actions actually raise are named here, and
-   * said in words in both languages.
+   * a raw string. This pins the codes that surface can raise: the engine's container codes —
+   * including the network removal guardrail's —, the SSH codes an engine-over-SSH fails with, and
+   * the policy gate's two. The engine's catalog and this one are compared in both directions by
+   * the contract suite; what this adds is the Docker window's own claim — that the codes its
+   * actions actually raise are named here, and said in words in both languages.
    */
   const DOCKER_SURFACE: readonly [string, string][] = [
     ["CONTAINER-UNAVAILABLE", "errors.container.unavailable"],
     ["CONTAINER-COMMAND-FAILED", "errors.container.commandFailed"],
     ["CONTAINER-NOT-CONNECTED", "errors.container.notConnected"],
+    ["CONTAINER-NETWORK-IN-USE", "errors.container.networkInUse"],
     ["SSH-UNREACHABLE", "errors.ssh.unreachable"],
     ["SSH-TIMEOUT", "errors.ssh.timeout"],
     ["SSH-CHANNEL-FAILED", "errors.ssh.channelFailed"],
