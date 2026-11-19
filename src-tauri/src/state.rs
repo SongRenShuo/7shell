@@ -29,6 +29,7 @@ use crate::mcp::audit::AuditLog;
 use crate::mcp_client::{McpClientSupervisor, TauriServerStatusEvents};
 use crate::policy::PolicyLog;
 use crate::uploads::PendingUploads;
+use crate::webhost::WebHost;
 
 /// A file an operation is in the middle of, waiting for an answer about it.
 ///
@@ -364,6 +365,11 @@ pub struct ShellState {
     /// of each turn; what lives here is the copy the window is looking at, which may be a turn ahead
     /// of the vault while a write is failing.
     ai: Arc<AiRuntime>,
+    /// The embedded browser host: the interface served from this process on demand, on the same
+    /// core and vault the window uses. Nothing in it is bound or built until the first open asks,
+    /// and it stops itself once the last browser session has been gone for its idle grace; see
+    /// [`crate::webhost`].
+    webhost: Arc<WebHost>,
     /// Files the operating system dropped or the clipboard held, waiting to be uploaded.
     pending_drops: PendingDrops,
     /// Uploads that stopped to ask about a name already on the far side, waiting for the answer.
@@ -441,6 +447,13 @@ impl ShellState {
         );
         mcp_client.start();
         let ai = Arc::new(AiRuntime::new(Arc::clone(&vault), Arc::clone(&shared)));
+        // Built idle: no listener, no token, no router. The first "open in browser" is the first
+        // thing that exists in it; see `webhost` for the lifecycle.
+        let webhost = Arc::new(WebHost::new(
+            Arc::clone(&core),
+            Arc::clone(&vault),
+            crate::webhost::packaged_resource_dir(app),
+        ));
         (
             Self {
                 vault,
@@ -450,6 +463,7 @@ impl ShellState {
                 mcp,
                 mcp_client,
                 ai,
+                webhost,
                 pending_drops: PendingDrops::default(),
                 pending_uploads: PendingUploads::default(),
                 pending_import: PendingFile::default(),
@@ -542,6 +556,16 @@ impl ShellState {
     /// A handle to the assistant for the same path as [`Self::mcp_arc`]: the window closing.
     pub fn ai_arc(&self) -> Arc<AiRuntime> {
         Arc::clone(&self.ai)
+    }
+
+    /// The embedded browser host, for the open action the interface calls.
+    pub fn webhost(&self) -> &Arc<WebHost> {
+        &self.webhost
+    }
+
+    /// A handle to the browser host for the paths that outlive a command: the window closing.
+    pub fn webhost_arc(&self) -> Arc<WebHost> {
+        Arc::clone(&self.webhost)
     }
 
     /// What a drop or a paste left behind, keyed by the token the interface was given.

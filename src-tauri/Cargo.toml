@@ -39,6 +39,12 @@ sevenshell-ssh = { workspace = true }
 sevenshell-sync = { workspace = true }
 sevenshell-types = { workspace = true }
 sevenshell-vault = { workspace = true }
+# The embedded browser host: the same router the standalone `sshell-web` binary serves, driven by
+# this process's own core and vault (PIP-0001).
+sevenshell-web = { workspace = true }
+# The browser URL carries the deep-link target in its fragment; the session id is percent-encoded
+# so a name with a reserved character in it cannot cut the fragment short.
+percent-encoding = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-updater = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }

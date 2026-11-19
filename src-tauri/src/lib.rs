@@ -17,6 +17,7 @@ mod reveal;
 mod state;
 mod tray;
 mod uploads;
+mod webhost;
 mod window_chrome;
 
 use std::sync::Arc;
@@ -70,7 +71,14 @@ pub fn run() {
             }
 
             let (shell_state, events) = state::ShellState::new(app.handle());
-            commands::terminal::pump_events(app.handle().clone(), shell_state.core_arc(), events);
+            // The browser host's tap rides along: the pump is the only consumer of the core's
+            // events, and the tap is how the embedded host's pump sees them while it serves.
+            commands::terminal::pump_events(
+                app.handle().clone(),
+                shell_state.core_arc(),
+                shell_state.webhost().core_event_tap(),
+                events,
+            );
             app.manage(shell_state);
 
             // After the state is managed rather than before: what the settings say about closing is
@@ -131,6 +139,7 @@ pub fn run() {
                 let mcp = shell_state.mcp_arc();
                 let mcp_client = shell_state.mcp_client_arc();
                 let ai = shell_state.ai_arc();
+                let webhost = shell_state.webhost_arc();
                 tauri::async_runtime::spawn(async move {
                     // First, because it is the one thing that might still be producing: a run whose
                     // window is gone is cancelled here rather than left to finish against a
@@ -140,6 +149,9 @@ pub fn run() {
                     // bridge that found it after the window was gone would report a desktop that is
                     // not answering. Removed before the last connection is closed.
                     mcp.stop().await;
+                    // The embedded browser host is a socket somebody's browser may still be holding;
+                    // an application that is gone does not serve a page that outlived it.
+                    webhost.stop().await;
                     // The external servers were opened with this window's vault; nothing is left to
                     // read their answers, so the sessions go too.
                     mcp_client.shutdown();
@@ -239,6 +251,8 @@ pub fn run() {
             commands::terminal::tunnel_runtime_open,
             commands::terminal::tunnel_runtime_stop,
             commands::desktop::desktop_open,
+            commands::desktop::desktop_browser_open,
+            commands::desktop::desktop_browser_url,
             commands::workbench::workbench_power,
             commands::process::process_kill,
             commands::trash::trash_list,

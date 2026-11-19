@@ -27,7 +27,9 @@ pub use recording::{Recording, RecordingSpec};
 /// The events a terminal produces.
 ///
 /// The same shape an SSH channel and every other transport produce, so the host matches once.
-#[derive(Debug)]
+/// `Clone` because a host may fan the stream out to more than one consumer — the desktop's own
+/// pump and an embedded browser host's pump are two readers of one receiver's worth of events.
+#[derive(Debug, Clone)]
 pub enum TerminalEvent {
     /// Bytes the terminal produced, in the order the device sent them.
     Data(Vec<u8>),
@@ -36,7 +38,7 @@ pub enum TerminalEvent {
 }
 
 /// One event from one session, tagged with where it came from.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SessionEvent {
     pub handle: String,
     pub event: TerminalEvent,
