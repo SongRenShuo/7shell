@@ -172,7 +172,7 @@ function netLabel(): string {
       <button
         type="button"
         data-docker-summary-containers
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50"
+        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
         @click="emit('show-state', '')"
       >
         <Boxes :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -185,7 +185,7 @@ function netLabel(): string {
       <button
         type="button"
         data-docker-summary-images
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50"
+        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
         @click="emit('show-images')"
       >
         <Layers :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -196,7 +196,7 @@ function netLabel(): string {
       <button
         type="button"
         data-docker-summary-abnormal
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50"
+        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
         @click="emit('show-state', 'dead')"
       >
         <CircleAlert :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -235,7 +235,13 @@ function netLabel(): string {
           role="img"
           :aria-label="t('container.desktop.chart.cpu')"
         >
-          <polyline :points="cpuPoints" fill="none" stroke="var(--info)" stroke-width="1.5" stroke-linejoin="round" />
+          <polyline
+            :points="cpuPoints"
+            fill="none"
+            stroke="var(--workbench-accent)"
+            stroke-width="1.5"
+            stroke-linejoin="round"
+          />
         </svg>
         <p v-else class="text-[11px] text-muted-foreground">—</p>
       </section>

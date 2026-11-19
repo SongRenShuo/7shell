@@ -1,11 +1,13 @@
 /**
- * The shared button, as the panes meet it: three intents and two sizes, and the busy state that
+ * The shared button, as the panes meet it: four intents and three sizes, and the busy state that
  * turns a write action's button into a "something is happening" while the operation's own words
  * are still what the label says.
  *
  * What is asserted is what stops being free once the intents are shared: that the variants carry
- * the theme tokens rather than literals, that busy refuses presses while ordinary disabled does
- * not draw a spinner, and that a button still answers a click when it is enabled.
+ * the theme tokens rather than literals (the primary is the brand blue, the warn a light wash of
+ * danger), that the three heights are the reference's own steps, that the control radius is the
+ * corner style's 6px step, and that busy refuses presses while ordinary disabled does not draw a
+ * spinner.
  */
 import { type App, createApp, h, nextTick } from "vue";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -17,8 +19,8 @@ let host: HTMLDivElement;
 let clicks: number[] = [];
 
 type Props = {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md";
+  variant?: "primary" | "secondary" | "tertiary" | "warn";
+  size?: "sm" | "md" | "lg";
   busy?: boolean;
   disabled?: boolean;
 };
@@ -48,27 +50,51 @@ it("draws the label and the default intent — a secondary, medium button", () =
   const button = mount();
   expect(button.textContent).toBe("Do it");
   expect(button.className).toContain("border-border");
+  expect(button.className, "the white face with an edge").toContain("bg-background");
   expect(button.className).toContain("text-xs");
 });
 
 it("keeps one base shape while the intent changes the fill", () => {
   const primary = mount({ variant: "primary" });
-  expect(primary.className).toContain("bg-primary");
+  expect(primary.className, "the primary is the desktop's brand-blue token").toContain("bg-[var(--workbench-accent)]");
+  expect(primary.className, "the words on the blue are the fixed white pair").toContain(
+    "text-[var(--workbench-on-wallpaper)]",
+  );
   expect(primary.className).toContain("focus-visible:ring-1");
 
   reset();
-  const ghost = mount({ variant: "ghost" });
-  expect(ghost.className).toContain("border-transparent");
-  expect(ghost.className).toContain("focus-visible:ring-1");
+  const tertiary = mount({ variant: "tertiary" });
+  expect(tertiary.className).toContain("border-transparent");
+  expect(tertiary.className).toContain("bg-muted");
+  expect(tertiary.className).toContain("focus-visible:ring-1");
+
+  reset();
+  const warn = mount({ variant: "warn" });
+  expect(warn.className, "warn is the light wash of danger with the danger colour as its text").toContain(
+    "text-[var(--workbench-danger)]",
+  );
+  expect(warn.className).toContain("bg-[color-mix(in_srgb,var(--workbench-danger)_10%,transparent)]");
 });
 
-it("sizes from the interface's own two text steps, not new ones", () => {
+it("wears the control radius the corner style derives — the 6px step", () => {
+  const button = mount({ variant: "primary" });
+  expect(button.className).toContain("rounded-sm");
+});
+
+it("sizes from the reference's own three heights", () => {
   const small = mount({ size: "sm" });
+  expect(small.className).toContain("h-7");
   expect(small.className).toContain("text-[11px]");
 
   reset();
   const medium = mount({ size: "md" });
+  expect(medium.className).toContain("h-9");
   expect(medium.className).toContain("text-xs");
+
+  reset();
+  const large = mount({ size: "lg" });
+  expect(large.className).toContain("h-10");
+  expect(large.className).toContain("text-sm");
 });
 
 it("busy means the operation is in flight: a spinner, an announcement, and no press", async () => {

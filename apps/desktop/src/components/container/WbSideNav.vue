@@ -59,9 +59,9 @@ const itemClass = computed(
         "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs transition-colors",
         item.disabled && "cursor-not-allowed text-muted-foreground/60",
         !item.disabled && item.id === props.activeId
-          ? "bg-accent text-foreground shadow-[inset_3px_0_0_var(--workbench-accent)]"
+          ? "bg-[color-mix(in_srgb,var(--workbench-accent)_12%,transparent)] text-foreground shadow-[inset_3px_0_0_var(--workbench-accent)]"
           : !item.disabled
-            ? "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            ? "text-muted-foreground hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
             : "",
       ),
 );
