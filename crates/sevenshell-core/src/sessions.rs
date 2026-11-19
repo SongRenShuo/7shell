@@ -111,6 +111,9 @@ pub struct Core {
     /// desktop's Docker manager asks for its engine by session; opening again answers the
     /// connection the first open made.
     pub(crate) desktop_engines: Mutex<HashMap<String, String>>,
+    /// What each desktop engine turned out to have, probed once at open: whether the Compose
+    /// plugin answers. Keyed by connection id, dropped with the connection.
+    pub(crate) desktop_engine_caps: Mutex<HashMap<String, crate::compose::DesktopEngineCaps>>,
     /// Stops for the line streams a tail window is following. Keyed by the id the host emitted,
     /// so a stop button and a closing window use the same path.
     pub(crate) tail_streams: Arc<Mutex<crate::tail::TailStreamStops>>,
@@ -143,6 +146,7 @@ impl Core {
                 clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
                 container_streams: Arc::new(Mutex::new(HashMap::new())),
                 desktop_engines: Mutex::new(HashMap::new()),
+                desktop_engine_caps: Mutex::new(HashMap::new()),
                 tail_streams: Arc::new(Mutex::new(HashMap::new())),
                 next_file: std::sync::atomic::AtomicU64::new(1),
                 next_transfer: std::sync::atomic::AtomicU64::new(1),

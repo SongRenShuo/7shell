@@ -9,11 +9,14 @@
 //! The other direction is bounded. A runtime will happily print tens of megabytes, and the answer
 //! travels to the interface, so input, row count, and every list inside a detail are capped here.
 
+use std::collections::{HashMap, HashSet};
+
 use serde_json::{Map, Value};
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerDetail, ContainerImage, ContainerMount, ContainerPort, ContainerRuntime, ContainerRuntimeInfo,
-    ContainerStateCount, ContainerStats, ContainerSummary, ImageLayer,
+    ComposeProject, ComposeServiceRow, ContainerDetail, ContainerImage, ContainerMount, ContainerPort,
+    ContainerRuntime, ContainerRuntimeInfo, ContainerStateCount, ContainerStats, ContainerSummary, ImageLayer,
+    NetworkSummary,
 };
 
 /// The largest answer that is still parsed. Beyond this the interface would be showing a table
@@ -310,6 +313,8 @@ pub(crate) fn runtime_info(
         images_total: 0,
         images_tagged: 0,
         images_dangling: 0,
+        compose_available: false,
+        network_available: false,
     };
 
     if let Some(document) = documents(info.unwrap_or_default()).into_iter().next() {
@@ -1055,6 +1060,205 @@ fn malformed(detail: &str) -> ShellError {
     ShellError::container_command_failed("the inspect request", detail)
 }
 
+// -- Networks ----------------------------------------------------------------
+
+/// The network names a `network ls` answer carries, for the one inspect call that follows.
+pub(crate) fn network_names(ls: &str) -> Vec<String> {
+    documents(ls)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .filter_map(|row| {
+            let name = text(&row, &["Name", "name"]);
+            if name.is_empty() { None } else { Some(name) }
+        })
+        .collect()
+}
+
+/// Folds a `network ls` answer and one inspect answer into the list rows the interface draws.
+///
+/// The ls carries what every network has (name, driver, scope); the inspect carries what only the
+/// inspect has (the IPAM addresses and the attached containers). A network whose inspect row is
+/// missing still shows — with empty addresses — rather than taking the whole list down with it.
+pub(crate) fn networks(ls: &str, inspect: &str) -> Vec<NetworkSummary> {
+    let inspected: Vec<Map<String, Value>> = documents(inspect);
+    documents(ls)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .map(|row| {
+            let name = text(&row, &["Name", "name"]);
+            let detail = inspected
+                .iter()
+                .find(|map| text(map, &["Name", "name"]) == name && !name.is_empty());
+            network_summary(&row, detail, &name)
+        })
+        .collect()
+}
+
+fn network_summary(row: &Map<String, Value>, detail: Option<&Map<String, Value>>, name: &str) -> NetworkSummary {
+    let mut subnet = String::new();
+    let mut gateway = String::new();
+    let mut ip_range = String::new();
+    let mut containers = 0u32;
+    if let Some(detail) = detail {
+        if let Some(config) = pick(detail, &["IPAM", "ipam"])
+            .and_then(Value::as_object)
+            .and_then(|ipam| pick(ipam, &["Config", "config"]))
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(Value::as_object)
+        {
+            subnet = text(config, &["Subnet", "subnet"]);
+            gateway = text(config, &["Gateway", "gateway"]);
+            ip_range = text(config, &["IPRange", "ipRange"]);
+        }
+        containers = pick(detail, &["Containers", "containers"])
+            .and_then(Value::as_object)
+            .map(|map| map.len() as u32)
+            .unwrap_or(0);
+    }
+    NetworkSummary {
+        name: name.to_owned(),
+        driver: text(row, &["Driver", "driver"]),
+        scope: text(row, &["Scope", "scope"]),
+        subnet,
+        gateway,
+        ip_range,
+        ipv6: boolean(
+            detail.and_then(|d| pick(d, &["EnableIPv6", "enableIPv6"])),
+            pick(row, &["IPv6", "ipv6"]),
+        ),
+        internal: boolean(
+            detail.and_then(|d| pick(d, &["Internal", "internal"])),
+            pick(row, &["Internal", "internal"]),
+        ),
+        containers,
+    }
+}
+
+/// One boolean from two answers that may each carry it, in either spelling the CLIs print.
+///
+/// The first answer that speaks wins: the inspect's typed `EnableIPv6` outranks the string the
+/// `ls` printed, wherever the engine prints them differently.
+fn boolean(primary: Option<&Value>, secondary: Option<&Value>) -> bool {
+    for candidate in [primary, secondary].into_iter().flatten() {
+        match candidate {
+            Value::Bool(value) => return *value,
+            Value::String(text) => return text.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+    false
+}
+
+/// How many containers the engine says are attached to one network, read out of its inspect.
+///
+/// A network that does not answer its own inspect is a refusal the caller sees, not an empty
+/// count: an empty count would let the removal through.
+pub(crate) fn network_container_count(inspect: &str, name: &str) -> Result<u32, ShellError> {
+    for row in documents(inspect) {
+        if text(&row, &["Name", "name"]) == name.trim() {
+            return Ok(pick(&row, &["Containers", "containers"])
+                .and_then(Value::as_object)
+                .map(|map| map.len() as u32)
+                .unwrap_or(0));
+        }
+    }
+    Err(malformed(&format!("the network {name} was not in the inspect answer")))
+}
+
+// -- Compose -----------------------------------------------------------------
+
+/// Folds a `compose ls` answer and the labelled `ps` answer into the project rows.
+///
+/// The ls names the projects and where their files live; the labelled ps carries every container
+/// with a project label, from which the service and container counts are folded — one call for
+/// the whole list, not one per project.
+pub(crate) fn compose_projects(ls: &str, labelled_ps: &str) -> Vec<ComposeProject> {
+    let mut services: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut containers: HashMap<String, u32> = HashMap::new();
+    for row in documents(labelled_ps) {
+        // Two shapes for the same field: newer CLIs print the labels as an object, the Compose
+        // plugin's `ps` prints them as the comma-joined `key=value` sentence it shows humans.
+        // Either shape carries the two labels the project list folds.
+        let (project, service) = match pick(&row, &["Labels", "labels"]) {
+            Some(Value::Object(labels)) => {
+                (label_text(labels, PROJECT_LABEL), label_text(labels, SERVICE_LABEL))
+            }
+            Some(Value::String(joined)) => string_labels(joined),
+            _ => (String::new(), String::new()),
+        };
+        if project.is_empty() {
+            continue;
+        }
+        *containers.entry(project.clone()).or_insert(0) += 1;
+        if !service.is_empty() {
+            services.entry(project).or_default().insert(service);
+        }
+    }
+    documents(ls)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .map(|row| {
+            let name = text(&row, &["Name", "name"]);
+            ComposeProject {
+                services: services.get(&name).map(|set| set.len() as u32).unwrap_or(0),
+                containers: containers.get(&name).copied().unwrap_or(0),
+                name,
+                status: text(&row, &["Status", "status"]),
+                config_files: text(&row, &["ConfigFiles", "configFiles"]),
+            }
+        })
+        .filter(|row| !row.name.is_empty())
+        .collect()
+}
+
+/// The two labels the project list folds out of every Compose container.
+const PROJECT_LABEL: &str = "com.docker.compose.project";
+const SERVICE_LABEL: &str = "com.docker.compose.service";
+
+fn label_text(labels: &Map<String, Value>, key: &str) -> String {
+    match labels.get(key) {
+        Some(Value::String(value)) => value.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Reads the comma-joined `key=value` sentence. Label values may carry commas, so the two
+/// Compose labels are cut by key rather than trusted to position: each segment is a pair whose
+/// key ends at its first `=`, and only an exact match is taken.
+fn string_labels(joined: &str) -> (String, String) {
+    let mut project = String::new();
+    let mut service = String::new();
+    for pair in joined.split(',') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            PROJECT_LABEL if project.is_empty() => project = value.trim().to_owned(),
+            SERVICE_LABEL if service.is_empty() => service = value.trim().to_owned(),
+            _ => {}
+        }
+    }
+    (project, service)
+}
+
+/// Reads a `compose ps` answer into the service rows of one project.
+pub(crate) fn compose_services(ps: &str) -> Vec<ComposeServiceRow> {
+    documents(ps)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .map(|row| ComposeServiceRow {
+            id: text(&row, &["ID", "Id", "id"]),
+            name: text(&row, &["Name", "name"]),
+            service: text(&row, &["Service", "service"]),
+            state: text(&row, &["State", "state"]),
+            health: text(&row, &["Health", "health"]),
+            status: text(&row, &["Status", "status"]),
+        })
+        .filter(|row| !row.name.is_empty() || !row.service.is_empty())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1390,5 +1594,118 @@ mod tests {
         );
         let detail = detail(&raw).unwrap();
         assert_eq!(detail.env.len(), MAX_ENV_ENTRIES);
+    }
+
+    #[test]
+    fn the_network_list_folds_the_ls_and_the_inspect_answers() {
+        let ls = concat!(
+            "{\"Name\":\"bridge\",\"Driver\":\"bridge\",\"Scope\":\"local\",\"IPv6\":false,\"Internal\":false}\n",
+            "{\"Name\":\"mem-net\",\"Driver\":\"bridge\",\"Scope\":\"local\",\"IPv6\":\"false\",\"Internal\":false}\n"
+        );
+        let inspect = concat!(
+            "[",
+            "{\"Name\":\"bridge\",\"IPAM\":{\"Config\":[{\"Subnet\":\"172.17.0.0/16\",\"Gateway\":\"172.17.0.1\"}]},",
+            "\"Containers\":{\"abc\":{\"Name\":\"web\"},\"def\":{\"Name\":\"api\"}},\"EnableIPv6\":false},",
+            "{\"Name\":\"mem-net\",\"IPAM\":{\"Config\":[{\"Subnet\":\"172.30.0.0/24\",\"Gateway\":\"172.30.0.1\",\"IPRange\":\"172.30.0.0/25\"}]},",
+            "\"Containers\":{},\"EnableIPv6\":true}",
+            "]"
+        );
+        let rows = networks(ls, inspect);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "bridge");
+        assert_eq!(rows[0].subnet, "172.17.0.0/16");
+        assert_eq!(rows[0].gateway, "172.17.0.1");
+        assert_eq!(rows[0].containers, 2);
+        assert!(!rows[0].ipv6);
+        assert_eq!(rows[1].name, "mem-net");
+        assert_eq!(rows[1].subnet, "172.30.0.0/24");
+        assert_eq!(rows[1].ip_range, "172.30.0.0/25");
+        assert_eq!(rows[1].containers, 0);
+        assert!(
+            rows[1].ipv6,
+            "the inspect's EnableIPv6 answers where the ls prints a string"
+        );
+        // A network the inspect never answered still shows, with nothing to draw under it.
+        let degraded = networks(ls, "");
+        assert_eq!(degraded.len(), 2);
+        assert_eq!(degraded[0].containers, 0);
+        assert!(degraded[0].subnet.is_empty());
+        // And the names the inspect call should carry.
+        assert_eq!(network_names(ls), vec!["bridge".to_owned(), "mem-net".to_owned()]);
+    }
+
+    #[test]
+    fn the_removal_guardrail_reads_the_count_and_refuses_a_network_that_did_not_answer() {
+        let inspect = "[{\"Name\":\"mem-net\",\"Containers\":{\"abc\":{\"Name\":\"web\"},\"def\":{\"Name\":\"api\"}}}]";
+        assert_eq!(network_container_count(inspect, "mem-net").unwrap(), 2);
+        assert_eq!(
+            network_container_count(inspect, "mem-net ").unwrap(),
+            2,
+            "the name is compared the way the argv was trimmed"
+        );
+        assert!(network_container_count(inspect, "other-net").is_err());
+    }
+
+    #[test]
+    fn the_compose_list_folds_the_ls_and_the_labelled_ps_answers() {
+        let ls = concat!(
+            "{\"Name\":\"web\",\"Status\":\"running(2)\",\"ConfigFiles\":\"/root/app/compose.yml\"}\n",
+            "{\"Name\":\"stack\",\"Status\":\"exited(1)\",\"ConfigFiles\":\"/root/stack/compose.yml\"}\n"
+        );
+        let ps = concat!(
+            "{\"Labels\":{\"com.docker.compose.project\":\"web\",\"com.docker.compose.service\":\"api\"}}\n",
+            "{\"Labels\":{\"com.docker.compose.project\":\"web\",\"com.docker.compose.service\":\"api\"}}\n",
+            "{\"Labels\":{\"com.docker.compose.project\":\"web\",\"com.docker.compose.service\":\"worker\"}}\n",
+            "{\"Labels\":{\"com.docker.compose.project\":\"stack\",\"com.docker.compose.service\":\"db\"}}\n",
+            "{\"Labels\":{}}\n"
+        );
+        let rows = compose_projects(ls, ps);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "web");
+        assert_eq!(rows[0].status, "running(2)");
+        assert_eq!(rows[0].config_files, "/root/app/compose.yml");
+        assert_eq!(rows[0].services, 2, "the same service twice is one service");
+        assert_eq!(rows[0].containers, 3);
+        assert_eq!(rows[1].name, "stack");
+        assert_eq!(rows[1].services, 1);
+        assert_eq!(rows[1].containers, 1);
+    }
+
+    #[test]
+    fn the_compose_list_reads_the_label_sentence_the_plugin_prints() {
+        // The Compose plugin's `ps` prints `Labels` as the comma-joined sentence, not an object:
+        // this is the shape the real machine printed, trimmed of its unrelated labels.
+        let ls = "{\"Name\":\"mem-compose-test\",\"Status\":\"running(1)\",\"ConfigFiles\":\"/root/mem-compose-test/nginx/docker-compose.yml\"}
+".to_owned();
+        let ps = concat!(
+            "{\"ID\":\"5ecc\",\"Names\":\"mem-compose-test-nginx-1\",\"State\":\"running\",",
+            "\"Labels\":\"com.docker.compose.config-hash=c3902,",
+            "com.docker.compose.project.config_files=/root/mem-compose-test/nginx/docker-compose.yml,",
+            "com.docker.compose.project=mem-compose-test,",
+            "com.docker.compose.service=nginx,",
+            "maintainer=NGINX Docker Maintainers\"}
+"
+        );
+        let rows = compose_projects(&ls, ps);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].services, 1);
+        assert_eq!(rows[0].containers, 1);
+        assert_eq!(rows[0].status, "running(1)");
+    }
+
+    #[test]
+    fn the_compose_ps_answer_becomes_service_rows() {
+        let ps = concat!(
+            "{\"ID\":\"abc\",\"Name\":\"web-api-1\",\"Service\":\"api\",\"State\":\"running\",\"Health\":\"healthy\",\"Status\":\"Up 2 minutes\"}\n",
+            "{\"ID\":\"def\",\"Name\":\"web-db-1\",\"Service\":\"db\",\"State\":\"exited\",\"Status\":\"Exited (0)\"}\n"
+        );
+        let rows = compose_services(ps);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "web-api-1");
+        assert_eq!(rows[0].service, "api");
+        assert_eq!(rows[0].state, "running");
+        assert_eq!(rows[0].health, "healthy");
+        assert_eq!(rows[1].state, "exited");
+        assert!(rows[1].health.is_empty(), "a field the row does not carry stays absent");
     }
 }

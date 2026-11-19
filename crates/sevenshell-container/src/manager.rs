@@ -17,8 +17,9 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage, ContainerImageTransfer,
-    ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerSummary, ImageLayer,
+    ComposeProject, ComposeServiceRow, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
+    ContainerImageTransfer, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
+    ContainerSummary, ImageLayer, NetworkCreateRequest, NetworkSummary,
 };
 
 use crate::commands::{self, ImageTransfer};
@@ -328,6 +329,128 @@ impl Provider {
         self.runner.stream(&argv).await
     }
 
+    // -- Networks ------------------------------------------------------------
+    //
+    // The network surface belongs to the desktop's Docker engine. Listing folds two calls: the
+    // `ls` names the networks, one inspect answers the addresses and attached containers for all
+    // of them at once.
+
+    pub async fn network_list(&self) -> Result<Vec<NetworkSummary>, ShellError> {
+        let ls_output = self.runner.run(&commands::network_ls(self.runtime)?).await?;
+        let names = parse::network_names(&ls_output);
+        let inspect_output = if names.is_empty() {
+            String::new()
+        } else {
+            // A network that vanished between the two calls makes the whole inspect exit non-zero
+            // while still answering the ones it found. The list degrades to rows without
+            // addresses rather than failing: the removal guardrail inspects again on its own.
+            match self.runner.run(&commands::network_inspect(self.runtime, &names)?).await {
+                Ok(output) => output,
+                Err(error) => {
+                    log::warn!("[container] the network inspect behind a list failed: {error}");
+                    String::new()
+                }
+            }
+        };
+        Ok(parse::networks(&ls_output, &inspect_output))
+    }
+
+    /// The removal guardrail's evidence: how many containers the engine says are attached.
+    pub async fn network_container_count(&self, name: &str) -> Result<u32, ShellError> {
+        let argv = commands::network_inspect(self.runtime, &[name.to_owned()])?;
+        let output = self.runner.run(&argv).await?;
+        parse::network_container_count(&output, name)
+    }
+
+    pub async fn network_create(&self, request: &NetworkCreateRequest) -> Result<(), ShellError> {
+        let argv = commands::network_create(self.runtime, request)?;
+        self.runner.run(&argv).await.map(|_| ())
+    }
+
+    pub async fn network_remove(&self, name: &str) -> Result<(), ShellError> {
+        let argv = commands::network_rm(self.runtime, name)?;
+        self.runner.run(&argv).await.map(|_| ())
+    }
+
+    /// Removes a network, but only when the engine says nothing is attached to it.
+    ///
+    /// This is the removal guardrail, and it lives here rather than in the interface: the count
+    /// is the engine's own inspect answer, and a `rm` that would strand running containers never
+    /// reaches the command line at all.
+    pub async fn network_remove_guarded(&self, name: &str) -> Result<(), ShellError> {
+        let attached = self.network_container_count(name).await?;
+        if attached > 0 {
+            return Err(ShellError::container_network_in_use(name, attached));
+        }
+        self.network_remove(name).await
+    }
+
+    // -- Compose -------------------------------------------------------------
+    //
+    // The Compose plugin rides the same engine; whether it is installed is one cheap probe whose
+    // failure is a capability bit, not an error.
+
+    /// Whether the Compose plugin answers on this engine.
+    pub async fn compose_available(&self) -> bool {
+        match commands::compose_version(self.runtime) {
+            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Err(_) => false,
+        }
+    }
+
+    pub async fn compose_ls(&self) -> Result<Vec<ComposeProject>, ShellError> {
+        let ls_output = self.runner.run(&commands::compose_ls(self.runtime)?).await?;
+        let ps_output = match self.runner.run(&commands::compose_labelled_ps(self.runtime)?).await {
+            Ok(output) => output,
+            Err(error) => {
+                log::warn!("[container] the labelled ps behind a compose list failed: {error}");
+                String::new()
+            }
+        };
+        Ok(parse::compose_projects(&ls_output, &ps_output))
+    }
+
+    pub async fn compose_ps(&self, project: &str) -> Result<Vec<ComposeServiceRow>, ShellError> {
+        let argv = commands::compose_ps(self.runtime, project)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::compose_services(&output))
+    }
+
+    /// Brings one project up from the Compose file already on the engine's disk.
+    ///
+    /// Detached answers once the containers have started. Attached hands back the engine's own
+    /// progress lines as a stream the caller owns and stops — pulling, building and starting are
+    /// exactly the sentences a person wants to watch.
+    pub async fn compose_up(
+        &self,
+        project: &str,
+        yml_path: &str,
+        detach: bool,
+    ) -> Result<Option<LineStream>, ShellError> {
+        let argv = commands::compose_up(self.runtime, project, yml_path, detach)?;
+        if detach {
+            self.runner.run(&argv).await.map(|_| None)
+        } else {
+            self.runner.stream(&argv).await.map(Some)
+        }
+    }
+
+    pub async fn compose_down(&self, project: &str) -> Result<(), ShellError> {
+        let argv = commands::compose_down(self.runtime, project)?;
+        self.runner.run(&argv).await.map(|_| ())
+    }
+
+    pub async fn compose_restart(&self, project: &str) -> Result<(), ShellError> {
+        let argv = commands::compose_restart(self.runtime, project)?;
+        self.runner.run(&argv).await.map(|_| ())
+    }
+
+    /// Follows one project's logs, newest tail first, from now on. The caller owns the stream.
+    pub async fn compose_logs(&self, project: &str, tail: u32) -> Result<LineStream, ShellError> {
+        let argv = commands::compose_logs(self.runtime, project, tail)?;
+        self.runner.stream(&argv).await
+    }
+
     /// The argv of an interactive `exec`, for callers that need to see it before running it.
     pub fn exec_argv(&self, id: &str, shell: &str) -> Result<Vec<String>, ShellError> {
         commands::exec(self.runtime, &self.namespace, id, shell)
@@ -508,6 +631,7 @@ impl Default for ContainerManager {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::sync::Mutex;
 
     use sevenshell_error::ErrorCode;
@@ -519,7 +643,13 @@ mod tests {
         calls: Mutex<Vec<Vec<String>>>,
         inputs: Mutex<Vec<Vec<u8>>>,
         output: String,
+        /// Answers handed out one per run, when a test needs two calls to answer differently
+        /// (a `ls` and the inspect that follows it). Empty means `output` every time.
+        queue: Mutex<VecDeque<String>>,
         fail: bool,
+        /// With `fail`, the first call that fails. `0` fails every call, which is what the
+        /// plain `fail: true` tests mean.
+        fail_from_call: usize,
     }
 
     impl RecordingRunner {
@@ -536,16 +666,39 @@ mod tests {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
         }
+
+        fn with_answers(answers: &[&str]) -> Self {
+            Self {
+                queue: Mutex::new(answers.iter().map(|answer| (*answer).to_owned()).collect()),
+                ..Self::default()
+            }
+        }
+
+        fn next_output(&self) -> String {
+            if let Some(answer) = self
+                .queue
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .pop_front()
+            {
+                return answer;
+            }
+            self.output.clone()
+        }
     }
 
     #[async_trait]
     impl CommandRunner for RecordingRunner {
         async fn run(&self, argv: &[String]) -> Result<String, ShellError> {
-            self.record(argv);
-            if self.fail {
+            let index = {
+                let mut calls = self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                calls.push(argv.to_vec());
+                calls.len() - 1
+            };
+            if self.fail && index >= self.fail_from_call {
                 return Err(ShellError::container_unavailable("docker", "the engine is not running"));
             }
-            Ok(self.output.clone())
+            Ok(self.next_output())
         }
 
         async fn run_stdin(&self, argv: &[String], input: Vec<u8>) -> Result<String, ShellError> {
@@ -988,6 +1141,211 @@ mod tests {
             recorder.calls(),
             vec![vec!["wslc", "image", "inspect", "--format", "json", "nginx:latest"]]
         );
+    }
+
+    #[tokio::test]
+    async fn network_listing_asks_two_questions_and_folds_the_answers() {
+        let ls = "{\"Name\":\"bridge\",\"Driver\":\"bridge\",\"Scope\":\"local\"}\n".to_owned();
+        let inspect =
+            "[{\"Name\":\"bridge\",\"IPAM\":{\"Config\":[{\"Subnet\":\"172.17.0.0/16\"}]},\"Containers\":{\"a\":{}}}]"
+                .to_owned();
+        let recorder = Arc::new(RecordingRunner::with_answers(&[&ls, &inspect]));
+        let rows = build_provider(ContainerRuntime::Docker, "", &recorder)
+            .network_list()
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "bridge");
+        assert_eq!(rows[0].subnet, "172.17.0.0/16");
+        assert_eq!(rows[0].containers, 1);
+        let calls = recorder.calls();
+        assert_eq!(calls.len(), 2, "one ls and one inspect for every network at once");
+        assert_eq!(calls[0], vec!["docker", "network", "ls", "--format", "{{json .}}"]);
+        assert_eq!(calls[1], vec!["docker", "network", "inspect", "bridge"]);
+    }
+
+    #[tokio::test]
+    async fn an_inspect_failure_behind_a_network_list_degrades_instead_of_failing() {
+        let recorder = Arc::new(RecordingRunner {
+            output: "{\"Name\":\"bridge\",\"Driver\":\"bridge\"}\n".to_owned(),
+            fail: true,
+            // The `ls` answers, the inspect that follows it does not.
+            fail_from_call: 1,
+            ..RecordingRunner::default()
+        });
+        let rows = build_provider(ContainerRuntime::Docker, "", &recorder)
+            .network_list()
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "bridge");
+        assert!(rows[0].subnet.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_removal_guardrail_refuses_a_network_that_still_holds_containers_and_passes_an_empty_one() {
+        // A network with two containers attached: the inspect answers, the `rm` never runs.
+        let recorder = Arc::new(RecordingRunner {
+            output: "[{\"Name\":\"mem-net\",\"Containers\":{\"a\":{\"Name\":\"web\"},\"b\":{\"Name\":\"api\"}}}]"
+                .to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let error = provider.network_remove_guarded("mem-net").await.unwrap_err();
+        assert_eq!(error.code(), ErrorCode::ContainerNetworkInUse);
+        assert_eq!(
+            recorder.calls(),
+            vec![vec!["docker", "network", "inspect", "mem-net"]],
+            "the refusal is the guardrail's, so there is no rm on the trail"
+        );
+
+        // The same network with nothing attached: the inspect answers, then the rm goes out.
+        let recorder = Arc::new(RecordingRunner {
+            output: "[{\"Name\":\"mem-net\",\"Containers\":{}}]".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        provider.network_remove_guarded("mem-net").await.unwrap();
+        assert_eq!(
+            recorder.calls(),
+            vec![
+                vec!["docker", "network", "inspect", "mem-net"],
+                vec!["docker", "network", "rm", "mem-net"]
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_network_or_compose_argument_never_reaches_the_runner() {
+        let recorder = Arc::new(RecordingRunner::default());
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        for name in ["", "  ", "--help", "-x"] {
+            assert!(
+                provider.network_remove(name).await.is_err(),
+                "network rm accepted {name:?}"
+            );
+            assert!(
+                provider.network_container_count(name).await.is_err(),
+                "inspect accepted {name:?}"
+            );
+            assert!(
+                provider.compose_down(name).await.is_err(),
+                "compose down accepted {name:?}"
+            );
+            assert!(provider.compose_ps(name).await.is_err(), "compose ps accepted {name:?}");
+            assert!(
+                provider.compose_up(name, "/root/app/compose.yml", true).await.is_err(),
+                "compose up accepted {name:?}"
+            );
+        }
+        for path in ["relative.yml", "/root//x.yml", "/root/dir/", "", "-f"] {
+            assert!(
+                provider.compose_up("web", path, true).await.is_err(),
+                "compose up accepted the path {path:?}"
+            );
+        }
+        assert!(
+            recorder.calls().is_empty(),
+            "a rejected argument still reached the runner: {:?}",
+            recorder.calls()
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_availability_is_the_probe_succeeding_and_nothing_else() {
+        let recorder = Arc::new(RecordingRunner::default());
+        assert!(
+            build_provider(ContainerRuntime::Docker, "", &recorder)
+                .compose_available()
+                .await,
+            "the probe ran and answered"
+        );
+        assert_eq!(recorder.calls(), vec![vec!["docker", "compose", "version"]]);
+
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            ..RecordingRunner::default()
+        });
+        assert!(
+            !build_provider(ContainerRuntime::Docker, "", &recorder)
+                .compose_available()
+                .await,
+            "a probe that failed is a capability bit that is off, not an error"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_up_detached_answers_and_attached_streams() {
+        let recorder = Arc::new(RecordingRunner::default());
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let detached = provider.compose_up("web", "/root/app/compose.yml", true).await.unwrap();
+        assert!(detached.is_none(), "a detached up has no stream to follow");
+        let attached = provider
+            .compose_up("web", "/root/app/compose.yml", false)
+            .await
+            .unwrap();
+        assert!(attached.is_some(), "an attached up is a stream the caller stops");
+        assert_eq!(
+            recorder.calls()[0],
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "--file",
+                "/root/app/compose.yml",
+                "up",
+                "--detach"
+            ]
+        );
+        assert_eq!(
+            recorder.calls()[1],
+            vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "--file",
+                "/root/app/compose.yml",
+                "up"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_compose_list_asks_two_questions_and_compose_logs_follows() {
+        let ls = "{\"Name\":\"web\",\"Status\":\"running(2)\",\"ConfigFiles\":\"/root/app/compose.yml\"}\n".to_owned();
+        let ps =
+            "{\"Labels\":{\"com.docker.compose.project\":\"web\",\"com.docker.compose.service\":\"api\"}}\n".to_owned();
+        let recorder = Arc::new(RecordingRunner::with_answers(&[&ls, &ps]));
+        let rows = build_provider(ContainerRuntime::Docker, "", &recorder)
+            .compose_ls()
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].services, 1);
+        assert_eq!(rows[0].containers, 1);
+
+        let recorder = Arc::new(RecordingRunner::default());
+        let stream = build_provider(ContainerRuntime::Docker, "", &recorder)
+            .compose_logs("web", 100)
+            .await
+            .unwrap();
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec![
+                "docker",
+                "compose",
+                "--project-name",
+                "web",
+                "logs",
+                "--tail",
+                "100",
+                "--follow"
+            ],
+            "a compose log stream follows, like a container's does"
+        );
+        stream.stop();
     }
 
     #[tokio::test]

@@ -913,6 +913,16 @@ impl ShellError {
             .with_outcome(OperationOutcome::NotSent)
     }
 
+    /// The removal guardrail's refusal: the network was inspected and it still holds containers.
+    ///
+    /// `NotSent` on purpose — the `rm` never reached the runtime, so nothing happened.
+    pub fn container_network_in_use(network: &str, containers: u32) -> Self {
+        Self::new(ErrorCode::ContainerNetworkInUse, Origin::new(Subsystem::Container))
+            .with_param("network", network)
+            .with_param("containers", containers.to_string())
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
     pub fn k8s_unavailable(detail: impl AsRef<str>) -> Self {
         Self::new(ErrorCode::K8sUnavailable, Origin::new(Subsystem::K8s))
             .with_detail(detail)

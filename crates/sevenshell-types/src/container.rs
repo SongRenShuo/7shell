@@ -4,6 +4,8 @@
 //! Nothing in this module carries a credential, and nothing carries a local path: an image archive
 //! or a kubeconfig is chosen in a native dialog and stays on the Rust side.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::session::SecretInput;
@@ -241,6 +243,15 @@ pub struct ContainerRuntimeInfo {
     pub images_tagged: u32,
     #[serde(default)]
     pub images_dangling: u32,
+    /// Whether the engine's Compose plugin answered when the engine was opened. Absent on the
+    /// connections that were never probed, and on engines where the plugin is missing — which is
+    /// the interface's cue to show the overview only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compose_available: bool,
+    /// Whether the network surface can be asked. A desktop engine is Docker by construction, so
+    /// this is true wherever the Compose bit is; it is absent elsewhere so the mirror stays honest.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_available: bool,
 }
 
 /// One line of a stream the backend is following, tagged with the stream it belongs to.
@@ -277,10 +288,35 @@ pub struct ContainerPortMapping {
 pub struct ContainerVolume {
     pub source: String,
     pub destination: String,
+    /// Mount the volume read-only. Absent means read-write, the way `docker run` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+}
+
+/// The CPU weight presets the create dialog offers, in the reference's three steps. The engine turns each
+/// into the `--cpu-shares` count the runtime takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerCpuWeight {
+    High,
+    #[default]
+    Normal,
+    Low,
+}
+
+impl ContainerCpuWeight {
+    /// The share count each step maps to, matching the reference's own three-step values.
+    pub const fn cpu_shares(self) -> u32 {
+        match self {
+            Self::High => 768,
+            Self::Normal => 512,
+            Self::Low => 256,
+        }
+    }
 }
 
 /// Everything the create dialog collects.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerCreateRequest {
     pub image: String,
@@ -301,6 +337,24 @@ pub struct ContainerCreateRequest {
     pub interactive: bool,
     #[serde(default)]
     pub tty: bool,
+    /// Run the container with the host's device access. The dialog asks twice before this is set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub privileged: bool,
+    /// One Linux capability per `--cap-add`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    /// One network per `--network`, in the order the dialog listed them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<String>,
+    /// The memory ceiling in MiB; the engine converts it to bytes for `--memory`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_limit_mb: Option<u64>,
+    /// The CPU weight preset, or none for the runtime's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_weight: Option<ContainerCpuWeight>,
+    /// The labels a person wrote as remarks. A map, so the same key cannot be written twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<BTreeMap<String, String>>,
 }
 
 /// A pull or a push.
@@ -338,4 +392,81 @@ pub struct ContainerCommitRequest {
     pub author: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub message: String,
+}
+
+/// One Docker network as a list row shows it.
+///
+/// The address fields (`subnet`, `gateway`, `ipRange`) are filled in from the network's inspect,
+/// which is why they may be absent: the built-in networks answer them, but a network whose driver
+/// has no IPAM at all does not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkSummary {
+    pub name: String,
+    pub driver: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scope: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subnet: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub gateway: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ip_range: String,
+    #[serde(default)]
+    pub ipv6: bool,
+    #[serde(default)]
+    pub internal: bool,
+    /// How many containers are attached right now. The removal guardrail reads this before a
+    /// network is allowed to leave.
+    pub containers: u32,
+}
+
+/// Everything the network create form collects.
+///
+/// Every address field is a CIDR the daemon will check again; the shape check here exists so an
+/// option-shaped string never reaches the command line, not to second-guess the engine.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkCreateRequest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub driver: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subnet: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub gateway: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ip_range: String,
+    #[serde(default)]
+    pub ipv6: bool,
+}
+
+/// One Compose project as the project list shows it.
+///
+/// `config_files` is the engine's own sentence about where the project's files live; `services`
+/// is the distinct services the project's containers carry, and `containers` is how many of those
+/// containers exist including stopped ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeProject {
+    pub name: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub config_files: String,
+    pub services: u32,
+    pub containers: u32,
+}
+
+/// One service of one Compose project, as the project's `ps` shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeServiceRow {
+    pub id: String,
+    pub name: String,
+    pub service: String,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub health: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
 }

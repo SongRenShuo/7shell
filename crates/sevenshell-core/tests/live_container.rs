@@ -174,6 +174,7 @@ async fn a_container_runtime_over_ssh_lists_creates_and_execs() {
         command: "sleep 300".to_owned(),
         interactive: false,
         tty: false,
+        ..ContainerCreateRequest::default()
     };
     lab.core
         .container_create(&connection, &create)

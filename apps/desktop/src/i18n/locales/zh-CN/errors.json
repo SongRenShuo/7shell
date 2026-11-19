@@ -120,7 +120,8 @@
     "container": {
       "unavailable": "找不到 {runtime} 命令，或容器引擎没有运行。",
       "commandFailed": "容器运行时拒绝了{operation}。",
-      "notConnected": "这个容器连接已经关闭。"
+      "notConnected": "这个容器连接已经关闭。",
+      "networkInUse": "网络 {network} 仍有 {containers} 个容器关联，请先断开再删除。"
     },
     "k8s": {
       "unavailable": "连不上 Kubernetes API 服务器。",

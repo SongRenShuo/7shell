@@ -27,9 +27,10 @@ use sevenshell_types::{
     AppInfo, AppSettings, AuthMethod, BatchRequest, CompletionExecuteRequest, CompletionWord, ContainerCommitRequest,
     ContainerCreateRequest, ContainerImageTransfer, ContainerRegistryLogin, ContainerStreamEnd, ContainerStreamLine,
     CreatedKey, DownloadFolderView, EntryKind, K8sExecRequest, K8sLogRequest, K8sRequest, K8sStreamEnd, K8sStreamLine,
-    K8sWatchEvent, KeyAlgorithm, KeyInfo, LocalForward, PresentedHostKey, Protocol, SecretInput, SendTarget, Session,
-    SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup, SyncSelection, TailStreamEnd,
-    TailStreamLine, TransferState, TrashMoveRequest, UpdateCheck, UploadAnswer, UploadOutcome, VaultState,
+    K8sWatchEvent, KeyAlgorithm, KeyInfo, LocalForward, NetworkCreateRequest, PresentedHostKey, Protocol, SecretInput,
+    SendTarget, Session, SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup,
+    SyncSelection, TailStreamEnd, TailStreamLine, TransferState, TrashMoveRequest, UpdateCheck, UploadAnswer,
+    UploadOutcome, VaultState,
 };
 use sevenshell_vault::{ExportProtection, OpenedBundle, SessionSecret, Vault, VaultStatus};
 use std::collections::HashMap;
@@ -1342,6 +1343,85 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let connection_id: String = from_args(&args, "connectionId")?;
             let request: ContainerRegistryLogin = from_args(&args, "request")?;
             state.core.container_registry_login(&connection_id, &request).await?;
+            Ok(Value::Null)
+        }
+
+        // -- Desktop Docker engine: networks -------------------------------------
+        "network_list" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            to_value(state.core.network_list(&connection_id).await?)
+        }
+        "network_create" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let request: NetworkCreateRequest = from_args(&args, "request")?;
+            state.core.network_create(&connection_id, &request).await?;
+            Ok(Value::Null)
+        }
+        "network_remove" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            state.core.network_remove(&connection_id, &name).await?;
+            Ok(Value::Null)
+        }
+
+        // -- Desktop Docker engine: Compose projects ------------------------------
+        "compose_ls" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            to_value(state.core.compose_ls(&connection_id).await?)
+        }
+        "compose_ps" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            to_value(state.core.compose_ps(&connection_id, &name).await?)
+        }
+        "compose_up" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            let yml_path: String = from_args(&args, "ymlPath")?;
+            let detach: bool = from_args(&args, "detach")?;
+            let (events, lines) = tokio::sync::mpsc::unbounded_channel();
+            let (end, ends) = tokio::sync::mpsc::unbounded_channel();
+            let stream = state
+                .core
+                .compose_up_start(&connection_id, &name, &yml_path, detach, events, end)
+                .await?;
+            // An attached up follows on the container stream channel; a detached one answers
+            // null and has nothing to forward.
+            if stream.is_some() {
+                forward_container_stream(state.events.clone(), lines, ends);
+            }
+            Ok(json!(stream))
+        }
+        "compose_down" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            state.core.compose_down(&connection_id, &name).await?;
+            Ok(Value::Null)
+        }
+        "compose_restart" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            state.core.compose_restart(&connection_id, &name).await?;
+            Ok(Value::Null)
+        }
+        "compose_logs_start" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            let tail: u32 = from_args(&args, "tail")?;
+            let (events, lines) = tokio::sync::mpsc::unbounded_channel();
+            let (end, ends) = tokio::sync::mpsc::unbounded_channel();
+            let stream_id = state
+                .core
+                .compose_logs_start(&connection_id, &name, tail, events, end)
+                .await?;
+            forward_container_stream(state.events.clone(), lines, ends);
+            Ok(json!(stream_id))
+        }
+        "compose_write_yaml" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let yml_path: String = from_args(&args, "ymlPath")?;
+            let yml: String = from_args(&args, "yml")?;
+            state.core.compose_write_yaml(&connection_id, &yml_path, &yml).await?;
             Ok(Value::Null)
         }
 

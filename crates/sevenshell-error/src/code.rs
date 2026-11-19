@@ -236,6 +236,8 @@ error_catalog! {
     ContainerCommandFailed => "CONTAINER-COMMAND-FAILED", "errors.container.commandFailed";
     #[doc = "The container connection this call names is no longer open."]
     ContainerNotConnected => "CONTAINER-NOT-CONNECTED", "errors.container.notConnected";
+    #[doc = "A Docker network still has containers attached, so the engine refused to remove it."]
+    ContainerNetworkInUse => "CONTAINER-NETWORK-IN-USE", "errors.container.networkInUse";
 
     // -- Kubernetes --------------------------------------------------------
     #[doc = "The Kubernetes API server could not be reached."]
