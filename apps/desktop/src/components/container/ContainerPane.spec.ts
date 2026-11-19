@@ -230,15 +230,16 @@ describe("the desktop layout", () => {
     expect(row?.querySelectorAll("button")).toHaveLength(1);
   });
 
-  it("offers the networks page beside the three, and the wizard reads the engine's networks", async () => {
+  it("offers the networks and Compose pages beside the three when the bits are absent", async () => {
     await mount(tab("docker"), "desktop");
 
-    // The engine answered with no capability bits at all — the reading is "has it", so the row
-    // is drawn.
+    // The engine answered with no capability bits at all — the reading is "has it", so both rows
+    // are drawn.
     expect(document.querySelector('[data-side-nav-item="networks"]'), "the networks row is drawn").not.toBeNull();
+    expect(document.querySelector('[data-side-nav-item="compose"]'), "the compose row is drawn").not.toBeNull();
   });
 
-  it("trims the networks row when the engine says the capability is not there", async () => {
+  it("trims the rows whose capability the engine says it does not have", async () => {
     infoMock.mockResolvedValue({
       runtime: "docker",
       cpus: 2,
@@ -248,11 +249,13 @@ describe("the desktop layout", () => {
       imagesTotal: 0,
       imagesTagged: 0,
       imagesDangling: 0,
+      composeAvailable: false,
       networkAvailable: false,
     });
     await mount(tab("docker"), "desktop");
 
     expect(document.querySelector('[data-side-nav-item="networks"]'), "the networks row is gone").toBeNull();
+    expect(document.querySelector('[data-side-nav-item="compose"]'), "the compose row is gone").toBeNull();
     expect(document.querySelector('[data-side-nav-item="containers"]'), "the rest of the rail stands").not.toBeNull();
   });
 
