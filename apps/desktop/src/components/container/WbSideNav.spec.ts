@@ -65,7 +65,12 @@ it("draws one row per page, icon and label", () => {
 
 it("marks the page on screen, for the pointer and for a screen reader", () => {
   expect(row("overview").getAttribute("aria-current")).toBe("page");
-  expect(row("overview").className).toContain("bg-accent");
+  expect(row("overview").className, "the active row sits on the brand-blue light wash").toContain(
+    "bg-[color-mix(in_srgb,var(--workbench-accent)_12%,transparent)]",
+  );
+  expect(row("overview").className, "and carries the 3px blue bar at its left edge").toContain(
+    "shadow-[inset_3px_0_0_var(--workbench-accent)]",
+  );
   expect(row("containers").getAttribute("aria-current")).toBeNull();
 });
 

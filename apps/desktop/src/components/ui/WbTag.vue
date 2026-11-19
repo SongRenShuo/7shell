@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * A status tag: a state drawn as a pale wash of the colour it means, with the colour itself as the
- * text — the "light" combination fnOS draws its container states with.
+ * text — the "light" combination fnOS draws its container states with, the Semi light-default
+ * recipe (the meaning colour at a low mix as the fill, the meaning colour itself as the words).
  *
  * A state word on its own is data; a state word on its own colour is a thing a person scans. Four
  * tones: `success` for the running-and-healthy family, `danger` for the dead-and-failed family,
@@ -9,9 +10,11 @@
  * problem — created, exited, whatever the engine reports that this build has not met yet. An
  * unknown state is the neutral tone, never a guess at a colour.
  *
- * The wash is mixed from the theme's own semantic colour, so a tag in a light theme and a tag in a
- * dark one read the same way without two palettes being maintained: the background is the meaning
- * colour at a low mix, the text the meaning colour at full strength.
+ * The colours come from the desktop's own semantic tokens — danger and warning are the workbench
+ * tokens the chrome around this window reads, the ones the token layer derives from the Semi
+ * semantic scale — mixed where the wash is needed, read straight where the text is. The wash is
+ * mixed rather than painted, so a tag in a light theme and a tag in a dark one read the same way
+ * without two palettes being maintained.
  */
 import { computed } from "vue";
 
@@ -21,8 +24,8 @@ export type WbTagTone = "success" | "danger" | "warning" | "neutral";
 
 const TONE_VARS: Record<WbTagTone, string> = {
   success: "var(--success)",
-  danger: "var(--destructive)",
-  warning: "var(--warning)",
+  danger: "var(--workbench-danger)",
+  warning: "var(--workbench-warning)",
   neutral: "var(--muted-foreground)",
 };
 
