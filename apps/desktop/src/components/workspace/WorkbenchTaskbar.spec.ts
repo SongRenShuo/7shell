@@ -186,6 +186,10 @@ describe("the taskbar", () => {
     expect(source).toContain("var(--workbench-surface-1)");
     expect(source).toContain("var(--workbench-surface-3)");
     expect(source).toContain("var(--workbench-accent)");
+    // The Semi re-skin rounds the pill and its cells at the control radius, not a local number.
+    expect(source, "the pill and its cells round at the control step").toContain("var(--wb-radius-control)");
+    expect(source).not.toContain("border-radius: 3px");
+    expect(source).not.toContain("border-radius: 12px");
     expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
