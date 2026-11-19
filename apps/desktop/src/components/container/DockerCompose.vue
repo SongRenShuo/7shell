@@ -103,7 +103,7 @@ const confirming = ref<{ kind: "restart" | "down" | "up"; project: ComposeProjec
 
 /** The file an `up` reads: the engine's own answer, first path when the plugin lists several. */
 function ymlPathOf(project: ComposeProject): string | null {
-  const first = project.configFiles.split(",")[0]?.trim() ?? "";
+  const first = project.configFiles?.split(",")[0]?.trim() ?? "";
   return first !== "" ? first : null;
 }
 
