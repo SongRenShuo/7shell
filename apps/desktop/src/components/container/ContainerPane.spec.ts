@@ -228,6 +228,35 @@ describe("the desktop layout", () => {
     const row = tag?.closest("tr");
     expect(row?.querySelectorAll("button")).toHaveLength(1);
   });
+
+  it("puts the create wizard's entry on the containers page's header, and nowhere else", async () => {
+    // The flat workspace never draws the entry: its own dialog is the only create it has.
+    await mount(tab("docker"));
+    expect(document.querySelector("[data-container-wizard-open]")).toBeNull();
+    app?.unmount();
+    host?.remove();
+    app = undefined;
+    host = undefined;
+
+    await mount(tab("docker"), "desktop");
+    expect(document.querySelector("[data-container-wizard-open]"), "the overview carries no entry").toBeNull();
+
+    railButton("Containers").click();
+    await nextTick();
+    const entry = document.querySelector("[data-container-wizard-open]");
+    expect(entry, "the containers page's header carries the one primary button").not.toBeNull();
+
+    (entry as HTMLElement).click();
+    await nextTick();
+    expect(document.querySelector("[data-wizard-basic]"), "the wizard opens over the window").not.toBeNull();
+    // The wizard's own suite covers the walk; here the modal is only reached and dismissed.
+    const cancel = document.querySelector("[data-wizard-cancel]");
+    expect(cancel).not.toBeNull();
+    (cancel as HTMLElement).click();
+    await vi.waitFor(() => {
+      expect(document.querySelector("[data-wizard-basic]"), "the closed wizard takes its dialog with it").toBeNull();
+    });
+  });
 });
 
 describe("the flat layout's zero-diff guard", () => {
