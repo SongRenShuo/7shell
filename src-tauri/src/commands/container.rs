@@ -316,7 +316,7 @@ async fn transfer(
 }
 
 /// Delivers a stream's lines to the window, and its end after them.
-fn forward_stream(
+pub(crate) fn forward_stream(
     app: AppHandle,
     mut lines: UnboundedReceiver<ContainerStreamLine>,
     mut end: UnboundedReceiver<ContainerStreamEnd>,
