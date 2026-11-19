@@ -213,6 +213,7 @@ fn notice(app: &AppHandle, handle: &str, kind: &'static str, name: Option<String
 pub fn pump_events(
     app: AppHandle,
     core: Arc<Core>,
+    web_events: tokio::sync::broadcast::Sender<sevenshell_core::CoreEvent>,
     mut events: tokio::sync::mpsc::Receiver<sevenshell_core::CoreEvent>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -222,6 +223,13 @@ pub fn pump_events(
             tokio::select! {
                 event = events.recv() => {
                     let Some(event) = event else { break };
+                    // The browser host's pump can only see the core's events through this one
+                    // consumer, so they are fanned out here — and only while the host actually
+                    // holds a subscriber: a host that is not serving costs the terminal stream
+                    // nothing. Each event is copied once for the second consumer while it lasts.
+                    if web_events.receiver_count() > 0 {
+                        let _ = web_events.send(event.clone());
+                    }
                     match event.event {
                         sevenshell_session::TerminalEvent::Data(bytes) => {
                             let state = sessions.entry(event.handle.clone()).or_default();
