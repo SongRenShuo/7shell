@@ -13,6 +13,7 @@
         "starterSearch": "Search applications",
         "starterNoResults": "Nothing matches",
         "desktop": "Show the desktop",
+        "desktopEmpty": "Show the desktop (no open windows)",
         "clock": "Clock",
         "power": "Power",
         "minimize": "Minimize",

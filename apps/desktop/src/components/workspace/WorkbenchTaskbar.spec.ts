@@ -33,7 +33,7 @@ let desks = 0;
 
 let notices = 0;
 
-function mount(align?: "left" | "center", unreadCount = 0): void {
+function mount(align?: "left" | "center", unreadCount = 0, entries: typeof ENTRIES = ENTRIES): void {
   launches = [];
   clocks = 0;
   powers = 0;
@@ -44,12 +44,18 @@ function mount(align?: "left" | "center", unreadCount = 0): void {
     setup() {
       return () =>
         h(WorkbenchTaskbar, {
-          entries: ENTRIES,
+          entries,
           clock: CLOCK,
           align,
           power: "Shut down",
           unread: unreadCount,
-          labels: { starter: "Applications", desktop: "Show the desktop", clock: "Clock", notices: "Notifications" },
+          labels: {
+            starter: "Applications",
+            desktop: "Show the desktop",
+            desktopEmpty: "Show the desktop (no open windows)",
+            clock: "Clock",
+            notices: "Notifications",
+          },
           onLaunch: (id: string) => {
             launches.push(id);
           },
@@ -148,6 +154,18 @@ describe("the taskbar", () => {
     click(part("desktop"));
 
     expect(desks).toBe(1);
+  });
+
+  it("stands the desktop cell down on an empty desk instead of eating a silent press", () => {
+    unmountCurrent();
+    mount(undefined, 0, []);
+
+    const desktop = part("desktop");
+    expect(desktop.hasAttribute("disabled"), "nothing to put away: the cell stands down").toBe(true);
+    expect(desktop.className, "the idle look accompanies the state").toContain("is-idle");
+
+    click(desktop);
+    expect(desks, "a disabled cell does not answer").toBe(0);
   });
 
   it("brings forward the window whose cell was clicked", () => {
