@@ -39,3 +39,5 @@ uuid = { workspace = true }
 tower-http = { version = "0.6", features = ["fs", "compression-gzip", "trace", "set-header"] }
 [dev-dependencies]
 tempfile = "3"
+# The router tests drive the real service through `Service::oneshot`, the way axum itself is tested.
+tower = { version = "0.5", features = ["util"] }
