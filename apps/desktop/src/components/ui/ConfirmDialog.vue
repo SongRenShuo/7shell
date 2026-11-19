@@ -74,11 +74,15 @@ const cancelLabel = computed(() => props.cancelLabel ?? t("common.action.cancel"
  *
  * The dangerous one is a wash of red with red text rather than a solid red block: it is the button
  * that must not be pressed by accident, and a page of shouting colour is one people stop reading.
+ * The plain confirm is the Semi primary — the brand blue with the fixed white pair as its words —
+ * and the cancel is the Semi secondary, the white face with an edge; the control radius is the
+ * corner style's 6px step, the same one the shared button wears.
  */
 const CANCEL =
-  "rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60";
-const CONFIRM = "rounded-md px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60";
-const CONFIRM_PLAIN = "bg-primary text-primary-foreground hover:bg-primary/90";
+  "rounded-sm border border-border bg-background px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60";
+const CONFIRM = "rounded-sm px-3 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60";
+const CONFIRM_PLAIN =
+  "bg-[var(--workbench-accent)] text-[var(--workbench-on-wallpaper)] hover:bg-[color-mix(in_srgb,var(--workbench-accent)_88%,var(--workbench-on-wallpaper))]";
 const CONFIRM_DANGER = "bg-destructive/10 text-destructive hover:bg-destructive/20";
 
 /**
@@ -122,7 +126,7 @@ function handBackFocus(event: Event): void {
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-50 bg-overlay" />
       <DialogContent
-        class="fixed top-1/2 left-1/2 z-50 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-xl select-none focus:outline-none"
+        class="fixed top-1/2 left-1/2 z-50 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-[var(--wb-shadow-elevated)] select-none focus:outline-none"
         @interact-outside="keepOpenWhileLoading"
         @escape-key-down="keepOpenWhileLoading"
         @open-auto-focus="rememberAsker"

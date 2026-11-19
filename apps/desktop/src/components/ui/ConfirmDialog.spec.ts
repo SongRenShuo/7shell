@@ -22,7 +22,7 @@ let answers: string[] = [];
  * A page with one control on it that asks, which is what every caller is: the question is opened by
  * something, and that something is where the keyboard has to come back to.
  */
-function mount(options: { loading?: boolean; details?: readonly string[] } = {}): void {
+function mount(options: { loading?: boolean; details?: readonly string[]; danger?: boolean } = {}): void {
   app = createApp({
     data: () => ({ open: false }),
     render() {
@@ -36,7 +36,7 @@ function mount(options: { loading?: boolean; details?: readonly string[] } = {})
                 title: "Delete group",
                 message: "Delete the group “Lab”? Its sessions move out to Ungrouped.",
                 confirmLabel: "Delete group",
-                danger: true,
+                danger: options.danger ?? true,
                 loading: options.loading === true,
                 details: options.details,
                 "onUpdate:open": (value: boolean) => {
@@ -157,6 +157,20 @@ describe("what the question says", () => {
     // is noise somebody then has to clear. The field a caller may put inside it stays text — that
     // half is the stylesheet's, and `scripts/tests/selection.test.mjs` reads the rule there.
     expect(dialog().classList.contains("select-none"), "a drag across the question takes nothing away").toBe(true);
+  });
+
+  it("dresses itself from the workbench tokens, not literals", async () => {
+    mount({ danger: false });
+    await openIt();
+
+    const className = dialog().className;
+    expect(className, "the question floats on the Semi elevated shadow").toContain(
+      "shadow-[var(--wb-shadow-elevated)]",
+    );
+    const confirm = button("Delete group");
+    expect(confirm.className, "the plain confirm is the brand-blue token").toContain("bg-[var(--workbench-accent)]");
+    expect(confirm.className, "the control radius is the corner style's 6px step").toContain("rounded-sm");
+    expect(button("Cancel").className, "the cancel is the white face with an edge").toContain("bg-background");
   });
 });
 
