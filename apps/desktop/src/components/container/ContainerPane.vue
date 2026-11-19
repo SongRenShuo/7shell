@@ -25,6 +25,7 @@ import DockerImages from "@/components/container/DockerImages.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
 import Select from "@/components/ui/Select.vue";
+import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
 import { cn } from "@/lib/utils";
 import { supportsNamespace, useContainerStore } from "@/stores/container";
@@ -33,6 +34,7 @@ import type { ContainerTab } from "@/stores/terminals";
 import ContainerImageView from "./ContainerImageView.vue";
 import ContainerListView from "./ContainerListView.vue";
 import ContainerOverview from "./ContainerOverview.vue";
+import ContainerWizard from "./ContainerWizard.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +58,8 @@ const view = ref<ContainerView>("overview");
 const imageFilter = ref<string | null>(null);
 /** Set when the overview's state counts were clicked. */
 const stateFilter = ref<string | null>(null);
+/** Whether the desktop's create wizard is open; the flat workspace has no wizard to open. */
+const wizardOpen = ref(false);
 
 const session = computed(() => containers.sessionFor(props.tab.id));
 const runtime = computed(() => props.tab.session.container?.runtime ?? "docker");
@@ -161,22 +165,36 @@ onBeforeUnmount(() => {
   <section class="relative flex min-h-0 flex-1 flex-col">
     <!--
       The tab already names the session and its kind, so the strip carries only what the page alone
-      can offer: a runtime with namespaces has the picker, and one without them has nothing and gets
-      no strip at all.
+      can offer: a runtime with namespaces has the picker, and the desktop's containers page has the
+      create wizard's entry — the one primary button the reference manager puts on that page's
+      header. A runtime without namespaces and a flat layout get no strip, exactly as before.
     -->
     <header
-      v-if="supportsNamespace(runtime) && session?.connectionId"
+      v-if="
+        session?.connectionId &&
+        (desktop ? view === 'containers' || supportsNamespace(runtime) : supportsNamespace(runtime))
+      "
       class="flex shrink-0 items-center justify-end gap-2 border-b border-border px-3 py-[var(--panel-header-y)]"
     >
-      <span class="shrink-0 text-[10px] text-muted-foreground">{{ t("container.namespace") }}</span>
-      <Select
-        :model-value="session.namespace"
-        :options="namespaceOptions"
-        size="compact"
-        class="w-32"
-        :aria-label="t('container.namespace')"
-        @update:model-value="chooseNamespace"
-      />
+      <WbButton
+        v-if="desktop && view === 'containers'"
+        variant="primary"
+        data-container-wizard-open
+        @click="wizardOpen = true"
+      >
+        {{ t("container.wizard.open") }}
+      </WbButton>
+      <template v-if="supportsNamespace(runtime)">
+        <span class="shrink-0 text-[10px] text-muted-foreground">{{ t("container.namespace") }}</span>
+        <Select
+          :model-value="session.namespace"
+          :options="namespaceOptions"
+          size="compact"
+          class="w-32"
+          :aria-label="t('container.namespace')"
+          @update:model-value="chooseNamespace"
+        />
+      </template>
     </header>
 
     <!-- The connection as it is being made, and as it failed to be made. -->
@@ -326,5 +344,12 @@ onBeforeUnmount(() => {
         />
       </div>
     </div>
+
+    <!--
+      The create wizard lives over this pane, wherever in the desktop's rail the reader is: it is a
+      modal of the window, not a view of the rail. The network choices stay empty until the bridge
+      grows the listing — the wizard degrades to typed names while it does.
+    -->
+    <ContainerWizard v-if="desktop" :open="wizardOpen" :tab-id="props.tab.id" @update:open="wizardOpen = $event" />
   </section>
 </template>
