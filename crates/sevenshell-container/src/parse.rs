@@ -1177,15 +1177,20 @@ pub(crate) fn compose_projects(ls: &str, labelled_ps: &str) -> Vec<ComposeProjec
     let mut services: HashMap<String, HashSet<String>> = HashMap::new();
     let mut containers: HashMap<String, u32> = HashMap::new();
     for row in documents(labelled_ps) {
-        let Some(Value::Object(labels)) = pick(&row, &["Labels", "labels"]) else {
-            continue;
+        // Two shapes for the same field: newer CLIs print the labels as an object, the Compose
+        // plugin's `ps` prints them as the comma-joined `key=value` sentence it shows humans.
+        // Either shape carries the two labels the project list folds.
+        let (project, service) = match pick(&row, &["Labels", "labels"]) {
+            Some(Value::Object(labels)) => {
+                (label_text(labels, PROJECT_LABEL), label_text(labels, SERVICE_LABEL))
+            }
+            Some(Value::String(joined)) => string_labels(joined),
+            _ => (String::new(), String::new()),
         };
-        let project = label_text(labels, "com.docker.compose.project");
         if project.is_empty() {
             continue;
         }
         *containers.entry(project.clone()).or_insert(0) += 1;
-        let service = label_text(labels, "com.docker.compose.service");
         if !service.is_empty() {
             services.entry(project).or_default().insert(service);
         }
@@ -1207,11 +1212,34 @@ pub(crate) fn compose_projects(ls: &str, labelled_ps: &str) -> Vec<ComposeProjec
         .collect()
 }
 
+/// The two labels the project list folds out of every Compose container.
+const PROJECT_LABEL: &str = "com.docker.compose.project";
+const SERVICE_LABEL: &str = "com.docker.compose.service";
+
 fn label_text(labels: &Map<String, Value>, key: &str) -> String {
     match labels.get(key) {
         Some(Value::String(value)) => value.clone(),
         _ => String::new(),
     }
+}
+
+/// Reads the comma-joined `key=value` sentence. Label values may carry commas, so the two
+/// Compose labels are cut by key rather than trusted to position: each segment is a pair whose
+/// key ends at its first `=`, and only an exact match is taken.
+fn string_labels(joined: &str) -> (String, String) {
+    let mut project = String::new();
+    let mut service = String::new();
+    for pair in joined.split(',') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            PROJECT_LABEL if project.is_empty() => project = value.trim().to_owned(),
+            SERVICE_LABEL if service.is_empty() => service = value.trim().to_owned(),
+            _ => {}
+        }
+    }
+    (project, service)
 }
 
 /// Reads a `compose ps` answer into the service rows of one project.
@@ -1641,6 +1669,28 @@ mod tests {
         assert_eq!(rows[1].name, "stack");
         assert_eq!(rows[1].services, 1);
         assert_eq!(rows[1].containers, 1);
+    }
+
+    #[test]
+    fn the_compose_list_reads_the_label_sentence_the_plugin_prints() {
+        // The Compose plugin's `ps` prints `Labels` as the comma-joined sentence, not an object:
+        // this is the shape the real machine printed, trimmed of its unrelated labels.
+        let ls = "{\"Name\":\"mem-compose-test\",\"Status\":\"running(1)\",\"ConfigFiles\":\"/root/mem-compose-test/nginx/docker-compose.yml\"}
+".to_owned();
+        let ps = concat!(
+            "{\"ID\":\"5ecc\",\"Names\":\"mem-compose-test-nginx-1\",\"State\":\"running\",",
+            "\"Labels\":\"com.docker.compose.config-hash=c3902,",
+            "com.docker.compose.project.config_files=/root/mem-compose-test/nginx/docker-compose.yml,",
+            "com.docker.compose.project=mem-compose-test,",
+            "com.docker.compose.service=nginx,",
+            "maintainer=NGINX Docker Maintainers\"}
+"
+        );
+        let rows = compose_projects(&ls, ps);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].services, 1);
+        assert_eq!(rows[0].containers, 1);
+        assert_eq!(rows[0].status, "running(1)");
     }
 
     #[test]
