@@ -5,16 +5,18 @@
  * component draws a terminal, a file browser or a monitor page without knowing which it is.
  *
  * The look is the reference desktop's, measured rather than invented, and named in the workbench
- * token block of `globals.css` rather than written here: the pane is `--workbench-glass` (a
- * translucent face under a backdrop blur), its edge `--workbench-glass-border`, its shadow the
- * app tier of the `--wb-shadow-*` scale, and its roundness `--wb-radius-window` — the window step
- * of the desktop's own radius scale, still derived from the corner style the rest of the
- * interface obeys. A title bar at least 45px tall with a 17px title and a hairline under
- * it; three round icon buttons at the far end, the last of which turns `--workbench-danger` under
- * the pointer. The face follows the host's theme — dark glass and white text on a dark host, white
- * glass and dark text on a light one — except where it must not: on a wallpaper the pane re-points
- * the whole chrome at the fixed white pair and the dark glass (`data-workbench-on-picture` in
- * `globals.css`), because text standing on a picture is always white. Nothing here names a colour
+ * token block of `globals.css` rather than written here: the pane is `--workbench-surface-2` (the
+ * Semi panel treatment — a solid face, no blur, because a window is where people read), its edge a
+ * 1px low-alpha `--workbench-glass-border`, its shadow the app tier of the `--wb-shadow-*` scale
+ * (the Semi three-layer recipe), and its roundness `--wb-radius-window` — the window step of the
+ * desktop's own radius scale, still derived from the corner style the rest of the interface obeys.
+ * A title bar 44px tall (the reference's own HEADER_HEIGHT) with a 17px title and a hairline under
+ * it; three round icon buttons at the far end, the last of which turns `--workbench-danger` with
+ * the fixed white pair as its text under the pointer. The face follows the host's theme — a dark
+ * application base and light text on a dark host, white on a light one — except where it must not:
+ * on a wallpaper the pane re-points the whole chrome at the fixed white pair
+ * (`data-workbench-on-picture` in `globals.css`), because text standing on a picture is always
+ * white — the panel rides the theme, the words on the picture do not. Nothing here names a colour
  * of its own.
  *
  * The gestures are pointer-based rather than HTML5 drag-and-drop, because a drag is not a data
@@ -164,11 +166,11 @@ const windowStyle = computed(() => ({
 
 const rootClass = computed(() =>
   cn(
-    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-glass)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
+    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-surface-2)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)]",
     props.state === "max" ? "workbench-window--max rounded-none" : undefined,
     props.state === "min" ? "workbench-window--min" : undefined,
     props.closing ? "workbench-window--closing" : undefined,
-    props.focused ? "ring-1 ring-primary/70 ring-inset" : undefined,
+    props.focused ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--workbench-accent)_70%,transparent)]" : undefined,
   ),
 );
 
@@ -357,7 +359,7 @@ function onResizePointerUp(event: PointerEvent): void {
     <header
       ref="titleBar"
       data-workbench-window-title
-      class="flex min-h-[45px] shrink-0 touch-none items-center gap-2 border-b border-[var(--workbench-glass-border)] px-3 select-none"
+      class="flex min-h-[44px] shrink-0 touch-none items-center gap-2 border-b border-[var(--workbench-glass-border)] px-3 select-none"
       @pointerdown="onTitlePointerDown"
       @pointermove="onTitlePointerMove"
       @pointerup="onTitlePointerUp"
@@ -405,7 +407,7 @@ function onResizePointerUp(event: PointerEvent): void {
           data-workbench-window-close
           :aria-label="labels.close"
           :title="labels.close"
-          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-danger)] hover:text-[var(--workbench-on-picture)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
+          class="grid h-7 w-7 place-items-center rounded-full text-[color-mix(in_srgb,var(--workbench-on-picture)_75%,transparent)] transition-colors hover:bg-[var(--workbench-danger)] hover:text-[var(--workbench-on-wallpaper)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-focus-outline)] focus-visible:outline-none"
           @click="emit('close')"
         >
           <X :size="19" aria-hidden="true" />
