@@ -96,7 +96,7 @@ const pixel = computed(() => WB_EMPTY_SIZES[props.size]);
         <path d="M34 18h26l12 12v52H34z" />
         <path d="M60 18v12h12" opacity="0.55" />
         <path d="M45 50l14 14M59 50l-14 14" />
-        <circle cx="67" cy="36" r="2.5" stroke="none" fill="var(--workbench-accent, currentColor)" />
+        <circle cx="67" cy="36" r="2.5" stroke="none" fill="var(--workbench-accent)" />
       </g>
 
       <g
@@ -108,7 +108,7 @@ const pixel = computed(() => WB_EMPTY_SIZES[props.size]);
       >
         <path d="M24 34h18l7 8h27v34H24z" />
         <path d="M36 54h30M36 62h22" stroke-dasharray="3 4" opacity="0.7" />
-        <circle cx="70" cy="30" r="2.5" stroke="none" fill="var(--workbench-accent, currentColor)" />
+        <circle cx="70" cy="30" r="2.5" stroke="none" fill="var(--workbench-accent)" />
       </g>
 
       <g
@@ -121,14 +121,14 @@ const pixel = computed(() => WB_EMPTY_SIZES[props.size]);
         <ellipse cx="50" cy="33" rx="25" ry="9" />
         <path d="M25 33v32c0 5 11 9 25 9s25-4 25-9V33" />
         <path d="M38 52h24" stroke-dasharray="3 4" opacity="0.7" />
-        <circle cx="68" cy="22" r="2.5" stroke="none" fill="var(--workbench-accent, currentColor)" />
+        <circle cx="68" cy="22" r="2.5" stroke="none" fill="var(--workbench-accent)" />
       </g>
 
       <g v-else stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M28 20h34l12 12v48H28z" stroke-dasharray="4 4" opacity="0.6" />
         <circle cx="52" cy="50" r="13" />
         <path d="M61 60l12 12" />
-        <circle cx="52" cy="50" r="2" stroke="none" fill="var(--workbench-accent, currentColor)" />
+        <circle cx="52" cy="50" r="2" stroke="none" fill="var(--workbench-accent)" />
       </g>
     </svg>
 
