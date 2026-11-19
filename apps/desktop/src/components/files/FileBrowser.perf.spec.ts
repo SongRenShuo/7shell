@@ -143,4 +143,30 @@ describe("the file listing at scale", () => {
     expect(drawnRows().length, "the far end of the directory is still a screenful, no more").toBeLessThanOrEqual(40);
     expect(nodeCount(), "and the panel holds the same nodes it held at the top").toBe(nodesBefore);
   });
+
+  it("filtering a five-thousand-entry directory by name stays bounded and cheap", async () => {
+    await render(directoryOf(5_000));
+
+    // The search field filters what the panel has already loaded: one pass over the entries per
+    // keystroke, and the drawn window still slices only a screenful of the matches.
+    const field = host.querySelector<HTMLInputElement>("[data-search-input]");
+    if (field === null) {
+      throw new Error("the search field is not on the strip");
+    }
+
+    const start = performance.now();
+    field.value = "entry-00";
+    field.dispatchEvent(new Event("input"));
+    await nextTick();
+    const elapsedMs = performance.now() - start;
+
+    const rows = drawnRows();
+    console.info(
+      `file listing @5000 entries filtered to "entry-00": ${rows.length} rows drawn, filter ${elapsedMs.toFixed(1)}ms`,
+    );
+    // `entry-00` prefixes a hundred of the padded names; the window still draws a screenful of them.
+    expect(rows.length).toBeLessThanOrEqual(40);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(elapsedMs, "one keystroke over five thousand names stays a cheap operation").toBeLessThan(2_000);
+  });
 });

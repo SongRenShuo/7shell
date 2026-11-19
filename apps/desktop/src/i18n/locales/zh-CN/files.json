@@ -27,6 +27,13 @@
     "downloadTitle": "选择此文件的保存位置",
     "downloadPackedTitle": "选择下载到的文件夹",
     "empty": "该目录为空。",
+    "search": {
+      "label": "在当前目录内搜索",
+      "placeholder": "搜索",
+      "matches": "{count} 个匹配",
+      "noMatches": "没有匹配 {query} 的条目。",
+      "clear": "清除搜索"
+    },
     "listing": "文件列表",
     "name": "文件名",
     "size": "大小",
