@@ -188,6 +188,10 @@ All notable changes to 7Shell are documented in this file. The format is
   gated `forwards.open` the forwards manager sends), or this machine's browser pointed at the local
   end of that tunnel. A host that names no listeners — or answers the older shape without the list
   at all — says so instead of drawing rows (e47cf22, ab17850).
+- The file panel grows a search field: a compact box at the strip's end filters the directory it
+  has already loaded by name, however it is capitalised, with the match count beside it and its
+  own sentence when nothing matches; the field is session state — clearing it hands the whole
+  directory back, and walking into another directory empties it (c086a1b).
 
 ### Fixed
 

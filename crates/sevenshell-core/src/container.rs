@@ -184,20 +184,33 @@ impl Core {
             .await
     }
 
+    /// Renames one container. The rename is reversible and so runs under the default matrix, but
+    /// the decision is on the trail with the container named — a stricter layer's question or
+    /// refusal arrives the way an unattended gate arrives, with the rule named.
     pub async fn container_rename(
         &self,
         connection_id: &str,
         container_id: &str,
         name: &str,
     ) -> Result<(), ShellError> {
+        let verdict = sevenshell_policy::container_action("rename");
+        self.container_unattended_gate("container.rename", &verdict, Some(container_id))?;
         self.container_provider(connection_id)?.rename(container_id, name).await
     }
 
+    /// Creates one container from a request the interface filled in.
+    ///
+    /// The request's image and its argv are fixed verbs by the time they get here — the shell
+    /// splits the command itself — so the verdict is `Caution` and the default matrix runs it,
+    /// with the created container's name on the trail.
     pub async fn container_create(
         &self,
         connection_id: &str,
         request: &ContainerCreateRequest,
     ) -> Result<(), ShellError> {
+        let verdict = sevenshell_policy::container_action("create");
+        let subject = if request.name.is_empty() { None } else { Some(request.name.as_str()) };
+        self.container_unattended_gate("container.create", &verdict, subject)?;
         self.container_provider(connection_id)?.create(request).await
     }
 
@@ -256,7 +269,12 @@ impl Core {
         self.container_provider(connection_id)?.image_prune().await
     }
 
+    /// Tags one image. A tag is a pointer, not data — reversible by pointing it back — so the
+    /// verdict is `Caution` and the decision is on the trail with the image and tag named.
     pub async fn container_image_tag(&self, connection_id: &str, image: &str, tag: &str) -> Result<(), ShellError> {
+        let verdict = sevenshell_policy::container_action("tag");
+        let subject = format!("{image} -> {tag}");
+        self.container_unattended_gate("container.image-tag", &verdict, Some(&subject))?;
         self.container_provider(connection_id)?.image_tag(image, tag).await
     }
 
@@ -442,6 +460,30 @@ impl Core {
             _ => Ok(()),
         }
     }
+
+    /// The gate for the container verbs that only change a name or a pointer, which carry no
+    /// acknowledgement of their own: the decision is on the trail either way, the default matrix's
+    /// `Caution` runs, and where a layer names a question or a refusal the verb is refused with
+    /// the rule named — the unattended gate's contract, the tail's and the runtime forwards'.
+    fn container_unattended_gate(
+        &self,
+        operation: &str,
+        verdict: &RiskAssessment,
+        subject: Option<&str>,
+    ) -> Result<(), ShellError> {
+        let decision = self.policy_decision(operation, verdict, PolicyTarget::default(), None, subject);
+        match decision.action {
+            PolicyAction::Deny => Err(ShellError::policy_denied(operation)),
+            PolicyAction::Ask => {
+                let rule = verdict
+                    .reasons
+                    .first()
+                    .map_or("container.unknown", |reason| reason.rule_id.as_str());
+                Err(ShellError::policy_approval_required(rule))
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -512,6 +554,98 @@ mod tests {
         assert_eq!(events[0].action, "container.stop");
         assert_eq!(events[0].decision, PolicyAction::Deny);
         assert_eq!(events[0].subject.as_deref(), Some("web"));
+    }
+
+    fn core_with_default_journal() -> (tempfile::TempDir, Arc<Core>, Arc<RecordingJournal>) {
+        let directory = tempdir().expect("temp dir");
+        let (core, _events) = Core::new(Arc::new(Vault::open_at(directory.path().join("vault.json"))));
+        let journal = Arc::new(RecordingJournal::default());
+        core.set_policy(
+            PolicyMatrix::default(),
+            Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>),
+        );
+        (directory, core, journal)
+    }
+
+    #[tokio::test]
+    async fn renaming_a_container_is_journaled_and_refused_by_a_deny() {
+        let (_directory, core, journal) = core_with_denial();
+
+        // The connection does not exist, so a lookup past the gate would say so instead of
+        // pretending: the deny is what answers here.
+        let error = core
+            .container_rename("connection-that-never-existed", "web", "web-2")
+            .await
+            .expect_err("a deny refuses the rename");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1, "one action, one line");
+        assert_eq!(events[0].action, "container.rename");
+        assert_eq!(events[0].decision, PolicyAction::Deny);
+        assert_eq!(events[0].subject.as_deref(), Some("web"));
+    }
+
+    #[tokio::test]
+    async fn tagging_an_image_is_journaled_and_refused_by_a_deny() {
+        let (_directory, core, journal) = core_with_denial();
+
+        let error = core
+            .container_image_tag("connection-that-never-existed", "registry.test/app:1", "latest")
+            .await
+            .expect_err("a deny refuses the tag");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "container.image-tag");
+        assert_eq!(events[0].subject.as_deref(), Some("registry.test/app:1 -> latest"));
+    }
+
+    #[tokio::test]
+    async fn creating_a_container_is_journaled_and_refused_by_a_deny() {
+        let (_directory, core, journal) = core_with_denial();
+
+        let request = ContainerCreateRequest {
+            image: "nginx:1.27".to_owned(),
+            name: "web-preview".to_owned(),
+            ports: Vec::new(),
+            volumes: Vec::new(),
+            env: Vec::new(),
+            restart_policy: String::new(),
+            command: String::new(),
+            interactive: false,
+            tty: false,
+        };
+        let error = core
+            .container_create("connection-that-never-existed", &request)
+            .await
+            .expect_err("a deny refuses the create");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "container.create");
+        assert_eq!(events[0].subject.as_deref(), Some("web-preview"));
+    }
+
+    #[tokio::test]
+    async fn a_rename_under_the_default_matrix_runs_and_leaves_one_allow_line() {
+        let (_directory, core, journal) = core_with_default_journal();
+
+        // The gate passes the rename through, and what fails is the connection lookup — not the
+        // policy. The trail names the rename exactly once, allowed.
+        let error = core
+            .container_rename("connection-that-never-existed", "web", "web-2")
+            .await
+            .expect_err("no such connection");
+        assert_ne!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        assert_ne!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "container.rename");
+        assert_eq!(events[0].decision, PolicyAction::Allow);
     }
 
     #[tokio::test]

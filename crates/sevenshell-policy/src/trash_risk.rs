@@ -1,11 +1,13 @@
 //! What a trash action could do, before it runs.
 //!
-//! Most of the trash reads: listing it, and moving an entry back out of it, put nothing at risk —
-//! a restore only fills a name that was empty, and a name that was taken is refused rather than
-//! overwritten. The two actions that destroy are `remove` (one entry, gone for good) and `empty`
-//! (everything, gone for good), and both are `Destructive` like the workbench power verbs: the
-//! strictest-layer rule raises destructive verdicts to at least a question, so the matrix can
-//! never be configured to empty a trash unattended.
+//! The two actions that destroy are `remove` (one entry, gone for good) and `empty` (everything,
+//! gone for good), and both are `Destructive` like the workbench power verbs: the strictest-layer
+//! rule raises destructive verdicts to at least a question, so the matrix can never be configured
+//! to empty a trash unattended. The two that only move — restoring an entry, and moving one into
+//! the trash — are `Caution`: reversible by construction (a restore refuses to overwrite a taken
+//! name, and a move into the trash is the delete mode's undoable form), so the default matrix runs
+//! them while the audit still carries one line apiece, and a stricter layer can name a question
+//! or a refusal for them like any other rule.
 //!
 //! The shape is the workbench gate's on purpose — a fixed verb with no command line behind it for
 //! anybody to have read — and an unknown verb is `Catastrophic`, never run.
@@ -18,6 +20,8 @@ pub fn trash_action(action: &str) -> RiskAssessment {
     let verdict = match action.as_str() {
         "empty" => ("trash.empty", "risk.trash.empty", RiskLevel::Destructive),
         "remove" => ("trash.remove", "risk.trash.remove", RiskLevel::Destructive),
+        "restore" => ("trash.restore", "risk.trash.restore", RiskLevel::Caution),
+        "move" => ("trash.move", "risk.trash.move", RiskLevel::Caution),
         _ => ("trash.unknown", "risk.trash.unknown", RiskLevel::Catastrophic),
     };
     RiskAssessment::from_reasons(vec![RiskReason::new(verdict.0, verdict.1, verdict.2)])
@@ -44,8 +48,18 @@ mod tests {
     }
 
     #[test]
+    fn the_two_moving_verbs_are_caution_and_name_their_rules() {
+        for (action, rule) in [("restore", "trash.restore"), ("move", "trash.move")] {
+            let verdict = trash_action(action);
+            assert_eq!(verdict.level, RiskLevel::Caution, "{action} only moves");
+            assert_eq!(verdict.reasons[0].rule_id, rule);
+            assert!(!verdict.needs_approval(), "{action} runs under the default matrix");
+        }
+    }
+
+    #[test]
     fn an_unknown_verb_is_catastrophic() {
-        let verdict = trash_action("restore");
+        let verdict = trash_action("teleport");
         assert_eq!(verdict.level, RiskLevel::Catastrophic);
         assert!(verdict.needs_approval());
     }

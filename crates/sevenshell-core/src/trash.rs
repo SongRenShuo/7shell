@@ -17,6 +17,7 @@
 use std::sync::Arc;
 
 use sevenshell_error::{ErrorCode, ShellError};
+use sevenshell_policy::PolicyTarget;
 use sevenshell_sftp::SftpSession;
 use sevenshell_types::{EntryKind, PolicyAction, TrashEmptyOutcome, TrashEntry, TrashMoveOutcome, TrashMoveRequest};
 
@@ -85,6 +86,9 @@ impl Core {
     /// byte-by-byte copy that would silently drop a directory's permissions.
     pub async fn trash_restore(&self, handle: &str, id: &str) -> Result<String, ShellError> {
         check_entry_id(id)?;
+        // The restore only fills a name that was empty — reversible by construction, `Caution` by
+        // verdict — but the decision is on the trail, with the entry named.
+        trash_unattended_gate(self, "restore", Some(id))?;
 
         let files = self.trash_channel(handle).await?;
         let (files_dir, info_dir) = trash_dirs(&files).await;
@@ -198,6 +202,11 @@ impl Core {
         handle: &str,
         requests: &[TrashMoveRequest],
     ) -> Result<Vec<TrashMoveOutcome>, ShellError> {
+        // The move is reversible by construction, so the verdict is `Caution` and the default
+        // matrix runs it — but the decision is on the trail, with what is being moved named.
+        let subject = requests.first().map(|request| request.path.as_str());
+        trash_unattended_gate(self, "move", subject)?;
+
         let files = self.trash_channel(handle).await?;
         let (files_dir, info_dir) = trash_dirs(&files).await;
         ensure_trash_dirs(&files, &files_dir, &info_dir).await?;
@@ -234,6 +243,31 @@ fn trash_gate(core: &Core, session_id: &str, verb: &str, acknowledged: bool) -> 
     match decision.action {
         PolicyAction::Deny => Err(ShellError::policy_denied(&action)),
         PolicyAction::Ask if !acknowledged => {
+            let rule = verdict
+                .reasons
+                .first()
+                .map(|reason| reason.rule_id.as_str())
+                .unwrap_or("trash.unknown");
+            Err(ShellError::policy_approval_required(rule))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The gate for the two trash verbs that only move, and so carry no acknowledgement of their own.
+///
+/// The decision is on the trail either way; under the default matrix a `Caution` verdict runs, and
+/// where a layer names a question or a refusal for a restore or a move, the verb is refused with
+/// the rule named — the same contract the tail's and the runtime forwards' unattended gate keeps.
+/// The call arrives with a file handle and not a session, so the decision reads the global rule;
+/// the machine's own layers still answer through it.
+fn trash_unattended_gate(core: &Core, verb: &str, subject: Option<&str>) -> Result<(), ShellError> {
+    let action = format!("trash.{verb}");
+    let verdict = sevenshell_policy::trash_action(verb);
+    let decision = core.policy_decision(&action, &verdict, PolicyTarget::default(), None, subject);
+    match decision.action {
+        PolicyAction::Deny => Err(ShellError::policy_denied(&action)),
+        PolicyAction::Ask => {
             let rule = verdict
                 .reasons
                 .first()
@@ -746,6 +780,81 @@ mod tests {
             .await
             .expect_err("the floor still asks");
         assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
+        assert_eq!(journal.events().len(), 1);
+    }
+
+    // -- the moving verbs --------------------------------------------------
+
+    #[tokio::test]
+    async fn a_restore_under_the_default_matrix_is_journaled_and_proceeds() {
+        let (_directory, core, journal) = core_with_policy(PolicyRule::default());
+
+        // The gate passes the restore through, and what fails is the channel lookup — not the
+        // policy. The trail names the restore exactly once, allowed, with the entry named.
+        let error = core
+            .trash_restore("handle-that-never-existed", "notes.txt")
+            .await
+            .expect_err("no real channel behind the handle");
+        assert_ne!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        assert_ne!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "trash.restore");
+        assert_eq!(events[0].decision, PolicyAction::Allow);
+        assert_eq!(events[0].subject.as_deref(), Some("notes.txt"));
+    }
+
+    #[tokio::test]
+    async fn a_deny_refuses_the_restore_before_any_connection_is_touched() {
+        let (_directory, core, journal) = core_with_policy(deny_everything());
+
+        let error = core
+            .trash_restore("handle-that-never-existed", "notes.txt")
+            .await
+            .expect_err("a deny refuses the restore");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "trash.restore");
+        assert_eq!(events[0].decision, PolicyAction::Deny);
+    }
+
+    #[tokio::test]
+    async fn a_move_into_the_trash_is_journaled_with_what_moves() {
+        let (_directory, core, journal) = core_with_policy(PolicyRule::default());
+
+        let requests = vec![TrashMoveRequest {
+            path: "/var/www/site/a.txt".to_owned(),
+            is_dir: false,
+        }];
+        let error = core
+            .move_to_trash("handle-that-never-existed", &requests)
+            .await
+            .expect_err("no real channel behind the handle");
+        assert_ne!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "trash.move");
+        assert_eq!(events[0].decision, PolicyAction::Allow);
+        assert_eq!(events[0].subject.as_deref(), Some("/var/www/site/a.txt"));
+    }
+
+    #[tokio::test]
+    async fn a_deny_refuses_the_move_before_anything_moves() {
+        let (_directory, core, journal) = core_with_policy(deny_everything());
+
+        let requests = vec![TrashMoveRequest {
+            path: "/var/www/site/a.txt".to_owned(),
+            is_dir: false,
+        }];
+        let error = core
+            .move_to_trash("handle-that-never-existed", &requests)
+            .await
+            .expect_err("a deny refuses the move");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
         assert_eq!(journal.events().len(), 1);
     }
 

@@ -27,6 +27,13 @@
     "downloadTitle": "Choose where to save this file",
     "downloadPackedTitle": "Choose the folder to download into",
     "empty": "This directory is empty.",
+    "search": {
+      "label": "Search in this directory",
+      "placeholder": "Search",
+      "matches": "{count} match(es)",
+      "noMatches": "No entries matching {query}.",
+      "clear": "Clear search"
+    },
     "listing": "Files",
     "name": "File name",
     "size": "Size",
