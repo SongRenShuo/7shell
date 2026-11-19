@@ -37,7 +37,7 @@ afterEach(reset);
 describe("the four tones", () => {
   it("draws each state family on its own meaning colour", () => {
     const expectations: Record<WbTagTone, string> = {
-      success: "var(--success)",
+      success: "var(--workbench-success)",
       danger: "var(--workbench-danger)",
       warning: "var(--workbench-warning)",
       neutral: "var(--muted-foreground)",

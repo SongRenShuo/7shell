@@ -5,9 +5,10 @@
  * component draws a terminal, a file browser or a monitor page without knowing which it is.
  *
  * The look is the reference desktop's, measured rather than invented, and named in the workbench
- * token block of `globals.css` rather than written here: the pane is `--workbench-surface-2` (the
- * Semi panel treatment — a solid face, no blur, because a window is where people read), its edge a
- * 1px low-alpha `--workbench-glass-border`, its shadow the app tier of the `--wb-shadow-*` scale
+ * token block of `globals.css` rather than written here: the pane is `--workbench-panel` (the
+ * Semi panel treatment — a solid face on the host theme, glass again over a wallpaper, because a
+ * window is where people read on the host and part of the picture over one), its edge a 1px
+ * low-alpha `--workbench-glass-border`, its shadow the app tier of the `--wb-shadow-*` scale
  * (the Semi three-layer recipe), and its roundness `--wb-radius-window` — the window step of the
  * desktop's own radius scale, still derived from the corner style the rest of the interface obeys.
  * A title bar 44px tall (the reference's own HEADER_HEIGHT) with a 17px title and a hairline under
@@ -166,7 +167,7 @@ const windowStyle = computed(() => ({
 
 const rootClass = computed(() =>
   cn(
-    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-surface-2)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)]",
+    "workbench-window absolute flex flex-col overflow-hidden rounded-wb-window border border-[var(--workbench-glass-border)] bg-[var(--workbench-panel)] text-[var(--workbench-on-picture)] shadow-[var(--wb-shadow-app)] backdrop-blur-[15px]",
     props.state === "max" ? "workbench-window--max rounded-none" : undefined,
     props.state === "min" ? "workbench-window--min" : undefined,
     props.closing ? "workbench-window--closing" : undefined,
