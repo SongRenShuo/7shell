@@ -44,6 +44,7 @@ import HomeView from "@/components/views/HomeView.vue";
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs.vue";
 import { describeShellError } from "@/i18n/errors";
 import { useSyncAutoUpload } from "@/composables/useSyncAutoUpload";
+import { useBrowserLeaveGuard } from "@/composables/useBrowserLeaveGuard";
 import { useToast } from "@/composables/useToast";
 import { consumeHandoverLink } from "@/lib/hosted/handover";
 import { openHandoverTarget } from "@/lib/hosted/handoverOpen";
@@ -113,6 +114,12 @@ watch(
 // Watches for transfers that failed while their list was not on screen. Registered here because the
 // question it answers — what is on screen — is one only the shell can answer.
 useTransferNotices();
+
+/**
+ * The browser page's leave guard: bytes still moving means closing the tab is a question. The
+ * desktop shell registers nothing — its pane owns that window's guard — so this is a no-op there.
+ */
+useBrowserLeaveGuard();
 
 let stopFollowingSystem: (() => void) | undefined;
 let stopTerminalEvents: (() => void) | undefined;
