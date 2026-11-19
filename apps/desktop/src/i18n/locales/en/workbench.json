@@ -255,7 +255,8 @@
         "transfer": "Transfers",
         "container": "Containers",
         "tail": "Log tracking",
-        "power": "System"
+        "power": "System",
+        "browser": "Browser handover"
       },
       "transfer": {
         "doneUpload": "Upload finished",
@@ -278,6 +279,9 @@
       "power": {
         "issuedReboot": "{name} was asked to reboot.",
         "issuedShutdown": "{name} was asked to shut down."
+      },
+      "deepLink": {
+        "missing": "The desktop this link asked for is not in the library ({id})."
       }
     },
     "system": {

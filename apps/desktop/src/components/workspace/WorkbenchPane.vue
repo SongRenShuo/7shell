@@ -995,6 +995,7 @@ const noticeGroupLabels = computed<Record<NoticeSourceKey, string>>(() => ({
   container: t("workbench.notices.group.container"),
   tail: t("workbench.notices.group.tail"),
   power: t("workbench.notices.group.power"),
+  browser: t("workbench.notices.group.browser"),
 }));
 
 const noticeLabels = computed(() => ({

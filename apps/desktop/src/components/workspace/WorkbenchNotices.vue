@@ -28,10 +28,10 @@ export interface NoticeRow {
   readonly actionable: boolean;
 }
 
-export type NoticeSourceKey = "transfer" | "container" | "tail" | "power";
+export type NoticeSourceKey = "transfer" | "container" | "tail" | "power" | "browser";
 
 /** The groups in the order the panel draws them. */
-export const NOTICE_GROUPS: readonly NoticeSourceKey[] = ["transfer", "container", "tail", "power"];
+export const NOTICE_GROUPS: readonly NoticeSourceKey[] = ["transfer", "container", "tail", "power", "browser"];
 </script>
 
 <script setup lang="ts">
