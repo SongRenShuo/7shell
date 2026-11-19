@@ -16,12 +16,13 @@
  * is a number nobody reads.
  *
  * The metrics are the reference's, not the theme's: a 57px pill inset 73px from either side and 15px
- * off the floor, a 12px radius, a 5px blur under a black wash, and 49px cells. The wash and the
- * colours are the desktop's own tokens — `--workbench-surface-1` behind, `--workbench-surface-3`
- * under the pointer, `--workbench-accent` for the running mark — named in `globals.css`, so the
- * bar draws no literal colour of its own. The blur and the wash are what let the wallpaper show
- * through without making the labels unreadable, which is the whole reason the bar is glass rather
- * than a solid strip.
+ * off the floor, a 5px blur under a glass wash, and 49px cells. The wash and the colours are the
+ * desktop's own tokens — `--workbench-surface-1` behind, `--workbench-surface-3` under the pointer,
+ * `--workbench-accent` (the Semi brand) for the running mark — named in `globals.css`, so the bar
+ * draws no literal colour of its own. Since the Semi re-skin the pill and its cells round at the
+ * control radius (6px at the default corner style, `--wb-radius-control`), the way Semi's own
+ * controls do. The blur and the wash are what let the wallpaper show through without making the
+ * labels unreadable, which is the whole reason the bar is glass rather than a solid strip.
  */
 import { Bell, LayoutGrid, Monitor, Power } from "@lucide/vue";
 import type { Component } from "vue";
@@ -189,7 +190,7 @@ const emit = defineEmits<{
      73px on a 212px pane leaves a 66px bar with a starter button in it. */
   margin: 0 clamp(0.5rem, 6vw, 73px) 15px;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--wb-radius-control);
   box-shadow: var(--wb-shadow-app);
   user-select: none;
 }
@@ -231,7 +232,7 @@ const emit = defineEmits<{
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: var(--wb-radius-control);
   transition: background-color var(--wb-dur-base);
   cursor: pointer;
 }
@@ -329,7 +330,7 @@ const emit = defineEmits<{
   flex: none;
   align-items: center;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--wb-radius-control);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   transition: background-color var(--wb-dur-base);
@@ -343,7 +344,7 @@ const emit = defineEmits<{
   align-items: center;
   gap: 6px;
   padding: 0 12px;
-  border-radius: 3px;
+  border-radius: var(--wb-radius-control);
   font-size: 13px;
   transition: background-color var(--wb-dur-base);
   cursor: pointer;
