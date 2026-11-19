@@ -53,8 +53,8 @@ describe("the five scenes", () => {
 
   it("marks its one decorative flourish with the accent token", () => {
     const empty = mount("loadFailed");
-    const flourish = empty.querySelector('[fill="var(--workbench-accent, currentColor)"]');
-    expect(flourish, "the accent dot mixes from the token, with a colour fallback").not.toBeNull();
+    const flourish = empty.querySelector('[fill="var(--workbench-accent)"]');
+    expect(flourish, "the accent dot is the token, no fallback colour painted").not.toBeNull();
   });
 });
 
