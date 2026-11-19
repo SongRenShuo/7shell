@@ -28,6 +28,30 @@ pub fn container_action(action: &str) -> RiskAssessment {
     RiskAssessment::from_reasons(vec![RiskReason::new(verdict.0, verdict.1, verdict.2)])
 }
 
+/// Classifies one Docker network operation.
+///
+/// Creating a network is a change somebody should see named; removing one is `Caution` rather
+/// than `Destructive` because the engine's own guardrail has the last word: a network that still
+/// holds containers is refused before the `rm` reaches the runtime.
+pub fn network_action(action: &str) -> RiskAssessment {
+    let action = action.trim().to_ascii_lowercase();
+    let verdict = match action.as_str() {
+        "list" | "inspect" => return RiskAssessment::safe(),
+        "create" => (
+            "container.network-create",
+            "risk.container.networkCreate",
+            RiskLevel::Caution,
+        ),
+        "remove" | "rm" => (
+            "container.network-remove",
+            "risk.container.networkRemove",
+            RiskLevel::Caution,
+        ),
+        _ => ("container.unknown", "risk.container.unknown", RiskLevel::Caution),
+    };
+    RiskAssessment::from_reasons(vec![RiskReason::new(verdict.0, verdict.1, verdict.2)])
+}
+
 /// Classifies one generic API request.
 ///
 /// The path is what carries the meaning: a `DELETE` of a Namespace can take every object in it
@@ -90,6 +114,24 @@ mod tests {
     #[test]
     fn an_unknown_container_verb_is_caution_not_safe() {
         assert_eq!(container_action("teleport").level, RiskLevel::Caution);
+    }
+
+    #[test]
+    fn reading_a_network_is_safe_and_changing_one_is_caution() {
+        for action in ["list", "inspect"] {
+            assert_eq!(
+                network_action(action).level,
+                RiskLevel::Safe,
+                "{action} should not be gated"
+            );
+        }
+        assert_eq!(network_action("create").level, RiskLevel::Caution);
+        assert_eq!(network_action("rm").level, RiskLevel::Caution);
+        assert!(
+            !network_action("create").needs_approval(),
+            "caution runs under the default matrix"
+        );
+        assert_eq!(network_action("teleport").level, RiskLevel::Caution);
     }
 
     #[test]
