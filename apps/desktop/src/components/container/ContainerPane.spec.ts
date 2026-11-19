@@ -58,6 +58,9 @@ vi.mock("@/lib/backend/tauri", () => ({
   onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import ContainerPane from "@/components/container/ContainerPane.vue";
 import { i18n } from "@/i18n";
 import { containerConnect } from "@/lib/backend/tauri";
@@ -224,5 +227,35 @@ describe("the desktop layout", () => {
     // The flat row's five buttons collapse to the one menu on the desktop.
     const row = tag?.closest("tr");
     expect(row?.querySelectorAll("button")).toHaveLength(1);
+  });
+});
+
+describe("the flat layout's zero-diff guard", () => {
+  /**
+   * Read from the source, not the DOM: the guard is about what the flat branch *writes down* —
+   * the desktop window's Semi dressing (its accent washes, its color-mix fills, the workbench
+   * tokens) must never leak into the class strings the application tab draws with. The file is
+   * the only place that leak would be visible; a mounted flat pane hides it behind the views the
+   * two layouts share.
+   */
+  it("keeps the flat rail free of the desktop's token language", () => {
+    const source = readFileSync(resolve("apps/desktop/src/components/container/ContainerPane.vue"), "utf8");
+
+    const start = source.indexOf("<nav");
+    const end = source.indexOf("</nav>");
+    expect(start, "the flat branch's own rail block is in the template").toBeGreaterThan(-1);
+    expect(end, "the flat rail block closes").toBeGreaterThan(start);
+    const flatNav = source.slice(start, end);
+
+    expect(flatNav, "the flat rail is still the compact one").toContain("w-36");
+    expect(flatNav, "no workbench token leaks into the flat rail's classes").not.toContain("var(--workbench-");
+    expect(flatNav, "no Semi wash leaks into the flat rail's classes").not.toContain("color-mix(");
+    expect(flatNav, "the flat rail keeps its compact hover language").toContain("hover:bg-accent/50");
+
+    // The markup both layouts share (the retry button, the namespace strip) stays dressed as the
+    // application tab has always drawn it: the desktop's own pieces live in the components the
+    // desktop branch mounts, not in this file's shared strings.
+    expect(source, "the desktop branch mounts its own side navigation").toContain("<WbSideNav");
+    expect(source, "the shared retry control keeps the application's hover").toContain("hover:bg-accent");
   });
 });

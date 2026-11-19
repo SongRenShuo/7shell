@@ -462,12 +462,24 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
+    <!--
+      The flat workspace's toolbar exactly as it has always been drawn. The desktop window's is the
+      reference's page head: the page's name bold, the 300px search — which is why the input's
+      classes are the layout's choice.
+    -->
     <div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-1.5">
+      <h2 v-if="desktop" class="shrink-0 text-lg font-bold leading-none" :aria-label="t('container.rail.containers')">
+        {{ t("container.rail.containers") }}
+      </h2>
       <input
         v-model="text"
         type="text"
         spellcheck="false"
-        class="h-6 w-52 rounded-md border border-border bg-background px-2 text-[11px] focus:outline-none"
+        :class="
+          desktop
+            ? 'h-7 w-[300px] rounded-sm border border-border bg-background px-2.5 text-xs focus:outline-none'
+            : 'h-6 w-52 rounded-md border border-border bg-background px-2 text-[11px] focus:outline-none'
+        "
         :placeholder="t('container.filters.text')"
         :aria-label="t('container.filters.text')"
       />
@@ -559,7 +571,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
           <tr
             v-for="container in rows"
             :key="container.id"
-            :class="cn(rowClass('page', { clickable: true }))"
+            :class="cn(rowClass('page', { clickable: true, striped: desktop }))"
             @click="openDetail(container)"
           >
             <td :class="TABLE.page.cell">
@@ -607,7 +619,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
               <span v-else-if="desktop" class="flex items-center gap-0.5">
                 <button
                   type="button"
-                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
                   :title="t('container.action.more', { name: container.name })"
                   :aria-label="t('container.action.more', { name: container.name })"
                   @click="openRowMenu($event, container)"

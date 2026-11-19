@@ -140,12 +140,15 @@ async function removeImage(): Promise<void> {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
+    <!-- The page head: the reference's own measure — the page's name bold, the 300px search, the
+         primary action at the far end. -->
     <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+      <h2 class="shrink-0 text-lg font-bold leading-none">{{ t("container.rail.images") }}</h2>
       <input
         v-model="text"
         type="text"
         spellcheck="false"
-        class="h-6 w-52 rounded-md border border-border bg-background px-2 text-[11px] focus:outline-none"
+        class="h-7 w-[300px] rounded-sm border border-border bg-background px-2.5 text-xs focus:outline-none"
         :placeholder="t('container.images.filter')"
         :aria-label="t('container.images.filter')"
       />
@@ -155,7 +158,7 @@ async function removeImage(): Promise<void> {
       </WbButton>
       <button
         type="button"
-        class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
         :title="t('container.refresh')"
         :aria-label="t('container.refresh')"
         @click="containers.loadImages(props.tab.id)"
@@ -180,7 +183,7 @@ async function removeImage(): Promise<void> {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="image in rows" :key="image.id" :class="cn(rowClass('page', { clickable: true }))">
+          <tr v-for="image in rows" :key="image.id" :class="cn(rowClass('page', { clickable: true, striped: true }))">
             <td :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]" :title="imageRef(image)">{{ imageRef(image) }}</span>
             </td>
@@ -198,7 +201,7 @@ async function removeImage(): Promise<void> {
             <td :class="TABLE.page.cell">
               <button
                 type="button"
-                class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
                 :title="t('container.image.more', { name: imageRef(image) })"
                 :aria-label="t('container.image.more', { name: imageRef(image) })"
                 @click="openRowMenu($event, image)"
