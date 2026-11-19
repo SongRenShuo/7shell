@@ -8,7 +8,9 @@
       "label": "Container workspace",
       "overview": "Overview",
       "containers": "Containers",
-      "images": "Images"
+      "images": "Images",
+      "networks": "Networks",
+      "compose": "Compose"
     },
     "connecting": "Opening a connection to the engine…",
     "connectFailed": "The engine could not be reached.",
@@ -27,6 +29,34 @@
       "stopping": "Stopping"
     },
     "desktop": {
+      "networks": {
+        "search": "Filter by network name",
+        "create": "Create network",
+        "createTitle": "New network",
+        "nameLabel": "Name",
+        "namePlaceholder": "mem-net-test",
+        "nameInvalid": "The name may use letters, digits, dots, dashes and underscores, and must start with a letter or digit.",
+        "driver": "Driver",
+        "subnet": "Subnet (CIDR)",
+        "subnetPlaceholder": "172.62.0.0/24",
+        "subnetHint": "Written as address/prefix — left out, the engine picks one.",
+        "subnetInvalid": "That is not a subnet in CIDR form: address/prefix, the prefix stopping at 32 (IPv6: at 128).",
+        "gateway": "Gateway",
+        "gatewayPlaceholder": "172.62.0.1",
+        "gatewayHint": "An address inside the subnet — left out, the engine picks the first one.",
+        "gatewayInvalid": "That is not an IP address.",
+        "containers": "Containers",
+        "menu": "Network {name}",
+        "remove": "Remove",
+        "removeTitle": "Remove the network “{name}”?",
+        "removeMessage": "The network goes away. Containers still attached lose it; the engine refuses to remove a network while any are attached.",
+        "removeVerb": "Remove",
+        "submit": "Create",
+        "creating": "Creating…",
+        "loading": "Reading networks…",
+        "none": "This engine has no networks of its own to show.",
+        "noMatch": "No network matches this filter."
+      },
       "summary": {
         "containers": "Containers: {total} in total, {running} running",
         "images": "Images: {total} in total",

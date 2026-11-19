@@ -17,11 +17,12 @@
  * and the view keeping are the same in both — only the drawing differs, so the application tab
  * never sees the desktop's presentational choices.
  */
-import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, X } from "@lucide/vue";
+import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DockerImages from "@/components/container/DockerImages.vue";
+import DockerNetworks from "@/components/container/DockerNetworks.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
@@ -47,7 +48,7 @@ const props = withDefaults(
   { layout: "flat" },
 );
 
-type ContainerView = "overview" | "containers" | "images";
+type ContainerView = "overview" | "containers" | "images" | "networks";
 
 const { t } = useI18n();
 const containers = useContainerStore();
@@ -100,10 +101,12 @@ const namespaceOptions = computed(() => {
 });
 
 /**
- * The desktop rail's rows, and the rule it carries: an engine this session has not reached — not
- * connected yet, or failed to — offers the overview and nothing else. There is nothing to count
- * and nowhere to go, and a rail that pretended otherwise would be drawing buttons for an engine
- * that is not there.
+ * The desktop rail's rows, and the rules it carries: an engine this session has not reached — not
+ * connected yet, or failed to — offers the overview and nothing else; and a capability the engine
+ * says it does not have (a host without the Compose plugin, an engine that did not answer the
+ * network probe) trims its page from the rail, the way the reference manager trims its own. A bit
+ * that has not been probed yet is read as "has it" — a page the engine may yet answer for is
+ * drawn, and taken away if the answer is no.
  */
 const sideRail = computed<readonly SideNavItem[]>(() => {
   const current = session.value;
@@ -112,11 +115,23 @@ const sideRail = computed<readonly SideNavItem[]>(() => {
   if (!connected) {
     return [overview];
   }
-  return [
+  const items: SideNavItem[] = [
     overview,
     { id: "containers", label: t("container.rail.containers"), icon: Boxes, count: current.containers.length },
     { id: "images", label: t("container.rail.images"), icon: Layers, count: current.images.length },
   ];
+  if (current.info?.networkAvailable !== false) {
+    items.push({ id: "networks", label: t("container.rail.networks"), icon: Waypoints, count: null });
+  }
+  return items;
+});
+
+// A page trimmed from the rail while it was on screen is not a page to stay on: the rail decides
+// what may be open, so the view goes back to the overview the rail always keeps.
+watch(sideRail, (items) => {
+  if (!items.some((item) => item.id === view.value)) {
+    view.value = "overview";
+  }
 });
 
 function translate(key: string, params?: Record<string, string>): string {
@@ -371,6 +386,8 @@ onBeforeUnmount(() => {
           :session="session"
           @view-related="showRelatedContainers"
         />
+        <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
+        <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
       </div>
     </div>
 

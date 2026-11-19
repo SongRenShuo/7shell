@@ -8,7 +8,9 @@
       "label": "容器工作区",
       "overview": "概览",
       "containers": "容器",
-      "images": "镜像"
+      "images": "镜像",
+      "networks": "网络",
+      "compose": "Compose"
     },
     "connecting": "正在连接引擎…",
     "connectFailed": "无法连接引擎。",
@@ -27,6 +29,34 @@
       "stopping": "容器停止中"
     },
     "desktop": {
+      "networks": {
+        "search": "按网络名筛选",
+        "create": "新建网络",
+        "createTitle": "新建网络",
+        "nameLabel": "名称",
+        "namePlaceholder": "mem-net-test",
+        "nameInvalid": "名称只能用字母、数字、点、横线和下划线，且须以字母或数字开头。",
+        "driver": "驱动",
+        "subnet": "子网（CIDR）",
+        "subnetPlaceholder": "172.62.0.0/24",
+        "subnetHint": "写成 地址/前缀 的形状；留空由引擎自动分配。",
+        "subnetInvalid": "不是 CIDR 形状的子网：应为 地址/前缀，IPv4 前缀不超过 32（IPv6 不超过 128）。",
+        "gateway": "网关",
+        "gatewayPlaceholder": "172.62.0.1",
+        "gatewayHint": "子网内的一个地址；留空由引擎取第一个可用地址。",
+        "gatewayInvalid": "不是合法的 IP 地址。",
+        "containers": "关联容器",
+        "menu": "网络 {name}",
+        "remove": "删除",
+        "removeTitle": "删除网络“{name}”？",
+        "removeMessage": "网络将被删除。仍有容器挂载时引擎会拒绝删除；请先摘掉相关容器再删。",
+        "removeVerb": "删除",
+        "submit": "创建",
+        "creating": "正在创建…",
+        "loading": "正在读取网络…",
+        "none": "该引擎还没有可显示的网络。",
+        "noMatch": "没有网络匹配该筛选。"
+      },
       "summary": {
         "containers": "容器：共 {total} 个，运行中 {running} 个",
         "images": "镜像：共 {total} 个",
