@@ -339,3 +339,80 @@ pub struct ContainerCommitRequest {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub message: String,
 }
+
+/// One Docker network as a list row shows it.
+///
+/// The address fields (`subnet`, `gateway`, `ipRange`) are filled in from the network's inspect,
+/// which is why they may be absent: the built-in networks answer them, but a network whose driver
+/// has no IPAM at all does not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkSummary {
+    pub name: String,
+    pub driver: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scope: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subnet: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub gateway: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ip_range: String,
+    #[serde(default)]
+    pub ipv6: bool,
+    #[serde(default)]
+    pub internal: bool,
+    /// How many containers are attached right now. The removal guardrail reads this before a
+    /// network is allowed to leave.
+    pub containers: u32,
+}
+
+/// Everything the network create form collects.
+///
+/// Every address field is a CIDR the daemon will check again; the shape check here exists so an
+/// option-shaped string never reaches the command line, not to second-guess the engine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkCreateRequest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub driver: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subnet: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub gateway: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ip_range: String,
+    #[serde(default)]
+    pub ipv6: bool,
+}
+
+/// One Compose project as the project list shows it.
+///
+/// `config_files` is the engine's own sentence about where the project's files live; `services`
+/// is the distinct services the project's containers carry, and `containers` is how many of those
+/// containers exist including stopped ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeProject {
+    pub name: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub config_files: String,
+    pub services: u32,
+    pub containers: u32,
+}
+
+/// One service of one Compose project, as the project's `ps` shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeServiceRow {
+    pub id: String,
+    pub name: String,
+    pub service: String,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub health: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
+}

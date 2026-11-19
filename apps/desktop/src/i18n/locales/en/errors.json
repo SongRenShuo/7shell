@@ -120,7 +120,8 @@
     "container": {
       "unavailable": "The {runtime} command line is not available, or the engine is not running.",
       "commandFailed": "The container runtime rejected {operation}.",
-      "notConnected": "That container connection is no longer open."
+      "notConnected": "That container connection is no longer open.",
+      "networkInUse": "The network {network} still has {containers} containers attached. Disconnect them before removing it."
     },
     "k8s": {
       "unavailable": "The Kubernetes API server could not be reached.",
