@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /**
- * The desktop's button, and the Docker window's button: one shape, three intents, two sizes.
+ * The desktop's button, and the Docker window's button: one shape, four intents, three sizes.
  *
  * The desktop chrome had no button of its own — every pane wrote its own classes, and two panes
- * two rows apart carried two slightly different buttons. This is the shared shape: `primary` for
- * the action the pane exists to offer, `secondary` for the ordinary ones beside it, `ghost` for
- * the ones that are only icons and words on a bar. Two sizes, because the desktop's chrome works
- * at 11px text and its window contents at 12px, and both are sizes the interface already ships.
+ * two rows apart carried two slightly different buttons. This is the shared shape, dressed the
+ * Semi way: `primary` is the brand blue the desktop's accent token carries, `secondary` the white
+ * face with an edge, `tertiary` the ones that are only a wash and words on a bar, and `warn` the
+ * destructive-adjacent ones — the light wash of the danger colour with the danger colour itself as
+ * the text, the combination that says "careful" without shouting. Three sizes at the reference's
+ * own heights — 28px, 36px, 40px — and the control radius the design system names (6px, the
+ * interface's `rounded-sm`, still derived from the corner style).
  *
  * `busy` is the loading state the write actions share: the button stops accepting presses and
  * turns its label over to whoever is rendering it — the caller shows the operation's own words
@@ -24,19 +27,23 @@ import { computed } from "vue";
 import { cn } from "@/lib/utils";
 
 const variants = cva(
-  // The base: an inline-flex so an icon and a word sit on one line, the focus ring the rest of the
-  // interface draws, and the transitions the desktop's motion tokens name.
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border select-none transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+  // The base: an inline-flex so an icon and a word sit on one line, the control radius the corner
+  // style derives, the focus ring the rest of the interface draws, and the transitions the
+  // desktop's motion tokens name.
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-sm border select-none transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60",
   {
     variants: {
       variant: {
-        primary: "border-transparent bg-primary text-primary-foreground hover:bg-primary/90 disabled:hover:bg-primary",
-        secondary: "border-border text-foreground hover:bg-accent disabled:hover:bg-transparent",
-        ghost: "border-transparent text-foreground hover:bg-accent disabled:hover:bg-transparent",
+        primary:
+          "border-transparent bg-[var(--workbench-accent)] text-[var(--workbench-on-wallpaper)] hover:bg-[color-mix(in_srgb,var(--workbench-accent)_88%,var(--workbench-on-wallpaper))] disabled:hover:bg-[var(--workbench-accent)]",
+        secondary: "border-border bg-background text-foreground hover:bg-accent disabled:hover:bg-background",
+        tertiary: "border-transparent bg-muted text-foreground hover:bg-accent disabled:hover:bg-muted",
+        warn: "border-[color-mix(in_srgb,var(--workbench-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--workbench-danger)_10%,transparent)] text-[var(--workbench-danger)] hover:bg-[color-mix(in_srgb,var(--workbench-danger)_18%,transparent)] disabled:hover:bg-[color-mix(in_srgb,var(--workbench-danger)_10%,transparent)]",
       },
       size: {
-        sm: "h-6 gap-1 rounded-[var(--wb-radius-content)] px-2 text-[11px]",
-        md: "h-7 px-3 text-xs",
+        sm: "h-7 gap-1 px-2 text-[11px]",
+        md: "h-9 px-3 text-xs",
+        lg: "h-10 px-3.5 text-sm",
       },
     },
     defaultVariants: {
@@ -67,12 +74,14 @@ const props = withDefaults(
 
 const inert = computed(() => props.busy || props.disabled);
 const classes = computed(() => cn(variants({ variant: props.variant, size: props.size })));
+/** The spinner steps with the button: the small control carries the small one. */
+const spinnerSize = computed(() => (props.size === "sm" ? 12 : 14));
 </script>
 
 <template>
   <!-- type="button": a button inside a form is never a submit unless somebody asked for one. -->
   <button type="button" :class="classes" :disabled="inert" :aria-busy="busy || undefined">
-    <LoaderCircle v-if="busy" :size="12" class="shrink-0 animate-spin" aria-hidden="true" />
+    <LoaderCircle v-if="busy" :size="spinnerSize" class="shrink-0 animate-spin" aria-hidden="true" />
     <slot />
   </button>
 </template>
