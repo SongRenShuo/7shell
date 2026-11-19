@@ -18,15 +18,16 @@
  * never sees the desktop's presentational choices.
  */
 import { Boxes, Gauge, Layers, LoaderCircle, RotateCw, X } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DockerImages from "@/components/container/DockerImages.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
-import Select from "@/components/ui/Select.vue";
+import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
+import { backend } from "@/lib/backend/api";
 import { cn } from "@/lib/utils";
 import { supportsNamespace, useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
@@ -150,6 +151,34 @@ function chooseNamespace(namespace: string): void {
   }
   void containers.setNamespace(props.tab.id, namespace);
 }
+
+/**
+ * The networks the wizard offers its networks field, read from the engine once each time the
+ * wizard opens — a list read when the dialog asks is current; a list cached from the pane's
+ * first minute is not. Where the engine does not answer (a host without the listing, a read
+ * that failed) the field falls back to names typed by hand, which is the wizard's own degrade.
+ */
+const wizardNetworks = ref<readonly SelectOption[]>([]);
+
+async function loadWizardNetworks(): Promise<void> {
+  const connectionId = session.value?.connectionId;
+  if (!connectionId || session.value?.info?.networkAvailable === false) {
+    wizardNetworks.value = [];
+    return;
+  }
+  try {
+    const networks = await backend.dockerNetworks.list(connectionId);
+    wizardNetworks.value = networks.map((network) => ({ value: network.name, label: network.name }));
+  } catch {
+    wizardNetworks.value = [];
+  }
+}
+
+watch(wizardOpen, (open) => {
+  if (open) {
+    void loadWizardNetworks();
+  }
+});
 
 onMounted(() => {
   void containers.connect(props.tab);
@@ -347,9 +376,16 @@ onBeforeUnmount(() => {
 
     <!--
       The create wizard lives over this pane, wherever in the desktop's rail the reader is: it is a
-      modal of the window, not a view of the rail. The network choices stay empty until the bridge
-      grows the listing — the wizard degrades to typed names while it does.
+      modal of the window, not a view of the rail. The network choices are the engine's own, read
+      when the wizard opens; an engine that does not answer the listing leaves the field on its
+      typed-names degrade.
     -->
-    <ContainerWizard v-if="desktop" :open="wizardOpen" :tab-id="props.tab.id" @update:open="wizardOpen = $event" />
+    <ContainerWizard
+      v-if="desktop"
+      :open="wizardOpen"
+      :tab-id="props.tab.id"
+      :network-options="wizardNetworks"
+      @update:open="wizardOpen = $event"
+    />
   </section>
 </template>
