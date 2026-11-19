@@ -28,6 +28,8 @@ import type {
 } from "@/types/ai";
 import type { BatchOutcome, BatchProgress, BatchRequest, RiskAssessment } from "@/types/batch";
 import type {
+  ComposeProject,
+  ComposeServiceRow,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -40,6 +42,8 @@ import type {
   ContainerStreamLine,
   ContainerSummary,
   ImageLayer,
+  NetworkCreateRequest,
+  NetworkSummary,
 } from "@/types/container";
 import type {
   K8sExecRequest,
@@ -1532,6 +1536,61 @@ export async function onContainerStreamLine(listener: (payload: ContainerStreamL
 
 export async function onContainerStreamEnd(listener: (payload: ContainerStreamEnd) => void): Promise<Unlisten> {
   return listen<ContainerStreamEnd>("container:stream-end", (event) => listener(event.payload));
+}
+
+// -- Desktop engine: networks --------------------------------------------------
+
+export function networkList(connectionId: string): Promise<NetworkSummary[]> {
+  return invoke<NetworkSummary[]>("network_list", { connectionId });
+}
+
+export function networkCreate(connectionId: string, request: NetworkCreateRequest): Promise<void> {
+  return invoke<void>("network_create", { connectionId, request });
+}
+
+/** A network the engine says is still in use is refused with CONTAINER-NETWORK-IN-USE. */
+export function networkRemove(connectionId: string, name: string): Promise<void> {
+  return invoke<void>("network_remove", { connectionId, name });
+}
+
+// -- Desktop engine: Compose projects -------------------------------------------
+//
+// A Compose project's logs and an attached `up` follow on the same container stream channel the
+// container surface uses, so the subscriptions above serve both.
+
+export function composeLs(connectionId: string): Promise<ComposeProject[]> {
+  return invoke<ComposeProject[]>("compose_ls", { connectionId });
+}
+
+export function composePs(connectionId: string, name: string): Promise<ComposeServiceRow[]> {
+  return invoke<ComposeServiceRow[]>("compose_ps", { connectionId, name });
+}
+
+/** Detached answers `null`; attached answers a stream id and follows on the container stream. */
+export function composeUp(
+  connectionId: string,
+  name: string,
+  ymlPath: string,
+  detach: boolean,
+): Promise<string | null> {
+  return invoke<string | null>("compose_up", { connectionId, name, ymlPath, detach });
+}
+
+export function composeDown(connectionId: string, name: string): Promise<void> {
+  return invoke<void>("compose_down", { connectionId, name });
+}
+
+export function composeRestart(connectionId: string, name: string): Promise<void> {
+  return invoke<void>("compose_restart", { connectionId, name });
+}
+
+export function composeLogsStart(connectionId: string, name: string, tail: number): Promise<string> {
+  return invoke<string>("compose_logs_start", { connectionId, name, tail });
+}
+
+/** Writes the Compose file to the chosen path, through the session's file channel. */
+export function composeWriteYaml(connectionId: string, ymlPath: string, yml: string): Promise<void> {
+  return invoke<void>("compose_write_yaml", { connectionId, ymlPath, yml });
 }
 
 // -- Kubernetes --------------------------------------------------------------
