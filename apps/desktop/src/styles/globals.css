@@ -166,17 +166,158 @@
 }
 
 /*
+ * The Semi token layer — the desktop's one fact source for colour.
+ *
+ * Phase five re-pointed the desktop at the Semi Design token system: the same `--semi-*` naming
+ * fnOS's own stylesheet speaks, with the values the fnOS image's measured tokens gave (调研报告
+ * 20261119-0302 §A). Everything the desktop's chrome draws reads from here, through the
+ * `--workbench-*` family below, and the direction is one way — **`--workbench-*` derives from
+ * `--semi-*`; nothing in the workbench layer writes a colour of its own.** The guard that keeps
+ * the arrow one-way is `WorkbenchPane.spec.ts` (it reads this file's text); a definition emptied
+ * here turns that guard red rather than silently greying the desktop.
+ *
+ * The palette steps are written as RGB triplets — fnOS's own convention (`--semi-brand-5:
+ * 0,102,255`) — so an alpha combination is `rgba(var(--semi-x), a)` and no colour is written
+ * twice. The triplets that carry a hex in their comment are the measured values; the rest of a
+ * ramp interpolates between two measured anchors and says so.
+ *
+ * `:root` carries the light ramp; `.dark` re-points the greys and the semantic colours at fnOS's
+ * dark values (grey inverts 0↔9; the brand blue does not move). The semantic aliases are declared
+ * once, in `:root`: a custom property is substituted where it is *declared*, and that is the
+ * document root — so re-pointing the triplets on the same element re-points every alias with them.
+ */
+:root {
+  /* The white/black pair the wallpaper's opacity language is written in (fnOS bg-white-10 …). */
+  --semi-white: 255, 255, 255;
+  --semi-black: 0, 0, 0;
+
+  /*
+   * The brand blue, 0 lightest → 9 deepest. 5 is the fnOS brand (`#0066FF`, measured) and 4 is
+   * the hover step (`#3388FF`, measured); the remaining steps interpolate between the two anchors
+   * and the theme-neutral ends.
+   */
+  --semi-brand-0: 240, 247, 255; /* #f0f7ff derived */
+  --semi-brand-1: 223, 234, 255; /* #dfeaff derived */
+  --semi-brand-2: 193, 218, 255; /* #c1daff derived */
+  --semi-brand-3: 137, 191, 255; /* #89bfff derived */
+  --semi-brand-4: 51, 136, 255; /* #3388ff measured (primary hover) */
+  --semi-brand-5: 0, 102, 255; /* #0066ff measured (brand) */
+  --semi-brand-6: 0, 92, 230; /* #005ce6 derived (primary active) */
+  --semi-brand-7: 0, 78, 194; /* #004ec2 derived */
+  --semi-brand-8: 0, 61, 153; /* #003d99 derived */
+  --semi-brand-9: 0, 45, 112; /* #002d70 derived */
+
+  /*
+   * The neutral grey, light ramp: 0 the page bottom (#F8F8F8) through 9 the deepest text
+   * (#0E0E0F). Measured at 0/1/2/5/8/9; 3/4/6/7 interpolate.
+   */
+  --semi-grey-0: 248, 248, 248; /* #f8f8f8 measured (page bottom) */
+  --semi-grey-1: 242, 243, 244; /* #f2f3f4 measured (app bottom) */
+  --semi-grey-2: 194, 195, 196; /* #c2c3c4 measured */
+  --semi-grey-3: 159, 160, 161; /* #9fa0a1 derived */
+  --semi-grey-4: 124, 125, 126; /* #7c7d7e derived */
+  --semi-grey-5: 90, 91, 92; /* #5a5b5c measured (tertiary text) */
+  --semi-grey-6: 69, 71, 73; /* #454749 derived */
+  --semi-grey-7: 48, 50, 52; /* #303234 derived */
+  --semi-grey-8: 27, 29, 31; /* #1b1d1f measured */
+  --semi-grey-9: 14, 14, 15; /* #0e0e0f measured (deepest text) */
+
+  /* The semantic colours, light face (measured). */
+  --semi-danger: 230, 0, 35; /* #e60023 measured */
+  --semi-success: 0, 158, 97; /* #009e61 measured */
+  --semi-warning: 255, 161, 0; /* #ffa100 measured */
+
+  /*
+   * Semantic aliases — the names fnOS's components actually read. Hover and active are one ramp
+   * step away from the base (the brand's own 5→4 relationship); the `-light-*` trio is the "pale
+   * ground, deep text" combination every Tag/Banner/row selection wears.
+   */
+  --semi-color-primary: rgba(var(--semi-brand-5), 1);
+  --semi-color-primary-hover: rgba(var(--semi-brand-4), 1);
+  --semi-color-primary-active: rgba(var(--semi-brand-6), 1);
+  --semi-color-primary-light-default: rgba(var(--semi-brand-5), 0.12);
+  --semi-color-primary-light-hover: rgba(var(--semi-brand-5), 0.16);
+  --semi-color-primary-light-active: rgba(var(--semi-brand-5), 0.2);
+  --semi-color-danger: rgba(var(--semi-danger), 1);
+  --semi-color-danger-hover: color-mix(in srgb, rgba(var(--semi-danger), 1) 88%, rgb(var(--semi-white)));
+  --semi-color-danger-active: color-mix(in srgb, rgba(var(--semi-danger), 1) 88%, rgb(var(--semi-black)));
+  --semi-color-danger-light-default: rgba(var(--semi-danger), 0.12);
+  --semi-color-danger-light-hover: rgba(var(--semi-danger), 0.16);
+  --semi-color-danger-light-active: rgba(var(--semi-danger), 0.2);
+  --semi-color-success: rgba(var(--semi-success), 1);
+  --semi-color-success-hover: color-mix(in srgb, rgba(var(--semi-success), 1) 88%, rgb(var(--semi-white)));
+  --semi-color-success-active: color-mix(in srgb, rgba(var(--semi-success), 1) 88%, rgb(var(--semi-black)));
+  --semi-color-success-light-default: rgba(var(--semi-success), 0.12);
+  --semi-color-success-light-hover: rgba(var(--semi-success), 0.16);
+  --semi-color-success-light-active: rgba(var(--semi-success), 0.2);
+  --semi-color-warning: rgba(var(--semi-warning), 1);
+  --semi-color-warning-hover: color-mix(in srgb, rgba(var(--semi-warning), 1) 88%, rgb(var(--semi-white)));
+  --semi-color-warning-active: color-mix(in srgb, rgba(var(--semi-warning), 1) 88%, rgb(var(--semi-black)));
+  --semi-color-warning-light-default: rgba(var(--semi-warning), 0.14);
+  --semi-color-warning-light-hover: rgba(var(--semi-warning), 0.2);
+  --semi-color-warning-light-active: rgba(var(--semi-warning), 0.28);
+
+  /* The modal hairline: grey-9 at 6% is the 1px outline fnOS draws around a floating app panel. */
+  --semi-color-border-modal: rgba(var(--semi-grey-9), 0.06);
+
+  /* Radius: the Semi control step, measured 6px — inputs, buttons, menus, dropdown cards. */
+  --semi-border-radius-medium: 6px;
+
+  /* Shadows, the three measured fnOS recipes, one per kind of floating thing. They are said once
+     and do not follow the theme: a shadow falling on a picture cannot follow the host's theme. */
+  --semi-shadow-app:
+    0 15px 20px rgba(0, 0, 0, 0.08), 8px 8px 16px -6px rgba(3, 3, 3, 0.08), 1px 12px 42px -4px rgba(10, 10, 10, 0.08);
+  --semi-shadow-elevated: 0 10px 20px rgba(0, 0, 0, 0.08), 0 10px 40px rgba(0, 0, 0, 0.12);
+  --semi-shadow-dropdown: 0 12px 42px -4px rgba(20, 23, 26, 0.12), 0 8px 18px -6px rgba(20, 23, 26, 0.2);
+
+  /* Motion: Semi's three duration tiers (90ms / .12s / .18s) and its three easings, measured. */
+  --semi-dur-fastest: 90ms;
+  --semi-dur-fast: 120ms;
+  --semi-dur-moderate: 180ms;
+  --semi-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --semi-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --semi-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * The dark face of the fact source: the grey ramp inverted (fnOS dark, measured at the ends
+ * #0C0C0D → #F8F8F8) and the semantic colours at their measured dark values. The brand blue does
+ * not follow the theme, so it is not repeated here.
+ */
+.dark {
+  --semi-grey-0: 12, 12, 13; /* #0c0c0d measured (dark page bottom) */
+  --semi-grey-1: 27, 29, 31; /* #1b1d1f (light 8 inverted) */
+  --semi-grey-2: 48, 50, 52; /* #303234 (light 7 inverted) */
+  --semi-grey-3: 69, 71, 73; /* #454749 (light 6 inverted) */
+  --semi-grey-4: 90, 91, 92; /* #5a5b5c (light 5 inverted) */
+  --semi-grey-5: 124, 125, 126; /* #7c7d7e (light 4 inverted) */
+  --semi-grey-6: 159, 160, 161; /* #9fa0a1 (light 3 inverted) */
+  --semi-grey-7: 194, 195, 196; /* #c2c3c4 (light 2 inverted) */
+  --semi-grey-8: 242, 243, 244; /* #f2f3f4 (light 1 inverted) */
+  --semi-grey-9: 248, 248, 248; /* #f8f8f8 measured (dark text brightest) */
+
+  --semi-danger: 237, 63, 83; /* #ed3f53 measured */
+  --semi-success: 48, 180, 127; /* #30b47f measured */
+  --semi-warning: 255, 192, 67; /* #ffc043 measured */
+
+  --semi-color-border-modal: rgba(var(--semi-white), 0.1);
+}
+
+/*
  * Desktop workbench chrome.
  *
  * The desktop's own surfaces — the windows, the taskbar, the starter, the menus — do not wear the
  * interface's theme tokens. This block family is theirs: one place where the desktop's colours are
  * named, so the chrome can be reskinned without touching a component.
  *
- * The colour face is now split in three. The **shared** block below holds everything that does not
- * follow the theme: the accent, the menu skin, the wallpapers, the motion, the shadows, the radii,
- * and the fixed wallpaper-text pair. The **`:root`** block is the light host's face — white glass,
- * dark text — and the **`.dark`** block is the dark host's, whose values are byte-for-byte what
- * this desktop has always drawn, so a dark desktop does not move by a pixel.
+ * Since phase five every value here is a *derivation* of the `--semi-*` layer above — the workbench
+ * family names `var(--semi-*)` and writes no colour of its own; the one-way arrow is guarded by
+ * `WorkbenchPane.spec.ts`. The colour face is split in three. The **shared** block below holds
+ * everything that does not follow the theme: the accent, the wallpapers, the motion, the shadows,
+ * the radii, and the fixed wallpaper-text pair. The **`:root`** block is the light host's face —
+ * pale glass, deep text — and the **`.dark`** block is the dark host's; both also carry the menu
+ * skin now, because a Semi dropdown is a theme-faced card (white over a light host, dark over a
+ * dark one) rather than a colour of its own.
  *
  * One semantic line cuts across the split and is not negotiable: **text standing on a picture is
  * white, whatever the host's theme says.** The wallpaper is a picture; a light theme's near-black
@@ -186,25 +327,18 @@
  * a token quietly keeps the other theme's value, and here that is exactly the point. The pane sets
  * `data-workbench-on-picture` when it draws a backdrop, and the remap block re-points the whole
  * chrome at the fixed pair and the dark glass: on a picture, the desktop keeps the face it has
- * always worn.
- *
- * The values are the reference desktop's, measured rather than invented; where a batch adopted a
- * fnOS recipe the comment says so. Nothing here overrides a token above: this family only adds.
+ * always worn. The menu tokens are deliberately *absent* from the remap — a dropdown is a floating
+ * card, not paint on the picture, and it keeps the host's face the way fnOS's own dropdowns do.
  */
 :root,
 .dark {
-  /* The desktop's accent: the menu teal the reference ships, converted to oklch (#17b38e). */
-  --workbench-accent: oklch(0.6841 0.1308 170.6);
-  /* The one red the chrome itself draws: the close button under the pointer (#c50f1f). */
-  --workbench-danger: oklch(0.5227 0.2063 25.85);
-  /* The threshold amber the widgets wear at 90-95% usage (#f59e0b at desktop legibility). */
-  --workbench-warning: oklch(0.7949 0.1614 70.68);
-
-  /* The teal menu skin, collected from ContextMenu's desktop tone. The menu is teal in either
-     theme, and white text is what reads on teal. */
-  --workbench-menu-bg: var(--workbench-accent);
-  --workbench-menu-border: rgba(255, 255, 255, 0.15);
-  --workbench-menu-text: var(--workbench-on-wallpaper);
+  /* The desktop's accent: the Semi brand itself, the blue every menu mark, running bar and
+     selection ring wears (one-way guard: this line must keep its var() reference). */
+  --workbench-accent: rgba(var(--semi-brand-5), 1);
+  /* The one red the chrome itself draws: the close button under the pointer, the unread badge. */
+  --workbench-danger: var(--semi-color-danger);
+  /* The threshold amber the widgets wear at 90-95% usage. */
+  --workbench-warning: var(--semi-color-warning);
 
   /*
    * The fixed wallpaper-text pair: white, and the step dimmer under it. Declared here, in the
@@ -220,29 +354,24 @@
   --workbench-wallpaper-plain: none;
 
   /*
-   * Motion. fnOS keeps three durations and two easings and every transition picks from them;
-   * this is the same three drawers. Durations do not follow the theme, so they are said once and
-   * the desktop's components read them from here.
+   * Motion. Semi keeps three duration tiers and three easings and every transition picks from
+   * them; the workbench drawers are thin aliases over the Semi tokens above, so the desktop and
+   * the interface cannot drift apart in pace.
    */
-  --wb-dur-fast: 120ms;
-  --wb-dur-base: 180ms;
-  --wb-dur-slow: 220ms;
-  --wb-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --wb-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --wb-dur-fast: var(--semi-dur-fastest);
+  --wb-dur-base: var(--semi-dur-fast);
+  --wb-dur-slow: var(--semi-dur-moderate);
+  --wb-ease-standard: var(--semi-ease-in-out);
+  --wb-ease-out: var(--semi-ease-out);
 
   /*
-   * Shadows, three of them, one per kind of floating thing. Each is the fnOS recipe — several
-   * low-opacity layers plus the hairline drawn separately — with the first layer of the first two
-   * kept at the value this build already drew, so the windows and menus do not jump when this
-   * block lands. A shadow that follows the theme would be a shadow that follows the host's theme
-   * while it falls on a picture; one recipe for both faces is the honest answer.
+   * Shadows, three of them, one per kind of floating thing — each the measured fnOS recipe, named
+   * once in the Semi layer above. A shadow that follows the theme would be a shadow that follows
+   * the host's theme while it falls on a picture; one recipe for both faces is the honest answer.
    */
-  --wb-shadow-app:
-    2px 6px 10px 2px rgba(0, 0, 0, 0.569), 8px 8px 16px -6px rgba(0, 0, 0, 0.2), 1px 12px 42px -4px rgba(0, 0, 0, 0.3);
-  --wb-shadow-elevated:
-    0 10px 20px rgba(0, 0, 0, 0.3), 0 10px 40px rgba(0, 0, 0, 0.4);
-  --wb-shadow-dropdown:
-    3px 7px 14px rgba(0, 0, 0, 0.259), 0 12px 42px -4px rgba(0, 0, 0, 0.35), 0 8px 18px -6px rgba(0, 0, 0, 0.4);
+  --wb-shadow-app: var(--semi-shadow-app);
+  --wb-shadow-elevated: var(--semi-shadow-elevated);
+  --wb-shadow-dropdown: var(--semi-shadow-dropdown);
 
   /*
    * The icon-label shadow: fnOS's two-layer recipe (`0 1px 6px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.5)`)
@@ -251,86 +380,113 @@
   --wb-shadow-text-picture: 0 1px 6px rgba(0, 0, 0, 0.2), 0 0 4px rgba(0, 0, 0, 0.5);
 
   /*
-   * Radii, two steps, derived from the corner style like every other radius here: at the default
-   * corner style they land on the adopted fnOS tiers collapsed for a tool's context (window 12px,
-   * content 8px), and a smaller corner style shrinks them by the same ratio — square is still
-   * square everywhere.
+   * Radii, derived from the corner style like every other radius here: at the default corner style
+   * they land on the adopted fnOS tiers collapsed for a tool's context (window 12px, content 8px),
+   * and a smaller corner style shrinks them by the same ratio — square is still square everywhere.
+   * The third step is the control step: at the default corner style it is exactly the Semi
+   * `--semi-border-radius-medium` (6px), and it shrinks with the corner style the same way.
    */
   --wb-radius-window: calc(var(--radius) * 1.2);
   --wb-radius-content: calc(var(--radius) * 0.8);
+  --wb-radius-control: calc(var(--radius) * 0.6);
 }
 
 /*
- * The light host's face: the chrome over the interface's own surface. Glass goes white; the text
- * that stands on it goes dark. The desktop without a wallpaper is this face.
+ * The light host's face: the chrome over the interface's own surface. Glass goes pale; the text
+ * that stands on it goes grey-9 deep. The desktop without a wallpaper is this face. Every value is
+ * a Semi derivation: the near-white glasses are the white pair over the greys, the hover wash and
+ * the hairline are grey-9 at an alpha, and the focus outline is the brand — D2 moved the focus ring
+ * to the blue with everything else that "selected" means.
  */
 :root {
-  /* The window pane: white glass under the same blur. */
-  --workbench-glass: rgba(255, 255, 255, 0.78);
-  /* The hairline every glass surface draws around itself, darkened for the light face. */
-  --workbench-glass-border: rgba(0, 0, 0, 0.08);
-  /* Text that stands on the chrome's own glass: the host theme's dark, not a wallpaper's white. */
-  --workbench-on-picture: #1f1f1f;
-  /* The step dimmer, for labels that yield to the tiles beside them. */
-  --workbench-on-picture-muted: rgba(0, 0, 0, 0.62);
+  /* The window pane: pale glass under the blur. */
+  --workbench-glass: rgba(var(--semi-white), 0.85);
+  /* The hairline every glass surface draws around itself (the fnOS 8% edge, on grey-9). */
+  --workbench-glass-border: rgba(var(--semi-grey-9), 0.08);
+  /* Text that stands on the chrome's own glass: grey-9, not a wallpaper's white. */
+  --workbench-on-picture: rgba(var(--semi-grey-9), 1);
+  /* The step dimmer, for labels that yield to the tiles beside them (Semi's tertiary text). */
+  --workbench-on-picture-muted: rgba(var(--semi-grey-5), 1);
   /* The wash a hover lays over a glass surface. */
-  --workbench-wash-hover: rgba(0, 0, 0, 0.08);
-  /* The keyboard focus outline. */
-  --workbench-focus-outline: rgba(0, 0, 0, 0.627);
+  --workbench-wash-hover: rgba(var(--semi-grey-9), 0.08);
+  /* The keyboard focus outline: the brand blue. */
+  --workbench-focus-outline: rgba(var(--semi-brand-5), 0.9);
 
   /* Elevation inside the desktop, brightest first: the bars, the sheets, the raised hover. */
-  --workbench-surface-1: rgba(255, 255, 255, 0.72);
-  --workbench-surface-2: rgba(255, 255, 255, 0.9);
-  --workbench-surface-3: rgba(0, 0, 0, 0.08);
+  --workbench-surface-1: rgba(var(--semi-white), 0.82);
+  --workbench-surface-2: rgba(var(--semi-white), 0.95);
+  --workbench-surface-3: rgba(var(--semi-grey-9), 0.08);
+
+  /*
+   * The Semi dropdown skin, for the context menu's desktop tone: a theme-faced card — white here —
+   * with its own hairline, its own hover wash and its own quiet text, all said per theme because
+   * the menu keeps the host's face over a wallpaper rather than wearing the remap.
+   */
+  --workbench-menu-bg: rgba(var(--semi-white), 1);
+  --workbench-menu-border: rgba(var(--semi-grey-9), 0.08);
+  --workbench-menu-text: rgba(var(--semi-grey-9), 1);
+  --workbench-menu-text-muted: rgba(var(--semi-grey-5), 1);
+  --workbench-menu-hover: rgba(var(--semi-grey-9), 0.06);
+  --workbench-menu-separator: rgba(var(--semi-grey-9), 0.08);
 }
 
 /*
- * The dark host's face — byte for byte what the desktop drew before this split existed. The
- * pairing rule the rest of this file holds (a theme block that forgets a token quietly keeps the
- * other theme's value) is why every theme-following token is repeated here even where the value
- * reads the same.
+ * The dark host's face: fnOS's dark values — the glass is the dark page grey at the dock's own
+ * transparency, the text is dark grey-9, the washes are the white pair. The pairing rule the rest
+ * of this file holds (a theme block that forgets a token quietly keeps the other theme's value) is
+ * why every theme-following token is repeated here even where the value reads the same.
  */
 .dark {
-  /* The window pane: the reference's translucent black under a blur. */
-  --workbench-glass: rgba(0, 0, 0, 0.769);
-  /* The hairline every glass surface draws around itself (fnOS: white at 8%). */
-  --workbench-glass-border: rgba(255, 255, 255, 0.08);
-  /* Text that stands on the chrome's own glass in the dark host. */
-  --workbench-on-picture: #ffffff;
-  /* The step dimmer, for labels that yield to the tiles beside them (#e1e1e1). */
-  --workbench-on-picture-muted: #e1e1e1;
-  /* The white wash a hover lays over a glass surface (#ffffff2e). */
-  --workbench-wash-hover: rgba(255, 255, 255, 0.18);
-  /* The keyboard focus outline on a picture (#ffffffa0). */
-  --workbench-focus-outline: rgba(255, 255, 255, 0.627);
+  /* The window pane: the dark page grey under a blur, at the fnOS dock's own depth. */
+  --workbench-glass: rgba(var(--semi-grey-0), 0.62);
+  /* The hairline every glass surface draws around itself (white at 8%). */
+  --workbench-glass-border: rgba(var(--semi-white), 0.08);
+  /* Text that stands on the chrome's own glass in the dark host (dark grey-9, #f8f8f8). */
+  --workbench-on-picture: rgba(var(--semi-grey-9), 1);
+  /* The step dimmer, for labels that yield to the tiles beside them (dark grey-6). */
+  --workbench-on-picture-muted: rgba(var(--semi-grey-6), 1);
+  /* The white wash a hover lays over a glass surface. */
+  --workbench-wash-hover: rgba(var(--semi-white), 0.12);
+  /* The keyboard focus outline: the brand's lighter step, which reads on dark glass. */
+  --workbench-focus-outline: rgba(var(--semi-brand-4), 0.9);
 
   /* Elevation inside the desktop, darkest first: the bars, the sheets, the raised hover. */
-  --workbench-surface-1: rgba(0, 0, 0, 0.51);
-  --workbench-surface-2: rgba(0, 0, 0, 0.722);
-  --workbench-surface-3: rgba(72, 70, 70, 0.741);
+  --workbench-surface-1: rgba(var(--semi-grey-0), 0.55);
+  --workbench-surface-2: rgba(var(--semi-grey-1), 0.94);
+  --workbench-surface-3: rgba(var(--semi-white), 0.12);
+
+  /* The Semi dropdown skin over a dark host: a dark grey card and its white hairline. */
+  --workbench-menu-bg: rgba(var(--semi-grey-2), 1);
+  --workbench-menu-border: rgba(var(--semi-white), 0.1);
+  --workbench-menu-text: rgba(var(--semi-grey-9), 1);
+  --workbench-menu-text-muted: rgba(var(--semi-grey-6), 1);
+  --workbench-menu-hover: rgba(var(--semi-white), 0.08);
+  --workbench-menu-separator: rgba(var(--semi-white), 0.1);
 }
 
 /*
  * On a picture, the chrome keeps the face it has always worn: dark glass, white text, the white
  * washes. The pane sets `data-workbench-on-picture` when it draws a backdrop, and this block re-
  * points every theme-following token at the values that read on a picture — the text at the fixed
- * pair, the surfaces at the dark face. A light host's chrome does not follow its theme onto the
- * wallpaper; that is the semantic line the split exists to protect.
+ * pair, the surfaces at the dark face, the focus ring at the brand step that reads on dark glass.
+ * A light host's chrome does not follow its theme onto the wallpaper; that is the semantic line
+ * the split exists to protect. The menu tokens are not here on purpose: a dropdown keeps the
+ * host's face (see the theme blocks).
  *
  * The block is written after both theme faces and carries one attribute's specificity, the same as
  * `:root` — later wins, so a light host with a wallpaper draws dark glass exactly as a dark host
  * does.
  */
 [data-workbench-on-picture] {
-  --workbench-glass: rgba(0, 0, 0, 0.769);
-  --workbench-glass-border: rgba(255, 255, 255, 0.08);
+  --workbench-glass: rgba(var(--semi-grey-0), 0.62);
+  --workbench-glass-border: rgba(var(--semi-white), 0.08);
   --workbench-on-picture: var(--workbench-on-wallpaper);
   --workbench-on-picture-muted: var(--workbench-on-wallpaper-muted);
-  --workbench-wash-hover: rgba(255, 255, 255, 0.18);
-  --workbench-focus-outline: rgba(255, 255, 255, 0.627);
-  --workbench-surface-1: rgba(0, 0, 0, 0.51);
-  --workbench-surface-2: rgba(0, 0, 0, 0.722);
-  --workbench-surface-3: rgba(72, 70, 70, 0.741);
+  --workbench-wash-hover: rgba(var(--semi-white), 0.12);
+  --workbench-focus-outline: rgba(var(--semi-brand-4), 0.9);
+  --workbench-surface-1: rgba(var(--semi-grey-0), 0.55);
+  --workbench-surface-2: rgba(var(--semi-grey-1), 0.94);
+  --workbench-surface-3: rgba(var(--semi-white), 0.12);
 }
 
 /*
