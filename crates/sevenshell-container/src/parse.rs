@@ -313,6 +313,8 @@ pub(crate) fn runtime_info(
         images_total: 0,
         images_tagged: 0,
         images_dangling: 0,
+        compose_available: false,
+        network_available: false,
     };
 
     if let Some(document) = documents(info.unwrap_or_default()).into_iter().next() {
