@@ -34,6 +34,19 @@
       "noMatches": "No entries matching {query}.",
       "clear": "Clear search"
     },
+    "recent": {
+      "title": "Recent directories",
+      "empty": "No recent directories yet.",
+      "jump": "Go to {path}",
+      "clear": "Clear the list"
+    },
+    "filter": {
+      "folder": "Folders",
+      "document": "Documents",
+      "image": "Images",
+      "archive": "Archives",
+      "other": "Other"
+    },
     "listing": "Files",
     "name": "File name",
     "size": "Size",
