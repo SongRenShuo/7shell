@@ -244,6 +244,16 @@ describe("the panel itself", () => {
     await vi.waitFor(() => expect(clearMock).toHaveBeenCalled());
   });
 
+  it("offers a failure the summary, not the eraser", async () => {
+    await render(transfer("t3", { kind: "failed", detail: "the channel failed" }));
+
+    // What the header holds for a failed row is the way back into it, not a tidy-up: the row stays
+    // until it is tried again or taken away on its own, and what it said stays readable.
+    expect(drawn().querySelector("[data-transfer-clear]")).toBeNull();
+    expect(drawn().querySelector("[data-transfer-failures]")).not.toBeNull();
+    expect(clearMock).not.toHaveBeenCalled();
+  });
+
   it("asks before stopping everything, and stops everything only when answered", async () => {
     await render(transfer("t1", { kind: "running" }), transfer("t2", { kind: "paused" }));
 
@@ -468,5 +478,121 @@ describe("the panel itself", () => {
       throw new Error(`no banner is drawn: ${drawn().textContent}`);
     }
     expect(banner.classList.contains("select-text")).toBe(true);
+  });
+});
+
+/**
+ * The header's standing tally, which answers "where is this batch at" without reading a row.
+ *
+ * Finished is what landed. Remaining is what has not happened yet — running, or held on purpose,
+ * the two states this list has that are still going to become something. A failure and a
+ * cancellation are neither, which is the point: they have stopped happening, and the summary is
+ * where they are counted instead.
+ */
+describe("the header tally", () => {
+  it("counts what finished and what is still going to happen", async () => {
+    await render(
+      transfer("t1", { kind: "running" }),
+      transfer("t2", { kind: "paused" }),
+      transfer("t3", { kind: "done" }),
+      transfer("t4", { kind: "done" }),
+      transfer("t5", { kind: "failed", detail: "the channel failed" }),
+    );
+
+    const tally = drawn().querySelector("[data-transfer-tally]");
+    expect(tally?.textContent).toContain("2 finished");
+    expect(tally?.textContent).toContain("2 to go");
+  });
+
+  it("says nothing when there is nothing to count", async () => {
+    await render();
+
+    expect(drawn().querySelector("[data-transfer-tally]")).toBeNull();
+  });
+});
+
+/**
+ * The summary of what stopped.
+ *
+ * It is drawn by a dialog of its own, teleported out of the panel the way the shell's questions
+ * are — so what these tests read for it is the document, not the panel's own subtree.
+ */
+describe("the failure summary", () => {
+  it("is offered once something has failed, and not before", async () => {
+    await render(transfer("t1", { kind: "running" }), transfer("t2", { kind: "done" }));
+    expect(drawn().querySelector("[data-transfer-failures]")).toBeNull();
+
+    await render(transfer("t3", { kind: "failed", detail: "the channel failed" }));
+    expect(drawn().querySelector("[data-transfer-failures]")).not.toBeNull();
+  });
+
+  it("gathers what stopped: the file, where it was headed, and what it said", async () => {
+    await render(
+      transfer("t1", { kind: "failed", detail: "the channel failed" }),
+      transfer("t2", { kind: "failed", detail: "no room on the far side" }, { remotePath: "/srv/elsewhere.txt" }),
+      transfer("t3", { kind: "done" }),
+    );
+
+    headerButton("Review the 2 failed transfers").click();
+    await nextTick();
+
+    const summary = document.querySelector("[data-transfer-failure-summary]");
+    if (!summary) {
+      throw new Error("the summary is not drawn");
+    }
+
+    const lines = [...document.querySelectorAll("[data-transfer-failure-row]")];
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.textContent).toContain("t1.txt");
+    expect(lines[0]?.textContent).toContain("/home/labuser/t1.txt");
+    expect(lines[0]?.textContent).toContain("the channel failed");
+    expect(lines[1]?.textContent).toContain("/srv/elsewhere.txt");
+    expect(lines[1]?.textContent).toContain("no room on the far side");
+    expect(summary.textContent, "a transfer that landed is nobody's failure").not.toContain("t3");
+  });
+
+  it("holds ten, and says what the ten stood for", async () => {
+    await render(
+      ...Array.from({ length: 12 }, (_, index) =>
+        transfer(`f${index}`, { kind: "failed", detail: `failure ${index}` }),
+      ),
+    );
+
+    headerButton("Review the 12 failed transfers").click();
+    await nextTick();
+
+    expect(document.querySelectorAll("[data-transfer-failure-row]")).toHaveLength(10);
+    expect(document.querySelector("[data-transfer-failure-more]")?.textContent).toContain("2");
+  });
+
+  it("tries one from the summary, and closes when nothing is left failed", async () => {
+    await render(transfer("t3", { kind: "failed", detail: "the channel failed" }));
+    headerButton("Review the 1 failed transfers").click();
+    await nextTick();
+
+    document.querySelector<HTMLButtonElement>("[data-transfer-failure-retry]")?.click();
+    await vi.waitFor(() => expect(retryMock).toHaveBeenCalledWith("t3"));
+
+    // The read comes back with the transfer moving again, so nothing is failed any more — and the
+    // summary is a question that has answered itself: it goes without being dismissed.
+    useFilesStore().transfers = [];
+    await vi.waitFor(() => expect(document.querySelector("[data-transfer-failure-summary]")).toBeNull());
+  });
+
+  it("keeps the panel where it is while a click lands inside the summary", async () => {
+    await render(transfer("t3", { kind: "failed", detail: "the channel failed" }));
+    headerButton("Review the 1 failed transfers").click();
+    await nextTick();
+
+    const summary = document.querySelector("[data-transfer-failure-summary]");
+    if (!summary) {
+      throw new Error("the summary is not drawn");
+    }
+    summary.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await nextTick();
+
+    // Working through the failures — pressing a retry, reading a reason — is not "a click
+    // somewhere else", or every press would put the list away underneath the dialog.
+    expect(useFilesStore().panelExpanded).toBe(true);
   });
 });

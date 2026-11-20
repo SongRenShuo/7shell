@@ -15,6 +15,12 @@
       "label": "Command",
       "placeholder": "uptime"
     },
+    "history": {
+      "title": "Command history",
+      "empty": "No commands yet.",
+      "clear": "Clear the history",
+      "recall": "Recall the commands this panel has run"
+    },
     "options": {
       "timeout": "Timeout per host",
       "parallel": "At once"

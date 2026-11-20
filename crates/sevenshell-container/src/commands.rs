@@ -396,6 +396,58 @@ pub(crate) fn namespaces(runtime: ContainerRuntime) -> Vec<String> {
     vec![runtime.program().to_owned(), "namespace".to_owned(), "ls".to_owned()]
 }
 
+// -- Remote digest -------------------------------------------------------------
+//
+// Asking a registry what digest a tag currently names — the question behind the image page's
+// "check for updates". Two command lines can answer it, so the caller tries them as a chain and
+// this module only builds them: which one a given engine can run is the capability probe's
+// finding, not a guess made here.
+
+/// The two cheap, network-free probes for whether this CLI can answer a remote-digest question.
+///
+/// `buildx imagetools` is the answerer that states the digest outright; `manifest inspect` is the
+/// fallback that only states it for a registry that served a bare manifest. Either being present
+/// is enough for the probe to pass, and neither touches the network, so the verdict is about the
+/// command line and not about the registry's mood.
+pub(crate) fn remote_digest_probes(runtime: ContainerRuntime) -> Result<Vec<Vec<String>>, ShellError> {
+    require_docker(runtime, "the image update check on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("buildx".to_owned());
+    argv.push("version".to_owned());
+    let mut manifest = base(runtime, "");
+    manifest.push("manifest".to_owned());
+    manifest.push("inspect".to_owned());
+    manifest.push("--help".to_owned());
+    Ok(vec![argv, manifest])
+}
+
+/// The digest line `buildx imagetools inspect` prints for the tag's top-level object — the same
+/// digest a pull records into the local image's `RepoDigests`.
+pub(crate) fn imagetools_inspect(runtime: ContainerRuntime, image: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the image update check on this runtime")?;
+    let image = image_reference("the image update check", image)?;
+    let mut argv = base(runtime, "");
+    argv.push("buildx".to_owned());
+    argv.push("imagetools".to_owned());
+    argv.push("inspect".to_owned());
+    argv.push(image.to_owned());
+    Ok(argv)
+}
+
+/// `manifest inspect --verbose` prints each manifest the tag names with its digest. For a registry
+/// that served a bare manifest (not a list) that digest is the pull digest; for a list it is not,
+/// and the caller says so rather than comparing a platform digest against an index digest.
+pub(crate) fn manifest_inspect(runtime: ContainerRuntime, image: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the image update check on this runtime")?;
+    let image = image_reference("the image update check", image)?;
+    let mut argv = base(runtime, "");
+    argv.push("manifest".to_owned());
+    argv.push("inspect".to_owned());
+    argv.push("--verbose".to_owned());
+    argv.push(image.to_owned());
+    Ok(argv)
+}
+
 pub(crate) fn info(runtime: ContainerRuntime, namespace: &str) -> Vec<String> {
     let mut argv = base(runtime, namespace);
     argv.push("info".to_owned());
@@ -2192,5 +2244,48 @@ mod tests {
                 sevenshell_error::ErrorCode::AppUnsupported
             );
         }
+    }
+    #[test]
+    fn the_remote_digest_probes_are_docker_only_and_touch_no_network() {
+        for runtime in [
+            ContainerRuntime::Podman,
+            ContainerRuntime::Nerdctl,
+            ContainerRuntime::Wslc,
+        ] {
+            assert_eq!(
+                remote_digest_probes(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
+        let probes = remote_digest_probes(ContainerRuntime::Docker).unwrap();
+        assert_eq!(probes.len(), 2);
+        assert_eq!(probes[0], vec!["docker", "buildx", "version"]);
+        assert_eq!(probes[1], vec!["docker", "manifest", "inspect", "--help"]);
+    }
+
+    #[test]
+    fn the_remote_digest_queries_pass_a_validated_reference() {
+        assert_eq!(
+            imagetools_inspect(ContainerRuntime::Docker, "docker.gmssh.com/library/busybox:1.37").unwrap(),
+            vec![
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                "docker.gmssh.com/library/busybox:1.37"
+            ]
+        );
+        assert_eq!(
+            manifest_inspect(ContainerRuntime::Docker, "busybox:1.37").unwrap(),
+            vec!["docker", "manifest", "inspect", "--verbose", "busybox:1.37"]
+        );
+        for runtime in [ContainerRuntime::Podman, ContainerRuntime::Wslc] {
+            assert_eq!(
+                imagetools_inspect(runtime, "busybox:1.37").unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
+        assert!(imagetools_inspect(ContainerRuntime::Docker, "--all").is_err());
+        assert!(manifest_inspect(ContainerRuntime::Docker, "").is_err());
     }
 }

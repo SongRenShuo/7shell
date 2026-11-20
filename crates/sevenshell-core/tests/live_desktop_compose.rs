@@ -115,7 +115,11 @@ impl Lab {
     where
         F: AsyncFnOnce(&String),
     {
-        let opened = self.core.open_files(&self.session_id).await.expect("open the file channel");
+        let opened = self
+            .core
+            .open_files(&self.session_id)
+            .await
+            .expect("open the file channel");
         let sevenshell_types::SftpOutcome::Opened { handle, .. } = opened else {
             panic!("the file channel opened into {opened:?}");
         };
@@ -132,7 +136,11 @@ async fn a_compose_project_is_written_started_read_and_taken_down() {
     };
     lab.trust_then_close().await;
 
-    let engine = lab.core.desktop_engine_open(&lab.session_id).await.expect("open the engine");
+    let engine = lab
+        .core
+        .desktop_engine_open(&lab.session_id)
+        .await
+        .expect("open the engine");
     let info = lab.core.container_runtime_info(&engine).await.expect("engine info");
     if !info.compose_available {
         eprintln!("the engine answers no Compose plugin; the overview-only path is the contract, skipping");
@@ -160,7 +168,10 @@ async fn a_compose_project_is_written_started_read_and_taken_down() {
         .await
         .expect("write the compose file");
     let projects = lab.core.compose_ls(&engine).await.expect("list projects");
-    eprintln!("projects before up: {:?}", projects.iter().map(|row| row.name.clone()).collect::<Vec<_>>());
+    eprintln!(
+        "projects before up: {:?}",
+        projects.iter().map(|row| row.name.clone()).collect::<Vec<_>>()
+    );
     assert!(
         !projects.iter().any(|row| row.name == PROJECT),
         "a project that was never upped is not in the engine's list yet"
@@ -196,7 +207,13 @@ async fn a_compose_project_is_written_started_read_and_taken_down() {
     })
     .await
     .expect("the nginx service reaches running within the wait");
-    eprintln!("services: {:?}", services.iter().map(|row| (row.name.clone(), row.state.clone())).collect::<Vec<_>>());
+    eprintln!(
+        "services: {:?}",
+        services
+            .iter()
+            .map(|row| (row.name.clone(), row.state.clone()))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(services.len(), 1, "one service, as the file says");
 
     // The project list now shows it, with the config path and one service.
@@ -205,10 +222,16 @@ async fn a_compose_project_is_written_started_read_and_taken_down() {
         .iter()
         .find(|row| row.name == PROJECT)
         .unwrap_or_else(|| panic!("{PROJECT} is in the list: {projects:?}"));
-    assert!(project.config_files.contains(PROJECT_DIR), "the engine names the file: {project:?}");
+    assert!(
+        project.config_files.contains(PROJECT_DIR),
+        "the engine names the file: {project:?}"
+    );
     assert_eq!(project.services, 1);
     assert_eq!(project.containers, 1);
-    eprintln!("project: {} status={} services={}", project.name, project.status, project.services);
+    eprintln!(
+        "project: {} status={} services={}",
+        project.name, project.status, project.services
+    );
 
     // Logs follow on the container stream channel, stopped by the caller.
     let (events, mut lines) = tokio::sync::mpsc::unbounded_channel();
@@ -252,7 +275,11 @@ async fn a_compose_project_is_written_started_read_and_taken_down() {
             .delete_entry(handle, PROJECT_DIR, sevenshell_types::EntryKind::Directory)
             .await
             .expect("remove the project directory");
-        let listing = lab.core.list_files(handle, "/root").await.expect("list /root after cleanup");
+        let listing = lab
+            .core
+            .list_files(handle, "/root")
+            .await
+            .expect("list /root after cleanup");
         assert!(
             !listing.entries.iter().any(|entry| entry.name == "mem-compose-test"),
             "the directory the test made is gone"

@@ -1523,6 +1523,21 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             Ok(Value::Null)
         }
 
+        // -- Desktop Docker engine: registry reads -------------------------------
+        //
+        // Where the engine pulls from, and whether a tag has moved on the registry. Both are reads
+        // and run ungated; the pull that would act on the answer is the container surface's own
+        // verb, reached through the interface's own confirmation.
+        "docker_info" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            to_value(state.core.docker_info(&connection_id).await?)
+        }
+        "image_remote_digest" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let image: String = from_args(&args, "image")?;
+            to_value(state.core.image_remote_digest(&connection_id, &image).await?)
+        }
+
         "k8s_contexts" => {
             let kubeconfig: Option<SecretInput> = optional_args(&args, "kubeconfig")?;
             to_value(state.core.k8s_contexts(kubeconfig).await?)

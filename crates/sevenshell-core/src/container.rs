@@ -137,16 +137,23 @@ impl Core {
             .run(&["docker".to_owned(), "compose".to_owned(), "version".to_owned()])
             .await
             .is_ok();
-        self.containers
-            .connect(id.clone(), ContainerRuntime::Docker, "", runner)?;
+        // The remote-digest probe answers a different question the same way: whether the image
+        // page may offer the update check at all. Both probes are network-free CLI calls, so the
+        // verdict is about the command line, not about a registry's mood.
+        let provider = Provider::new(ContainerRuntime::Docker, "", runner.clone())?;
+        let manifest_inspect_available = provider.remote_digest_available().await;
+        self.containers.add(id.clone(), provider)?;
         self.desktop_engines
             .lock()
             .await
             .insert(session_id.to_owned(), id.clone());
-        self.desktop_engine_caps
-            .lock()
-            .await
-            .insert(id.clone(), crate::compose::DesktopEngineCaps { compose_available });
+        self.desktop_engine_caps.lock().await.insert(
+            id.clone(),
+            crate::compose::DesktopEngineCaps {
+                compose_available,
+                manifest_inspect_available,
+            },
+        );
         Ok(id)
     }
 
@@ -255,6 +262,7 @@ impl Core {
             info.compose_available = caps.compose_available;
             // A desktop engine is Docker by construction, so the network surface is always there.
             info.network_available = true;
+            info.manifest_inspect_available = caps.manifest_inspect_available;
         }
         Ok(info)
     }
