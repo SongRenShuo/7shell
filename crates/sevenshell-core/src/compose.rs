@@ -19,6 +19,9 @@ use crate::Core;
 /// What one desktop engine turned out to have, probed once when it opened.
 pub(crate) struct DesktopEngineCaps {
     pub(crate) compose_available: bool,
+    /// Whether the engine's command line can answer a remote-digest question — the image page's
+    /// "check for updates". A CLI that cannot is a page that offers the manual pull only.
+    pub(crate) manifest_inspect_available: bool,
 }
 
 /// The longest Compose file path, and the longest file body, this surface will carry.
@@ -404,6 +407,7 @@ mod tests {
             "desktop-live".to_owned(),
             DesktopEngineCaps {
                 compose_available: true,
+                manifest_inspect_available: false,
             },
         );
         assert!(core.desktop_engine_caps.lock().await.contains_key("desktop-live"));

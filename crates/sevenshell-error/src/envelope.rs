@@ -923,6 +923,17 @@ impl ShellError {
             .with_outcome(OperationOutcome::NotSent)
     }
 
+    /// No registry answered the question of what an image's remote digest is, so whether a newer
+    /// image exists is unknown rather than answered.
+    ///
+    /// `NotSent` on purpose: the question was asked and went unanswered, and nothing was pulled or
+    /// changed anywhere by asking it.
+    pub fn image_manifest_unavailable(reference: &str) -> Self {
+        Self::new(ErrorCode::ImageManifestUnavailable, Origin::new(Subsystem::Container))
+            .with_param("image", reference)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
     pub fn k8s_unavailable(detail: impl AsRef<str>) -> Self {
         Self::new(ErrorCode::K8sUnavailable, Origin::new(Subsystem::K8s))
             .with_detail(detail)

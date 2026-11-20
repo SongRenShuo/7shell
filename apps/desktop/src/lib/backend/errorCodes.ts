@@ -94,6 +94,7 @@ export const ERROR_CATALOG = {
   "CONTAINER-COMMAND-FAILED": "errors.container.commandFailed",
   "CONTAINER-NOT-CONNECTED": "errors.container.notConnected",
   "CONTAINER-NETWORK-IN-USE": "errors.container.networkInUse",
+  "IMAGE-MANIFEST-UNAVAILABLE": "errors.image.manifestUnavailable",
   // Kubernetes
   "K8S-UNAVAILABLE": "errors.k8s.unavailable",
   "K8S-KUBECONFIG-INVALID": "errors.k8s.kubeconfigInvalid",

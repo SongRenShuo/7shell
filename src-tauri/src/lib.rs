@@ -329,6 +329,8 @@ pub fn run() {
             commands::container::container_image_load,
             commands::container::container_image_commit,
             commands::container::container_registry_login,
+            commands::container::docker_info,
+            commands::container::image_remote_digest,
             commands::network::network_list,
             commands::network::network_create,
             commands::network::network_remove,

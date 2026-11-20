@@ -123,6 +123,44 @@ export interface ContainerRuntimeInfo {
   readonly composeAvailable?: boolean;
   /** A desktop engine is Docker by construction, so this arrives with the Compose bit. */
   readonly networkAvailable?: boolean;
+  /**
+   * Whether the engine's command line can answer a request for an image's remote digest — the
+   * question behind the image page's "check for updates". Absent on connections that were never
+   * probed, which reads as "may have it".
+   */
+  readonly manifestInspectAvailable?: boolean;
+}
+
+/**
+ * Where the engine pulls from, mirroring `ContainerRegistrySettings` in the Rust types.
+ *
+ * Every field is optional because the Rust side skips it when empty: a daemon with no mirrors and
+ * no proxy answers the empty shape, which is the honest answer, not an error.
+ */
+export interface ContainerRegistrySettings {
+  /** The pull-through mirrors the daemon consults before the upstream registry, in order. */
+  readonly mirrors?: readonly string[];
+  readonly httpProxy?: string;
+  readonly httpsProxy?: string;
+  readonly noProxy?: string;
+}
+
+/**
+ * The remote digest of one image tag, beside the digests the engine recorded locally, mirroring
+ * `ContainerImageRemoteDigest` in the Rust types.
+ *
+ * `upToDate` is answered only when both sides answered: a registry that would not speak and an
+ * image loaded from an archive are both honest absences, not a guess either way.
+ */
+export interface ContainerImageRemoteDigest {
+  readonly reference: string;
+  /** The digest the registry serves for this tag, as the engine would pull it. */
+  readonly remoteDigest?: string;
+  /** The digests the engine recorded for this image's pulls (`RepoDigests`). */
+  readonly localDigests?: readonly string[];
+  readonly upToDate?: boolean;
+  /** Which registry answered: a mirror host, or `upstream` when the engine's own index did. */
+  readonly source?: string;
 }
 
 export interface ContainerStreamLine {

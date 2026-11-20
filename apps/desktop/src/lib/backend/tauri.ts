@@ -34,8 +34,10 @@ import type {
   ContainerCreateRequest,
   ContainerDetail,
   ContainerImage,
+  ContainerImageRemoteDigest,
   ContainerImageTransfer,
   ContainerRegistryLogin,
+  ContainerRegistrySettings,
   ContainerRuntimeInfo,
   ContainerStats,
   ContainerStreamEnd,
@@ -1551,6 +1553,20 @@ export function networkCreate(connectionId: string, request: NetworkCreateReques
 /** A network the engine says is still in use is refused with CONTAINER-NETWORK-IN-USE. */
 export function networkRemove(connectionId: string, name: string): Promise<void> {
   return invoke<void>("network_remove", { connectionId, name });
+}
+
+// -- Desktop engine: registry reads ----------------------------------------------
+
+// Where the engine pulls from, and whether a tag has moved on the registry. Both are reads; the
+// pull that would act on the answer is `container_image_pull`, reached through the interface's own
+// confirmation.
+
+export function dockerInfo(connectionId: string): Promise<ContainerRegistrySettings> {
+  return invoke<ContainerRegistrySettings>("docker_info", { connectionId });
+}
+
+export function imageRemoteDigest(connectionId: string, image: string): Promise<ContainerImageRemoteDigest> {
+  return invoke<ContainerImageRemoteDigest>("image_remote_digest", { connectionId, image });
 }
 
 // -- Desktop engine: Compose projects -------------------------------------------

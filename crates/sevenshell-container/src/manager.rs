@@ -18,8 +18,9 @@ use async_trait::async_trait;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
     ComposeProject, ComposeServiceRow, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
-    ContainerImageTransfer, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
-    ContainerSummary, ImageLayer, NetworkCreateRequest, NetworkSummary,
+    ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings,
+    ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerSummary, ImageLayer, NetworkCreateRequest,
+    NetworkSummary,
 };
 
 use crate::commands::{self, ImageTransfer};
@@ -323,6 +324,105 @@ impl Provider {
         Ok(parse::runtime_info(self.runtime, info.as_deref(), version.as_deref()))
     }
 
+    /// Where the engine pulls from: the mirrors its daemon was given and the proxy it was told to
+    /// use, read from the same `info` the overview draws its vital signs from. Read-only, and the
+    /// one surface that reports rather than changes them — writing a daemon's registry settings is
+    /// not this build's business.
+    pub async fn registry_settings(&self) -> Result<ContainerRegistrySettings, ShellError> {
+        let argv = commands::info(self.runtime, &self.namespace);
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::registry_settings(&output))
+    }
+
+    /// Whether this engine's command line can answer a remote-digest question at all.
+    ///
+    /// Two probes, both network-free: `buildx imagetools` (which states the digest outright) and
+    /// `manifest inspect` (which states it for a registry that served a bare manifest). Either
+    /// answering means the image page may offer the check; neither answering means the page offers
+    /// the manual pull only. A probe that fails is a capability bit turning off, never an error
+    /// that would refuse an engine the person can otherwise use.
+    pub async fn remote_digest_available(&self) -> bool {
+        let Ok(probes) = commands::remote_digest_probes(self.runtime) else {
+            return false;
+        };
+        for argv in probes {
+            if self.runner.run(&argv).await.is_ok() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Asks the registry what digest a tag names now, beside the digests the local engine recorded
+    /// for the same image.
+    ///
+    /// Two commands can answer the remote half, tried as a chain: `buildx imagetools inspect`
+    /// states the pull digest outright, and `manifest inspect --verbose` states it only for a
+    /// registry that served a bare manifest. Neither answering is its own code — the honest
+    /// sentence is "no registry answered", not a guess about a newer image. A pull through a
+    /// transparent mirror happens via the daemon's own resolution, so the query asks the first
+    /// usable mirror directly for an image that lives on Docker's own index; an image that names
+    /// another registry is asked there, where a mirror has no say.
+    pub async fn image_remote_digest(&self, reference: &str) -> Result<ContainerImageRemoteDigest, ShellError> {
+        let reference = commands::image_reference("the image update check", reference)?.to_owned();
+
+        // The local half and the mirror list are two reads of the engine; the remote half needs
+        // the second one to know where to ask, but the first is independent of both.
+        let local_argv = commands::image_inspect(self.runtime, &self.namespace, &reference)?;
+        let info_argv = commands::info(self.runtime, &self.namespace);
+        let (local, info) = tokio::join!(self.runner.run(&local_argv), self.runner.run(&info_argv));
+        let local_digests = local.map(|output| parse::repo_digests(&output)).unwrap_or_default();
+        let mirrors = match info {
+            Ok(output) => parse::registry_settings(&output).mirrors,
+            Err(error) => {
+                log::warn!("[container] the info behind an update check failed: {error}");
+                Vec::new()
+            }
+        };
+
+        let (query_reference, source) = remote_query_reference(&reference, &mirrors);
+        let mut remote_digest = None;
+        if let Ok(argv) = commands::imagetools_inspect(self.runtime, &query_reference) {
+            remote_digest = self
+                .runner
+                .run(&argv)
+                .await
+                .ok()
+                .as_deref()
+                .and_then(parse::imagetools_digest);
+        }
+        if remote_digest.is_none()
+            && let Ok(argv) = commands::manifest_inspect(self.runtime, &query_reference)
+        {
+            remote_digest = self
+                .runner
+                .run(&argv)
+                .await
+                .ok()
+                .as_deref()
+                .and_then(parse::manifest_inspect_digest);
+        }
+        let Some(remote_digest) = remote_digest else {
+            return Err(ShellError::image_manifest_unavailable(&reference));
+        };
+
+        // An image loaded from an archive has no recorded pull digest to compare against, and an
+        // engine that never pulled it says the same thing: "same" would be a guess, so the answer
+        // carries the digests and lets the comparison be absent.
+        let up_to_date = (!local_digests.is_empty()).then(|| {
+            local_digests
+                .iter()
+                .any(|local| digest_part(local) == Some(remote_digest.as_str()))
+        });
+        Ok(ContainerImageRemoteDigest {
+            reference,
+            remote_digest: Some(remote_digest),
+            local_digests,
+            up_to_date,
+            source,
+        })
+    }
+
     /// Follows a container's log from now on. The caller owns the stream and stops it.
     pub async fn logs(&self, id: &str, tail: u32, timestamps: bool) -> Result<LineStream, ShellError> {
         let argv = commands::logs(self.runtime, &self.namespace, id, tail, true, timestamps)?;
@@ -480,6 +580,63 @@ fn namespace_for(runtime: ContainerRuntime, namespace: &str) -> Result<String, S
         return Ok("default".to_owned());
     }
     Ok(namespace.to_owned())
+}
+
+/// The reference the remote-digest question is asked at, and the name of who answers it.
+///
+/// A daemon consults its mirrors only for Docker's own index, so a short name or a `docker.io`
+/// name is asked of the first usable mirror — `busybox:1.37` becomes `mirror.example/library/busybox:1.37`,
+/// with the `library/` prefix the official repositories carry. An image that names another
+/// registry is asked there: a mirror has no say about it. With no mirror the question goes
+/// upstream unchanged, and a registry that does not answer leaves the verb to say so.
+///
+/// A mirror is usable when its URL is a scheme and a bare host: a mirror behind a path prefix
+/// cannot be spelled as an image reference, and guessing at its layout would be asking the wrong
+/// machine.
+fn remote_query_reference(reference: &str, mirrors: &[String]) -> (String, String) {
+    let (repo_path, host) = match reference.split_once('/') {
+        Some((first, rest)) if first == "docker.io" => (rest, Some("docker.io")),
+        Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => {
+            (reference, Some(first))
+        }
+        Some(_) => (reference, None),
+        None => (reference, None),
+    };
+
+    let docker_index = matches!(host, None | Some("docker.io"));
+    if !docker_index {
+        return (reference.to_owned(), host.unwrap_or("upstream").to_owned());
+    }
+
+    let path = if reference.contains('/') {
+        repo_path.to_owned()
+    } else {
+        format!("library/{reference}")
+    };
+    for mirror in mirrors {
+        let Some(mirror_host) = mirror_host(mirror) else {
+            continue;
+        };
+        return (format!("{mirror_host}/{path}"), mirror_host.to_owned());
+    }
+    (reference.to_owned(), "upstream".to_owned())
+}
+
+/// The `host[:port]` of a mirror URL, when the URL is a scheme and a bare host and nothing more.
+fn mirror_host(mirror: &str) -> Option<&str> {
+    let authority = mirror.split_once("://")?.1;
+    let host = match authority.split_once('/') {
+        Some((host, path)) if path.is_empty() => host,
+        Some(_) => return None,
+        None => authority,
+    };
+    (!host.is_empty()).then_some(host)
+}
+
+/// The digest part of a recorded pull (`busybox@sha256:…` names its digest after the `@`).
+fn digest_part(recorded: &str) -> Option<&str> {
+    let digest = recorded.split_once('@')?.1.trim();
+    (!digest.is_empty()).then_some(digest)
 }
 
 /// Refuses an image archive this build will not hand to a runtime.
@@ -1582,5 +1739,141 @@ mod tests {
         );
         let _ = std::fs::remove_file(&saved);
         let _ = std::fs::remove_file(&compressed);
+    }
+    #[tokio::test]
+    async fn an_update_check_asks_the_mirror_for_a_docker_index_image() {
+        // The machine's own shape: a local pull recorded under `busybox@sha256:…`, a daemon with
+        // one mirror, and an imagetools answer stating the same digest — the "up to date" path.
+        let recorder = Arc::new(RecordingRunner::with_answers(&[
+            "[{\"RepoDigests\":[\"busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\"]}]",
+            "{\"RegistryConfig\":{\"Mirrors\":[\"https://docker.gmssh.com/\"]}}",
+            "Name:      docker.gmssh.com/library/busybox:1.37
+Digest:    sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+",
+        ]));
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let answer = provider
+            .image_remote_digest("busybox:1.37")
+            .await
+            .expect("the registry answered");
+        assert_eq!(answer.reference, "busybox:1.37");
+        assert_eq!(
+            answer.remote_digest.as_deref(),
+            Some("sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec")
+        );
+        assert_eq!(answer.up_to_date, Some(true));
+        assert_eq!(answer.source, "docker.gmssh.com");
+        // The question went to the mirror, with the official repository's `library/` prefix.
+        let asked = &recorder.calls()[2];
+        assert!(asked.contains(&"docker.gmssh.com/library/busybox:1.37".to_owned()), "{asked:?}");
+    }
+
+    #[tokio::test]
+    async fn an_update_check_falls_back_to_manifest_inspect_and_reports_a_newer_tag() {
+        // imagetools answers without a digest line (a build without it, or a refusal that prints
+        // prose), so the chain falls to manifest inspect — whose bare manifest names a digest the
+        // local engine never recorded: a newer image is there.
+        let recorder = Arc::new(RecordingRunner::with_answers(&[
+            "[{\"RepoDigests\":[\"busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\"]}]",
+            "{}",
+            "command not found: buildx",
+            "{\"Descriptor\":{\"digest\":\"sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\"}}",
+        ]));
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let answer = provider
+            .image_remote_digest("busybox:1.37")
+            .await
+            .expect("the fallback answered");
+        assert_eq!(answer.up_to_date, Some(false));
+        assert_eq!(
+            answer.remote_digest.as_deref(),
+            Some("sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_update_check_no_registry_answered_is_its_own_code_not_a_guess() {
+        // Every remote command fails; the honest sentence is that the question went unanswered.
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_from_call: 2,
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let error = provider
+            .image_remote_digest("busybox:1.37")
+            .await
+            .expect_err("no registry answered");
+        assert_eq!(error.code(), ErrorCode::ImageManifestUnavailable);
+    }
+
+    #[tokio::test]
+    async fn an_update_check_of_an_image_loaded_without_a_pull_digest_answers_an_honest_comparison() {
+        // An archive load leaves no RepoDigests: the digests are carried and the comparison is
+        // absent, because calling it "same" would be a guess.
+        let recorder = Arc::new(RecordingRunner::with_answers(&[
+            "[{\"RepoTags\":[\"app:1\"]}]",
+            "{}",
+            "Name:      docker.example/app:1
+Digest:    sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+",
+        ]));
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let answer = provider.image_remote_digest("app:1").await.expect("the registry answered");
+        assert!(answer.local_digests.is_empty());
+        assert_eq!(answer.up_to_date, None);
+        assert_eq!(answer.source, "upstream");
+    }
+
+    #[test]
+    fn the_remote_question_is_asked_where_the_daemon_would_pull() {
+        let mirrors = vec!["https://docker.gmssh.com/".to_owned()];
+
+        // Docker's own index: the short name gains the `library/` prefix at the mirror.
+        let (query, source) = remote_query_reference("busybox:1.37", &mirrors);
+        assert_eq!(query, "docker.gmssh.com/library/busybox:1.37");
+        assert_eq!(source, "docker.gmssh.com");
+
+        // An explicit docker.io name is the same question.
+        let (query, source) = remote_query_reference("docker.io/library/busybox:1.37", &mirrors);
+        assert_eq!(query, "docker.gmssh.com/library/busybox:1.37");
+        assert_eq!(source, "docker.gmssh.com");
+
+        // A user repository keeps its own path.
+        let (query, _) = remote_query_reference("someone/app:2", &mirrors);
+        assert_eq!(query, "docker.gmssh.com/someone/app:2");
+
+        // Another registry is asked there; a mirror has no say about it.
+        let (query, source) = remote_query_reference("ghcr.io/owner/app:1", &mirrors);
+        assert_eq!(query, "ghcr.io/owner/app:1");
+        assert_eq!(source, "ghcr.io");
+
+        // No mirror: the question goes upstream unchanged.
+        let (query, source) = remote_query_reference("busybox:1.37", &[]);
+        assert_eq!(query, "busybox:1.37");
+        assert_eq!(source, "upstream");
+
+        // A mirror behind a path prefix cannot be spelled as a reference host, so it is skipped
+        // rather than guessed at.
+        let prefixed = vec![
+            "https://mirror.example/hub/".to_owned(),
+            "https://docker.gmssh.com/".to_owned(),
+        ];
+        let (query, source) = remote_query_reference("busybox:1.37", &prefixed);
+        assert_eq!(query, "docker.gmssh.com/library/busybox:1.37");
+        assert_eq!(source, "docker.gmssh.com");
+    }
+
+    #[test]
+    fn a_recorded_pull_is_compared_by_its_digest_part() {
+        assert_eq!(
+            digest_part("busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"),
+            Some("sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec")
+        );
+        assert_eq!(digest_part("busybox"), None, "a record without an @ names no digest");
     }
 }
