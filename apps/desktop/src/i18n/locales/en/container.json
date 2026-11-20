@@ -157,6 +157,7 @@
       "stopping": "Stopping…",
       "restarting": "Restarting…",
       "removing": "Removing…",
+      "renaming": "Renaming…",
       "pulling": "Pulling…"
     },
     "refresh": "Read again",

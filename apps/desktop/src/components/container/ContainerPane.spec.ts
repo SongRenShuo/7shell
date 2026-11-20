@@ -171,6 +171,27 @@ describe("container pane", () => {
 });
 
 describe("the desktop layout", () => {
+  it("keeps the reference's floor: the content scrolls sideways instead of squeezing", async () => {
+    const engine = tab("docker");
+    app = createApp({ render: () => h(ContainerPane, { tab: engine, active: true, layout: "desktop" }) });
+    app.use(i18n);
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    app.use(pinia);
+    host = document.createElement("div");
+    document.body.append(host);
+    app.mount(host);
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-side-nav-item="overview"]')).not.toBeNull();
+    });
+
+    const floored = [...(host?.querySelectorAll("div") ?? [])].find((element) =>
+      element.className.includes("min-w-[850px]"),
+    );
+    expect(floored, "the six pages hold the 850px floor the reference draws them at").not.toBeUndefined();
+    expect(floored?.parentElement?.className, "and the box around them is what scrolls").toContain("overflow-x-auto");
+  });
+
   it("is not what an unset layout draws: the flat workspace keeps its compact rail and its overview", async () => {
     await mount(tab("docker"));
 

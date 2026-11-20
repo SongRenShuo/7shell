@@ -456,51 +456,60 @@ onBeforeUnmount(() => {
         <!--
           All views stay mounted in either layout. The desktop's overview and image page draw from
           the same session the flat views do; which pair is visible is the layout's choice.
+
+          The desktop's six pages keep the reference manager's floor: below the width its tables
+          and forms are drawn for, the content scrolls sideways instead of squeezing every column
+          into a sliver. The flat layout has no floor of its own — it is the arrangement this
+          application has always drawn, and nothing about it changes.
         -->
-        <ContainerOverview
-          v-show="!desktop && view === 'overview'"
-          :tab="props.tab"
-          :session="session"
-          @show-state="showState"
-          @show-images="view = 'images'"
-        />
-        <DockerOverview
-          v-show="desktop && view === 'overview'"
-          :tab="props.tab"
-          :session="session"
-          :active="props.active"
-          @show-state="showState"
-          @show-images="view = 'images'"
-        />
-        <!-- v-show, not v-if: a pull in progress and a filter being typed survive a view switch. -->
-        <ContainerListView
-          v-show="view === 'containers'"
-          :tab="props.tab"
-          :session="session"
-          :layout="layout"
-          :image-filter="imageFilter"
-          :state-filter="stateFilter"
-          @clear-image-filter="imageFilter = null"
-          @clear-state-filter="stateFilter = null"
-          @filter-state="stateFilter = $event"
-          @clone="cloneContainer"
-          @monitor="openMonitor"
-        />
-        <ContainerImageView
-          v-show="!desktop && view === 'images'"
-          :tab="props.tab"
-          :session="session"
-          @view-related="showRelatedContainers"
-        />
-        <DockerImages
-          v-show="desktop && view === 'images'"
-          :tab="props.tab"
-          :session="session"
-          @view-related="showRelatedContainers"
-        />
-        <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
-        <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
-        <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
+        <div class="flex min-h-0 flex-1 flex-col overflow-x-auto">
+          <div :class="cn('flex min-h-0 flex-1 flex-col', desktop && 'min-w-[850px]')">
+            <ContainerOverview
+              v-show="!desktop && view === 'overview'"
+              :tab="props.tab"
+              :session="session"
+              @show-state="showState"
+              @show-images="view = 'images'"
+            />
+            <DockerOverview
+              v-show="desktop && view === 'overview'"
+              :tab="props.tab"
+              :session="session"
+              :active="props.active"
+              @show-state="showState"
+              @show-images="view = 'images'"
+            />
+            <!-- v-show, not v-if: a pull in progress and a filter being typed survive a view switch. -->
+            <ContainerListView
+              v-show="view === 'containers'"
+              :tab="props.tab"
+              :session="session"
+              :layout="layout"
+              :image-filter="imageFilter"
+              :state-filter="stateFilter"
+              @clear-image-filter="imageFilter = null"
+              @clear-state-filter="stateFilter = null"
+              @filter-state="stateFilter = $event"
+              @clone="cloneContainer"
+              @monitor="openMonitor"
+            />
+            <ContainerImageView
+              v-show="!desktop && view === 'images'"
+              :tab="props.tab"
+              :session="session"
+              @view-related="showRelatedContainers"
+            />
+            <DockerImages
+              v-show="desktop && view === 'images'"
+              :tab="props.tab"
+              :session="session"
+              @view-related="showRelatedContainers"
+            />
+            <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
+            <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
+            <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
+          </div>
+        </div>
       </div>
     </div>
 
