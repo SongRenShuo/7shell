@@ -49,6 +49,7 @@ import FileBookmarksMenu from "@/components/files/FileBookmarksMenu.vue";
 import FileEditor from "@/components/files/FileEditor.vue";
 import FilePermissionsDialog from "@/components/files/FilePermissionsDialog.vue";
 import FilePropertiesDialog from "@/components/files/FilePropertiesDialog.vue";
+import FileRecentMenu from "@/components/files/FileRecentMenu.vue";
 import ColumnResizeHandle from "@/components/ui/ColumnResizeHandle.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import SideDivider from "@/components/ui/SideDivider.vue";
@@ -68,7 +69,9 @@ import {
   joinPath,
   parentPath,
 } from "@/lib/files/format";
+import { type EntryKindBucket, kindOf } from "@/lib/files/kinds";
 import { INITIAL_ORDER, type ListingSort, type Order, orderEntries, pressed } from "@/lib/files/order";
+import { loadOrder, pushRecent, saveOrder } from "@/lib/files/panelMemory";
 import { type Band, type Point, type RowBand, bandBetween, isDrag, rowsInBand, scrollStep } from "@/lib/files/marquee";
 import { rowBands, rowWindow } from "@/lib/files/window";
 import {
@@ -551,6 +554,16 @@ onUnmounted(() => {
 const order = ref<Order>(INITIAL_ORDER);
 
 /**
+ * The kind filter the chips row holds, and the buckets it can name.
+ *
+ * Like the search field this is a view of the panel rather than a fact about the directory — it
+ * is written nowhere, and walking into another directory leaves it behind, because a filter asked
+ * for in one directory has no business hiding half of the next one before anybody has seen it.
+ */
+const KIND_CHIPS = ["folder", "document", "image", "archive", "other"] as const;
+const kindFilter = ref<"all" | EntryKindBucket>("all");
+
+/**
  * What this panel's search field holds, and whether it is filtering.
  *
  * A view of this panel rather than a fact about the directory, for the same reason the selection and
@@ -566,10 +579,11 @@ const searchActive = computed(() => searchQuery.value.trim() !== "");
 const ordered = computed(() => {
   const entries = orderEntries(browser.value?.entries ?? [], order.value, typeOf);
   const needle = searchQuery.value.trim().toLowerCase();
-  if (needle === "") {
-    return entries;
+  const searched = needle === "" ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  if (kindFilter.value === "all") {
+    return searched;
   }
-  return entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  return searched.filter((entry) => kindOf(entry) === kindFilter.value);
 });
 
 /** The paths the listing is showing, in the order it draws them: what the selection is made of. */
@@ -581,6 +595,45 @@ const chosen = computed(() => selectedEntries(selection.value, ordered.value));
 function orderBy(column: ListingSort): void {
   order.value = pressed(order.value, column);
 }
+
+/**
+ * What this session remembers, restored when the session arrives and kept as it is used.
+ *
+ * The order the listing was last drawn in comes back when the panel opens onto a session
+ * (`panelMemory`, keyed with the session id — LESSONS I15), and the directories the session walks
+ * into collect into the recent list the recent menu offers. Both are device-side memories: a full
+ * or refusing store costs the memory, never the panel, and nothing about them reaches the server.
+ */
+watch(
+  () => browser.value?.sessionId,
+  (session) => {
+    if (session === undefined) {
+      return;
+    }
+    const restored = loadOrder(session);
+    if (restored !== null) {
+      order.value = restored;
+    }
+  },
+  { immediate: true },
+);
+
+watch(order, (value) => {
+  const session = browser.value?.sessionId;
+  if (session !== undefined) {
+    saveOrder(session, value);
+  }
+});
+
+watch(
+  () => [browser.value?.sessionId, browser.value?.path] as const,
+  ([session, path]) => {
+    if (session !== undefined && path !== undefined) {
+      pushRecent(session, path);
+    }
+  },
+  { immediate: true },
+);
 
 function translate(key: string, params?: Record<string, string>): string {
   return params ? t(key, params) : t(key);
@@ -1414,6 +1467,7 @@ function openAreaMenu(event: MouseEvent): void {
         <LoaderCircle v-if="browser.loading" :size="12" class="shrink-0 animate-spin text-muted-foreground" />
 
         <FileBookmarksMenu :path="browser.path" @jump="go" />
+        <FileRecentMenu :session-id="browser.sessionId" @jump="go" />
 
         <button
           type="button"
@@ -1569,6 +1623,29 @@ function openAreaMenu(event: MouseEvent): void {
       />
 
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <!--
+          The kind filter: one row of chips between the path bar and the listing, a view of this
+          panel rather than the directory — it composes with the search field and is written
+          nowhere. Pressing the chip in use again puts the whole listing back.
+        -->
+        <div data-kind-filter class="flex shrink-0 items-center gap-1 px-3 pt-1.5">
+          <button
+            v-for="chip in KIND_CHIPS"
+            :key="chip"
+            type="button"
+            :data-kind-chip="chip"
+            class="rounded-full px-2 py-0.5 text-[10px] transition-colors"
+            :class="
+              kindFilter === chip
+                ? 'bg-primary/15 text-primary'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            "
+            :aria-pressed="kindFilter === chip"
+            @click="kindFilter = kindFilter === chip ? 'all' : chip"
+          >
+            {{ t(`files.filter.${chip}`) }}
+          </button>
+        </div>
         <!--
           The widths are written here and not on the strip that carries the headings, because a custom
           property reaches what is *inside* the element it is written on and the rows are the strip's

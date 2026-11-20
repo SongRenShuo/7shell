@@ -15,6 +15,12 @@
       "label": "命令",
       "placeholder": "uptime"
     },
+    "history": {
+      "title": "命令历史",
+      "empty": "还没有运行过命令。",
+      "clear": "清空历史",
+      "recall": "回看这个面板运行过的命令"
+    },
     "options": {
       "timeout": "单台超时",
       "parallel": "并发"
