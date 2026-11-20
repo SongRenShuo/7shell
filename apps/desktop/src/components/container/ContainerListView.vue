@@ -21,6 +21,7 @@
  */
 import {
   Camera,
+  Copy,
   Ellipsis,
   FolderOpen,
   Pencil,
@@ -86,6 +87,8 @@ const emit = defineEmits<{
   "clear-image-filter": [];
   "clear-state-filter": [];
   "filter-state": [state: string | null];
+  /** The row's "clone" ask: the pane inspects the container and opens the wizard pre-filled from it. */
+  clone: [container: ContainerSummary];
 }>();
 
 const { t } = useI18n();
@@ -447,6 +450,15 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       },
     });
   }
+  // The clone ask: the pane answers it by inspecting this container and opening the create wizard
+  // pre-filled from what it finds — the default not started, the way the reference manager copies.
+  entries.push({
+    kind: "action",
+    id: "clone",
+    labelKey: "container.action.clone",
+    icon: Copy,
+    run: () => emit("clone", container),
+  });
   entries.push({
     kind: "action",
     id: "remove",

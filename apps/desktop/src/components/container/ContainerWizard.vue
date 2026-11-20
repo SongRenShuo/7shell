@@ -49,6 +49,11 @@ const props = defineProps<{
    * has not landed yet, and the field degrades to names typed by hand.
    */
   networkOptions?: readonly SelectOption[];
+  /**
+   * What a "clone" ask pre-fills, read once when the wizard opens: the pane inspects the
+   * container being copied and hands the fields over here. Null means a plain create.
+   */
+  prefill?: ContainerClonePrefill | null;
 }>();
 
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
@@ -99,6 +104,30 @@ interface LabelRow {
 }
 
 type CpuWeight = "low" | "mid" | "high";
+
+/**
+ * What the pane hands the wizard when a container is being cloned: every field the create
+ * request carries, read from the container's inspect — the engine-side weights and limits
+ * included, via the raw document the detail carries. The name is already suffixed and the
+ * start switch already says no: a copy starts unstarted, the way the reference manager copies.
+ */
+export interface ContainerClonePrefill {
+  readonly name: string;
+  readonly image: string;
+  readonly autostart: boolean;
+  readonly startNow: boolean;
+  readonly privileged: boolean;
+  readonly command: string;
+  readonly ports: readonly { hostPort: string; containerPort: string; protocol: "tcp" | "udp" }[];
+  readonly volumes: readonly { hostPath: string; containerPath: string; readOnly: boolean }[];
+  readonly env: readonly { key: string; value: string }[];
+  readonly labels: readonly { name: string; value: string }[];
+  readonly networks: readonly string[];
+  readonly capabilities: readonly string[];
+  readonly cpuWeight: CpuWeight;
+  /** The memory limit in megabytes, or null when the source container had none. */
+  readonly memoryLimitMb: string | null;
+}
 
 const form = reactive({
   image: "",
@@ -175,7 +204,30 @@ watch(
     attemptedBasic.value = false;
     busy.value = false;
     failure.value = null;
+    // A clone ask lands after the reset: what was inspected writes itself over the blank form.
+    // immediate: the very first open of a mounted wizard answers to this watch too.
+    const prefill = props.prefill;
+    if (prefill !== undefined && prefill !== null) {
+      form.image = prefill.image;
+      form.name = prefill.name;
+      form.autostart = prefill.autostart;
+      form.startNow = prefill.startNow;
+      form.privileged = prefill.privileged;
+      form.ports = prefill.ports.map((row) => ({ ...row }));
+      form.volumes = prefill.volumes.map((row) => ({ ...row }));
+      form.env = prefill.env.map((row) => ({ ...row }));
+      form.labels = prefill.labels.map((row) => ({ ...row }));
+      form.networks = [...prefill.networks];
+      form.capabilities = [...prefill.capabilities];
+      form.command = prefill.command;
+      form.cpuWeight = prefill.cpuWeight;
+      if (prefill.memoryLimitMb !== null) {
+        form.memoryLimited = true;
+        form.memoryLimitMb = prefill.memoryLimitMb;
+      }
+    }
   },
+  { immediate: true },
 );
 
 // -- what each field says while it is being typed ---------------------------------

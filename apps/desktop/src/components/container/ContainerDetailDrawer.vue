@@ -59,6 +59,18 @@ interface DetailSection {
   fields: [string, string][];
 }
 
+/** The labels a container's raw inspect document carries, as `k=v` lines. */
+function labelsOf(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { Config?: { Labels?: Record<string, unknown> } };
+    return Object.entries(parsed.Config?.Labels ?? {})
+      .map(([name, value]) => `${name}=${String(value)}`)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
 const detailSections = computed<DetailSection[]>(() => {
   const current = detail.value;
   if (!current) {
@@ -114,6 +126,12 @@ const detailSections = computed<DetailSection[]>(() => {
     {
       label: t("container.detail.sectionEnv"),
       fields: env !== "" ? [[t("container.detail.sectionEnv"), env]] : [],
+    },
+    {
+      // The labels live in the raw document rather than the curated detail, so the section reads
+      // them out of it; a raw document that will not parse simply has no labels to show.
+      label: t("container.detail.sectionLabels"),
+      fields: labelsOf(current.raw).length > 0 ? [[t("container.detail.sectionLabels"), labelsOf(current.raw)]] : [],
     },
     {
       label: t("container.detail.sectionState"),

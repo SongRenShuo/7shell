@@ -100,7 +100,7 @@ function tab(): ContainerTab {
 }
 
 /** Opens the store's session for the tab and mounts the list over it. */
-async function mount(): Promise<ContainerSession> {
+async function mount(handlers: Record<string, unknown> = {}): Promise<ContainerSession> {
   const engine = tab();
   const pinia = createPinia();
   setActivePinia(pinia);
@@ -112,7 +112,7 @@ async function mount(): Promise<ContainerSession> {
   }
 
   app = createApp({
-    render: () => h(ContainerListView, { tab: engine, session, imageFilter: null, stateFilter: null }),
+    render: () => h(ContainerListView, { tab: engine, session, imageFilter: null, stateFilter: null, ...handlers }),
   });
   app.use(i18n);
   app.use(pinia);
@@ -247,7 +247,7 @@ describe("container list", () => {
 
 describe("the desktop layout of the same list", () => {
   /** Mounts the list in the desktop window's layout, over the same session the flat table uses. */
-  async function mountDesktop(): Promise<ContainerSession> {
+  async function mountDesktop(handlers: Record<string, unknown> = {}): Promise<ContainerSession> {
     const engine = tab();
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -260,7 +260,14 @@ describe("the desktop layout of the same list", () => {
 
     app = createApp({
       render: () =>
-        h(ContainerListView, { tab: engine, session, layout: "desktop", imageFilter: null, stateFilter: null }),
+        h(ContainerListView, {
+          tab: engine,
+          session,
+          layout: "desktop",
+          imageFilter: null,
+          stateFilter: null,
+          ...handlers,
+        }),
     });
     app.use(i18n);
     app.use(pinia);
@@ -382,5 +389,23 @@ describe("the desktop layout of the same list", () => {
     await vi.waitFor(() => {
       expect(actionMock).toHaveBeenCalledWith("conn-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "rm", true);
     });
+  });
+
+  it("offers the clone ask under the row's menu, and hands the row itself with it", async () => {
+    const clones: Array<{ id: string; name: string }> = [];
+    const session = await mountDesktop({
+      onClone: (container: { id: string; name: string }) => clones.push(container),
+    });
+
+    const row = session.containers.find((container) => container.state === "running");
+    if (row === undefined) {
+      throw new Error("the harness seeded no running container");
+    }
+    await openRowMenu(row.name);
+    await runMenuEntry("clone");
+
+    expect(clones, "the pane receives the container it is meant to inspect and pre-fill from").toHaveLength(1);
+    expect(clones[0]?.id).toBe(row.id);
+    expect(clones[0]?.name).toBe(row.name);
   });
 });
