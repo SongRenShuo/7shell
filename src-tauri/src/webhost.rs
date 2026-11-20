@@ -143,6 +143,9 @@ pub fn resolve_static_dir(resource_dir: Option<&Path>) -> Result<PathBuf, ShellE
 /// `index.html`, and [`search_for_dist`] stands behind them as the last resort.
 fn packaged_candidates(resource_dir: &Path) -> Vec<PathBuf> {
     let mut candidates = vec![
+        // What `bundle.resources: ["resources/desktop/**/*"]` produces: Tauri keeps the glob's own
+        // folders under the resource directory, so the shipped interface lands one level down.
+        resource_dir.join("resources").join("desktop"),
         resource_dir.join("apps").join("desktop").join("dist"),
         resource_dir.join("desktop").join("dist"),
         resource_dir.join("dist"),

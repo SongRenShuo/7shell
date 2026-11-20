@@ -58,3 +58,7 @@ Thumbs.db
 
 # The agent CLI's per-repo local configuration.
 /.zcode/
+
+# The interface copy the bundle step makes; the placeholder above is what is committed.
+/src-tauri/resources/desktop/*
+!/src-tauri/resources/desktop/README.md
