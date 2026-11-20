@@ -770,7 +770,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
           :disabled="renameBusy"
           @click="submitRename()"
         >
-          {{ t("container.rename.submit") }}
+          {{ renameBusy ? t("container.loadingActions.renaming") : t("container.rename.submit") }}
         </button>
       </template>
     </ContainerDialog>
