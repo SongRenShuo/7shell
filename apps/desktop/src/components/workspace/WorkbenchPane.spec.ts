@@ -1473,6 +1473,34 @@ describe("the desktop's own keys", () => {
     expect(starterOpen()).toBe(false);
   });
 
+  it("opens the starter on a lone Alt as well, because a browser tab never sees a lone Meta", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Alt" });
+    key("keyup", { key: "Alt" });
+    await nextTick();
+
+    expect(starterOpen(), "Alt alone is the launcher in a hosted tab").toBe(true);
+
+    key("keydown", { key: "Alt" });
+    key("keyup", { key: "Alt" });
+    await nextTick();
+    expect(starterOpen(), "and Alt again is the way out").toBe(false);
+  });
+
+  it("does not treat an Alt chord as the launcher", async () => {
+    giveTheDeskItsSize();
+    await render();
+
+    key("keydown", { key: "Alt" });
+    key("keydown", { key: "s", altKey: true });
+    key("keyup", { key: "Alt" });
+    await nextTick();
+
+    expect(starterOpen()).toBe(false);
+  });
+
   it("cycles the windows on Alt+Tab, and walks back with Shift", async () => {
     giveTheDeskItsSize();
     await twoWindows();

@@ -601,20 +601,26 @@ function resizeFrom(
 // -- the desktop's own keys ---------------------------------------------------
 
 /**
- * Whether the Meta key is being held *alone*.
+ * Whether the launcher key is being held *alone*.
  *
- * The launcher key is a chord-avoiding key, not a modifier to hijack: Meta pressed and released by
- * itself opens (or closes) the starter, but Meta+S is somebody's shortcut, not a half-pressed
- * launcher. So the flag is armed by a fresh Meta keydown and disarmed by any other key — and the
- * release only counts while it is still armed.
+ * The launcher key is a chord-avoiding key, not a modifier to hijack: the key pressed and released
+ * by itself opens (or closes) the starter, but Meta+S is somebody's shortcut, not a half-pressed
+ * launcher. So the flag is armed by a fresh keydown of that key and disarmed by any other key — and
+ * the release only counts while it is still armed.
+ *
+ * Two keys answer to it, for one reason: a desktop handed to a browser lives in a tab where the
+ * operating system eats a lone Meta press before the page ever sees the release (it opens the
+ * system menu), so the same gesture on Alt is the browser's own way in. Both are armed and both are
+ * honoured; whichever the host delivers is the one that works.
  */
+const LAUNCHER_KEYS: readonly string[] = ["Meta", "Alt"];
 const metaAlone = ref(false);
 
 function onKeydown(event: KeyboardEvent): void {
   if (!props.active) {
     return;
   }
-  if (event.key === "Meta") {
+  if (LAUNCHER_KEYS.includes(event.key)) {
     if (!event.repeat) {
       metaAlone.value = true;
     }
@@ -639,7 +645,7 @@ function onKeyup(event: KeyboardEvent): void {
     metaAlone.value = false;
     return;
   }
-  if (event.key === "Meta" && metaAlone.value) {
+  if (LAUNCHER_KEYS.includes(event.key) && metaAlone.value) {
     metaAlone.value = false;
     starterOpen.value = !starterOpen.value;
   }
