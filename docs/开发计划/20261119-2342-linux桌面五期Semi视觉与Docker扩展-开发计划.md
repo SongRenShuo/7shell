@@ -212,4 +212,10 @@ fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现�
 
 ### 批次六（收口）
 
-（待回填。）
+- **门禁**：`pnpm check` **15/15 全绿**（docs build 10.8s / rust format 4.2s / rust lint 112.8s / rust tests 478.3s / supply chain 24.4s），命令 `CARGO_TARGET_DIR=D:/HuanJing/7shell-target pnpm check`。
+- **e2e**：`make app:e2e`（真应用 + WebView2 CDP）跑通七期浏览器交接用例与前置建库用例（`2 passed`）；五期 Docker 域的 e2e 未单列（该域以真机命令走查 + spec 覆盖，见批次三/四/五记录）。
+- **真机**：网络建删 + 护栏反向（23.1s）、Compose 全链路（38.8s）、镜像加速源与 digest 探测链、仓库卡片数据一致；13 个用户容器全程未动，零残留复核。
+- **i18n**：1813 键 en+zh 成对；typecheck 净；容器域 191 例。
+- **影响面**：`ContainerPane` flat 分支零 diff（守卫 spec 在案）；应用级界面零可见变化。
+- **文档**：本文件 §2.1/§2.2 对照表收口；CHANGELOG `[Unreleased]` 按提交回填；MEMORY 索引含五期/七期章程与 PIP-0001。
+- **遗留（明确 not done）**：① prune/push/tag 三动词有引擎无表面；② 400px 窄窗截图佐证未拍（spec 已断言 850 地板与滚动盒）；③ 亮色桌面门标签对比度（批次一遗留）未复核；④ NSIS 见下方哈希。

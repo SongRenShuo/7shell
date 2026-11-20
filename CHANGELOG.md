@@ -135,6 +135,23 @@ All notable changes to 7Shell are documented in this file. The format is
   instead of squeezing every column into a sliver. The application tab's layout is untouched
   (e300612).
 
+#### The file panel and the batch panel remember how they were used
+
+- The file panel remembers this session's own habits: the listing comes back in the order it was
+  last left in, the directories the session walked into collect into a **recent** menu beside the
+  bookmarks one (newest first, capped, cleared in one press), and a row of kind chips — folders,
+  documents, images, archives — narrows the listing by extension, composing with the search field.
+  All three are device-side and per session; the kind filter and the search are written nowhere
+  (1eb6cfb).
+- The batch panel keeps the commands it has run: a run lands in a device-side history (newest
+  first, capped, a repeat of the newest collapsed), a popover beside the command label offers it
+  back one press at a time, and the box walks it with the arrow keys the way a shell does — up
+  from the first line, down back to whatever the box said before the walk started (7ae6366).
+- The transfer panel grows a **failure summary**: the failures gathered in one dialog with the
+  first ten named, a "and N more" line, and a retry on each; a standing "done N / remaining M"
+  tally sits in the header, and clearing the settled ones leaves anything still moving alone
+  (77e98b9).
+
 #### Linux desktop workbench
 
 - A new connection type, **Linux desktop** (`linuxDesk`): an SSH session whose front page is a
