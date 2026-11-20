@@ -1766,7 +1766,10 @@ Digest:    sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289
         assert_eq!(answer.source, "docker.gmssh.com");
         // The question went to the mirror, with the official repository's `library/` prefix.
         let asked = &recorder.calls()[2];
-        assert!(asked.contains(&"docker.gmssh.com/library/busybox:1.37".to_owned()), "{asked:?}");
+        assert!(
+            asked.contains(&"docker.gmssh.com/library/busybox:1.37".to_owned()),
+            "{asked:?}"
+        );
     }
 
     #[tokio::test]
@@ -1823,7 +1826,10 @@ Digest:    sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886
         ]));
         let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
 
-        let answer = provider.image_remote_digest("app:1").await.expect("the registry answered");
+        let answer = provider
+            .image_remote_digest("app:1")
+            .await
+            .expect("the registry answered");
         assert!(answer.local_digests.is_empty());
         assert_eq!(answer.up_to_date, None);
         assert_eq!(answer.source, "upstream");

@@ -121,7 +121,11 @@ async fn a_desktop_engine_lists_creates_and_removes_networks() {
     };
     lab.trust_then_close().await;
 
-    let engine = lab.core.desktop_engine_open(&lab.session_id).await.expect("open the engine");
+    let engine = lab
+        .core
+        .desktop_engine_open(&lab.session_id)
+        .await
+        .expect("open the engine");
     let info = lab.core.container_runtime_info(&engine).await.expect("engine info");
     assert!(
         info.network_available,
@@ -222,7 +226,10 @@ async fn a_desktop_engine_lists_creates_and_removes_networks() {
     }
 
     // An empty network leaves when asked, and is gone from the list.
-    lab.core.network_remove(&engine, &name).await.expect("remove the empty network");
+    lab.core
+        .network_remove(&engine, &name)
+        .await
+        .expect("remove the empty network");
     let networks = lab.core.network_list(&engine).await.expect("list after removal");
     assert!(
         !networks.iter().any(|row| row.name == name),

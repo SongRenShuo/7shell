@@ -304,15 +304,19 @@ pub(crate) fn registry_settings(output: &str) -> ContainerRegistrySettings {
         .or_else(|| document.get("registryConfig"))
         .and_then(Value::as_object)
         .and_then(|config| {
-            config.get("Mirrors").or_else(|| config.get("mirrors")).and_then(Value::as_array).map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .filter(|mirror| !mirror.is_empty())
-                    .take(MAX_ITEMS)
-                    .map(str::to_owned)
-                    .collect::<Vec<String>>()
-            })
+            config
+                .get("Mirrors")
+                .or_else(|| config.get("mirrors"))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|mirror| !mirror.is_empty())
+                        .take(MAX_ITEMS)
+                        .map(str::to_owned)
+                        .collect::<Vec<String>>()
+                })
         })
         .unwrap_or_default();
     ContainerRegistrySettings {
@@ -334,7 +338,11 @@ pub(crate) fn repo_digests(output: &str) -> Vec<String> {
     items
         .first()
         .and_then(Value::as_object)
-        .and_then(|map| map.get("RepoDigests").or_else(|| map.get("repoDigests")).and_then(Value::as_array))
+        .and_then(|map| {
+            map.get("RepoDigests")
+                .or_else(|| map.get("repoDigests"))
+                .and_then(Value::as_array)
+        })
         .map(|digests| {
             digests
                 .iter()
@@ -1276,9 +1284,7 @@ pub(crate) fn compose_projects(ls: &str, labelled_ps: &str) -> Vec<ComposeProjec
         // plugin's `ps` prints them as the comma-joined `key=value` sentence it shows humans.
         // Either shape carries the two labels the project list folds.
         let (project, service) = match pick(&row, &["Labels", "labels"]) {
-            Some(Value::Object(labels)) => {
-                (label_text(labels, PROJECT_LABEL), label_text(labels, SERVICE_LABEL))
-            }
+            Some(Value::Object(labels)) => (label_text(labels, PROJECT_LABEL), label_text(labels, SERVICE_LABEL)),
             Some(Value::String(joined)) => string_labels(joined),
             _ => (String::new(), String::new()),
         };
@@ -1817,7 +1823,10 @@ mod tests {
         let settings = registry_settings(info);
         assert_eq!(
             settings.mirrors,
-            vec!["https://docker.gmssh.com/".to_owned(), "https://dockerhub.icu/".to_owned()]
+            vec![
+                "https://docker.gmssh.com/".to_owned(),
+                "https://dockerhub.icu/".to_owned()
+            ]
         );
         assert_eq!(settings.http_proxy, "");
         assert_eq!(settings.https_proxy, "");
@@ -1852,7 +1861,10 @@ mod tests {
             repo_digests(inspect),
             vec!["busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec".to_owned()]
         );
-        assert!(repo_digests("not json at all").is_empty(), "an unparseable inspect carries no digests");
+        assert!(
+            repo_digests("not json at all").is_empty(),
+            "an unparseable inspect carries no digests"
+        );
     }
 
     #[test]
