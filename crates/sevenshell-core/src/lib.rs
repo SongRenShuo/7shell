@@ -20,6 +20,7 @@ mod monitor;
 mod network;
 mod policy;
 mod process;
+mod registry;
 mod sessions;
 mod snippets;
 mod sysinfo;
