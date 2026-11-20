@@ -9,6 +9,7 @@
       "title": "Desktop",
       "shell": {
         "disconnect": "Disconnect",
+        "browserOpen": "Open in browser",
         "starter": "Applications",
         "starterSearch": "Search applications",
         "starterNoResults": "Nothing matches",
@@ -255,7 +256,8 @@
         "transfer": "Transfers",
         "container": "Containers",
         "tail": "Log tracking",
-        "power": "System"
+        "power": "System",
+        "browser": "Browser handover"
       },
       "transfer": {
         "doneUpload": "Upload finished",
@@ -278,6 +280,9 @@
       "power": {
         "issuedReboot": "{name} was asked to reboot.",
         "issuedShutdown": "{name} was asked to shut down."
+      },
+      "deepLink": {
+        "missing": "The desktop this link asked for is not in the library ({id})."
       }
     },
     "system": {
@@ -380,6 +385,16 @@
         "stopConfirm": "Stop service",
         "actionFailed": "The machine did not accept that."
       }
+    },
+    "hosted": {
+      "title": "{name} is open in a browser tab.",
+      "urlLabel": "Handover URL",
+      "copy": "Copy the URL",
+      "copied": "The URL is on the clipboard.",
+      "copyFailed": "The URL could not be copied.",
+      "explanation": "The browser tab draws this desktop; the connection stays with the application here, and closing that tab does not end it. The host stops itself when the last browser session leaves — taking the URL again starts it, possibly on another port.",
+      "refresh": "Take the URL again",
+      "takeBack": "Take back into the app"
     }
   }
 }

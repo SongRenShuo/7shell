@@ -29,7 +29,13 @@ const LABELS = {
   clearConfirm: "Clear",
 };
 
-const GROUPS = { transfer: "Transfers", container: "Containers", tail: "Log tracking", power: "System" };
+const GROUPS = {
+  transfer: "Transfers",
+  container: "Containers",
+  tail: "Log tracking",
+  power: "System",
+  browser: "Browser handover",
+};
 
 function row(id: string, source: NoticeRow["source"], extra: Partial<NoticeRow> = {}): NoticeRow {
   return { id, source, title: `${source} ${id}`, atLabel: "09:05", read: false, actionable: false, ...extra };

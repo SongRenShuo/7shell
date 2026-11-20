@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { MenuAction, MenuEntry } from "./types";
-import { type TabMenuState, canReconnect, tabMenu } from "./workspace";
+import { type TabMenuActions, type TabMenuState, canReconnect, tabMenu } from "./workspace";
 
 function state(overrides: Partial<TabMenuState> = {}): TabMenuState {
   return { kind: "terminal", status: "open", hasHandle: true, index: 1, total: 3, reconnectable: 0, ...overrides };
@@ -23,7 +23,7 @@ function pick(entries: readonly MenuEntry[], id: string): MenuAction {
   return found;
 }
 
-function actions() {
+function actions(): TabMenuActions {
   return {
     duplicate: vi.fn(),
     close: vi.fn(),
@@ -34,6 +34,7 @@ function actions() {
     reconnect: vi.fn(),
     reconnectAll: vi.fn(),
     disconnect: vi.fn(),
+    openInBrowser: vi.fn(),
   };
 }
 
@@ -151,5 +152,29 @@ describe("the tabs with no connection of their own", () => {
       "close-right",
       "close-all",
     ]);
+  });
+});
+
+describe("a desktop tab's open-in-browser entry", () => {
+  it("leads the menu where the running host can make the move, and runs what it says", () => {
+    const wired = actions();
+    const entries = tabMenu(state({ kind: "workbench", status: null, browserOpenable: true }), wired);
+
+    expect(ids(entries)[0], "the handover is the one move this tab owns").toBe("open-in-browser");
+    pick(entries, "open-in-browser").run();
+    expect(wired.openInBrowser).toHaveBeenCalledOnce();
+  });
+
+  it("is absent where the host has no embedded browser host to ask", () => {
+    const entries = tabMenu(state({ kind: "workbench", status: null }), actions());
+
+    expect(ids(entries)).toEqual(["close", "close-others", "close-left", "close-right", "close-all"]);
+  });
+
+  it("does not leak into the other kinds, however the flag stands", () => {
+    expect(ids(tabMenu(state({ browserOpenable: true }), actions()))).not.toContain("open-in-browser");
+    expect(
+      ids(tabMenu(state({ kind: "files", status: "failed", hasHandle: false, browserOpenable: true }), actions())),
+    ).not.toContain("open-in-browser");
   });
 });

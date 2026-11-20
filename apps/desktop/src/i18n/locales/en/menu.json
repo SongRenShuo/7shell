@@ -31,6 +31,7 @@
     "duplicateTab": "Duplicate tab",
     "connectAll": "Connect all",
     "disconnect": "Disconnect",
+    "openInBrowser": "Open in browser",
     "closeOthers": "Close the others",
     "closeLeft": "Close the ones to the left",
     "closeRight": "Close the ones to the right",

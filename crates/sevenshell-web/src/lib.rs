@@ -1212,6 +1212,12 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             state.core.open_desktop(&session_id).await?;
             Ok(Value::Null)
         }
+        // Handing a desktop to the system browser is the desktop shell's move: the embedded host
+        // lives there, and a page this service already draws has no host of its own to ask. The
+        // contract keeps both cases, so the interface's entries are the same shape in either host.
+        "desktop_browser_open" | "desktop_browser_url" => Err(ShellError::browser_host_unavailable(
+            "the embedded browser host lives in the desktop shell, not in this service",
+        )),
         "workbench_power" => {
             let session_id: String = from_args(&args, "sessionId")?;
             let handle: String = from_args(&args, "handle")?;
