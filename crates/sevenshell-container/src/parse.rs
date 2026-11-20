@@ -15,8 +15,8 @@ use serde_json::{Map, Value};
 use sevenshell_error::ShellError;
 use sevenshell_types::{
     ComposeProject, ComposeServiceRow, ContainerDetail, ContainerImage, ContainerMount, ContainerPort,
-    ContainerRuntime, ContainerRuntimeInfo, ContainerStateCount, ContainerStats, ContainerSummary, ImageLayer,
-    NetworkSummary,
+    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerStateCount, ContainerStats,
+    ContainerSummary, ImageLayer, NetworkSummary,
 };
 
 /// The largest answer that is still parsed. Beyond this the interface would be showing a table
@@ -289,6 +289,100 @@ pub(crate) fn namespaces(output: &str) -> Vec<String> {
     names
 }
 
+/// Where the engine pulls from: the mirrors its daemon was given and the proxy it was told to use.
+///
+/// Docker prints these at the top level of its `info` JSON — `RegistryConfig.Mirrors` for the
+/// mirrors, `HttpProxy`/`HttpsProxy`/`NoProxy` for the proxy — with an unset proxy as an empty
+/// string and no mirrors as an absent or empty list. Both absences are the honest empty answer
+/// the interface draws its empty sentences from.
+pub(crate) fn registry_settings(output: &str) -> ContainerRegistrySettings {
+    let Some(document) = documents(output).into_iter().next() else {
+        return ContainerRegistrySettings::default();
+    };
+    let mirrors = document
+        .get("RegistryConfig")
+        .or_else(|| document.get("registryConfig"))
+        .and_then(Value::as_object)
+        .and_then(|config| {
+            config.get("Mirrors").or_else(|| config.get("mirrors")).and_then(Value::as_array).map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|mirror| !mirror.is_empty())
+                    .take(MAX_ITEMS)
+                    .map(str::to_owned)
+                    .collect::<Vec<String>>()
+            })
+        })
+        .unwrap_or_default();
+    ContainerRegistrySettings {
+        mirrors,
+        http_proxy: text(&document, &["HttpProxy", "httpProxy"]),
+        https_proxy: text(&document, &["HttpsProxy", "httpsProxy"]),
+        no_proxy: text(&document, &["NoProxy", "noProxy"]),
+    }
+}
+
+/// The digests the local engine recorded for an image's pulls, as its `image inspect` answers them.
+///
+/// A pull through a transparent mirror records the digest under the repository it was asked for —
+/// `busybox@sha256:…` — so these are compared by their digest part, not by the name in front of it.
+pub(crate) fn repo_digests(output: &str) -> Vec<String> {
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(capped(output)) else {
+        return Vec::new();
+    };
+    items
+        .first()
+        .and_then(Value::as_object)
+        .and_then(|map| map.get("RepoDigests").or_else(|| map.get("repoDigests")).and_then(Value::as_array))
+        .map(|digests| {
+            digests
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|digest| !digest.is_empty())
+                .take(MAX_ITEMS)
+                .map(str::to_owned)
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default()
+}
+
+/// The digest line `buildx imagetools inspect` prints — the one command line that states a tag's
+/// pull digest outright.
+pub(crate) fn imagetools_digest(output: &str) -> Option<String> {
+    for line in capped(output).lines() {
+        let line = line.trim();
+        if let Some(digest) = line.strip_prefix("Digest:") {
+            let digest = digest.trim();
+            if !digest.is_empty() {
+                return Some(digest.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// The digest a `manifest inspect --verbose` answer states, when it states one at all.
+///
+/// A registry that served a bare manifest prints one object whose `Descriptor.digest` is the pull
+/// digest. A registry that served a list prints an array of per-platform manifests, and none of
+/// their digests is the digest a pull records — so the honest answer here is nothing, not a
+/// platform digest dressed up as the tag's.
+pub(crate) fn manifest_inspect_digest(output: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(capped(output).trim()).ok()?;
+    if let Value::Array(_) = value {
+        return None;
+    }
+    let map = value.as_object()?;
+    let digest = map
+        .get("Descriptor")
+        .or_else(|| map.get("descriptor"))
+        .and_then(Value::as_object)
+        .and_then(|descriptor| descriptor.get("digest").or_else(|| descriptor.get("Digest")))
+        .and_then(Value::as_str)?;
+    (!digest.is_empty()).then_some(digest.to_owned())
+}
+
 pub(crate) fn runtime_info(
     runtime: ContainerRuntime,
     info: Option<&str>,
@@ -315,6 +409,7 @@ pub(crate) fn runtime_info(
         images_dangling: 0,
         compose_available: false,
         network_available: false,
+        manifest_inspect_available: false,
     };
 
     if let Some(document) = documents(info.unwrap_or_default()).into_iter().next() {
@@ -1707,5 +1802,99 @@ mod tests {
         assert_eq!(rows[0].health, "healthy");
         assert_eq!(rows[1].state, "exited");
         assert!(rows[1].health.is_empty(), "a field the row does not carry stays absent");
+    }
+    #[test]
+    fn the_registry_settings_read_the_real_machines_info_shapes() {
+        // The field names are the ones the machine printed on 2026-11-20: PascalCase proxy keys at
+        // the top level and the mirror list under `RegistryConfig`. An unset proxy is an empty
+        // string, and a daemon with no mirrors answers the empty shape.
+        let info = concat!(
+            "{\"HttpProxy\":\"\",\"HttpsProxy\":\"\",\"NoProxy\":\"\",",
+            "\"RegistryConfig\":{\"InsecureRegistryCIDRs\":[\"127.0.0.0/8\"],",
+            "\"IndexConfigs\":{\"docker.io\":{\"Name\":\"docker.io\",\"Mirrors\":[\"https://docker.gmssh.com/\"]}},",
+            "\"Mirrors\":[\"https://docker.gmssh.com/\",\"https://dockerhub.icu/\"]}}"
+        );
+        let settings = registry_settings(info);
+        assert_eq!(
+            settings.mirrors,
+            vec!["https://docker.gmssh.com/".to_owned(), "https://dockerhub.icu/".to_owned()]
+        );
+        assert_eq!(settings.http_proxy, "");
+        assert_eq!(settings.https_proxy, "");
+        assert_eq!(settings.no_proxy, "");
+
+        let quiet = registry_settings("{\"Containers\":13}");
+        assert!(quiet.mirrors.is_empty());
+        assert_eq!(quiet, ContainerRegistrySettings::default());
+    }
+
+    #[test]
+    fn the_registry_settings_read_a_proxy_that_is_actually_set() {
+        let info = concat!(
+            "{\"HttpProxy\":\"http://proxy.lan:3128\",\"HttpsProxy\":\"http://proxy.lan:3128\",",
+            "\"NoProxy\":\"localhost,127.0.0.1\",\"RegistryConfig\":{\"Mirrors\":[]}}"
+        );
+        let settings = registry_settings(info);
+        assert_eq!(settings.http_proxy, "http://proxy.lan:3128");
+        assert_eq!(settings.https_proxy, "http://proxy.lan:3128");
+        assert_eq!(settings.no_proxy, "localhost,127.0.0.1");
+        assert!(settings.mirrors.is_empty());
+    }
+
+    #[test]
+    fn the_local_digests_are_the_pull_records_the_inspect_names() {
+        let inspect = concat!(
+            "[{\"Id\":\"sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\",",
+            "\"RepoTags\":[\"busybox:1.37\"],",
+            "\"RepoDigests\":[\"busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\"]}]"
+        );
+        assert_eq!(
+            repo_digests(inspect),
+            vec!["busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec".to_owned()]
+        );
+        assert!(repo_digests("not json at all").is_empty(), "an unparseable inspect carries no digests");
+    }
+
+    #[test]
+    fn the_imagetools_answer_names_the_digest_outright() {
+        let output = concat!(
+            "Name:      docker.gmssh.com/library/busybox:1.37
+",
+            "MediaType: application/vnd.oci.image.index.v1+json
+",
+            "Digest:    sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+",
+            "
+",
+            "Manifests: 
+"
+        );
+        assert_eq!(
+            imagetools_digest(output),
+            Some("sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec".to_owned())
+        );
+        assert_eq!(imagetools_digest("an error from the CLI"), None);
+    }
+
+    #[test]
+    fn the_manifest_answer_names_a_digest_only_for_a_bare_manifest() {
+        // A bare manifest comes as one object whose descriptor names the pull digest.
+        let bare = concat!(
+            "{\"Ref\":\"docker.example/app:1@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\",",
+            "\"Descriptor\":{\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",",
+            "\"digest\":\"sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\",\"size\":610}}"
+        );
+        assert_eq!(
+            manifest_inspect_digest(bare),
+            Some("sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4".to_owned())
+        );
+
+        // A list comes as an array of per-platform manifests, and none of their digests is the
+        // digest a pull records — the honest answer here is nothing.
+        let list = concat!(
+            "[{\"Ref\":\"docker.example/app:1@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\",",
+            "\"Descriptor\":{\"digest\":\"sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\"}}]"
+        );
+        assert_eq!(manifest_inspect_digest(list), None);
     }
 }

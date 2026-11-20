@@ -252,6 +252,52 @@ pub struct ContainerRuntimeInfo {
     /// this is true wherever the Compose bit is; it is absent elsewhere so the mirror stays honest.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub network_available: bool,
+    /// Whether the engine's command line can answer a request for an image's remote digest — the
+    /// question behind the image page's "check for updates". Probed once when a desktop engine
+    /// opened; absent on the connections that were never probed, which reads as "may have it".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manifest_inspect_available: bool,
+}
+
+/// What the engine's `info` says about where it pulls from.
+///
+/// Every field is absent when the engine has nothing to say about it: a mirror list nobody
+/// configured and a proxy nobody set are the empty answer, not an error, and the interface draws
+/// its empty sentences from the absence.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerRegistrySettings {
+    /// The pull-through mirrors the daemon consults before the upstream registry, in the order it
+    /// consults them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub http_proxy: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub https_proxy: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub no_proxy: String,
+}
+
+/// The remote digest of one image tag, beside the digests the local engine recorded for it.
+///
+/// `up_to_date` is answered only when both sides answered; a registry that would not speak and an
+/// engine without the image locally are both honest absences, not a guess either way.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerImageRemoteDigest {
+    pub reference: String,
+    /// The digest the registry serves for this tag, as the engine would pull it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_digest: Option<String>,
+    /// The digests the local engine recorded for this image's pulls (`RepoDigests`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_digests: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub up_to_date: Option<bool>,
+    /// Which registry answered: a mirror host, or `upstream` when the engine's own index did.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source: String,
 }
 
 /// One line of a stream the backend is following, tagged with the stream it belongs to.

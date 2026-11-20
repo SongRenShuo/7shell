@@ -7,9 +7,9 @@
 
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage, ContainerImageTransfer,
-    ContainerRegistryLogin, ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine,
-    ContainerSummary, ImageLayer,
+    ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage, ContainerImageRemoteDigest,
+    ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntimeInfo, ContainerStats,
+    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ImageLayer,
 };
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
@@ -296,6 +296,27 @@ pub async fn container_registry_login(
     request: ContainerRegistryLogin,
 ) -> Result<(), ShellError> {
     state.core().container_registry_login(&connection_id, &request).await
+}
+
+/// Where the engine pulls from: the mirrors and proxy its daemon was given. A read — the daemon's
+/// registry settings are this build's to report, never to write.
+#[tauri::command]
+pub async fn docker_info(
+    state: State<'_, ShellState>,
+    connection_id: String,
+) -> Result<ContainerRegistrySettings, ShellError> {
+    state.core().docker_info(&connection_id).await
+}
+
+/// The digest the registry serves for one image tag now, beside the digests the engine recorded.
+/// A registry that would not speak arrives as its own code below this line.
+#[tauri::command]
+pub async fn image_remote_digest(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    image: String,
+) -> Result<ContainerImageRemoteDigest, ShellError> {
+    state.core().image_remote_digest(&connection_id, &image).await
 }
 
 async fn transfer(

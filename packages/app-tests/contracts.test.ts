@@ -480,6 +480,36 @@ describe("wire types", () => {
     ).toBe("lowercase");
   });
 
+  it("declares the same container runtime-info fields on both sides", () => {
+    // The capability bits are read by the pane's degrade rules, so a bit the Rust side stopped
+    // sending — or sent under a name the interface never reads — would trim, or draw, a page for
+    // the wrong reason.
+    const rust = read("crates/sevenshell-types/src/container.rs");
+    const typescript = read("apps/desktop/src/types/container.ts");
+
+    const rustFields = rustStructFields(rust, "ContainerRuntimeInfo").map(camelCase);
+    expect(rustFields.length, "ContainerRuntimeInfo has no fields, so the comparison proves nothing").toBeGreaterThan(0);
+    expect(sorted(rustFields), "ContainerRuntimeInfo differs between Rust and the interface").toEqual(
+      sorted(interfaceFields(typescript, "ContainerRuntimeInfo")),
+    );
+  });
+
+  it("declares the same registry-read fields on both sides", () => {
+    // What the engine pulls from, and what a tag names on the registry now: both shapes are drawn
+    // or quoted verbatim, and every field is optional on the wire because an engine with nothing
+    // to say sends the empty shape.
+    const rust = read("crates/sevenshell-types/src/container.rs");
+    const typescript = read("apps/desktop/src/types/container.ts");
+
+    for (const name of ["ContainerRegistrySettings", "ContainerImageRemoteDigest"]) {
+      const rustFields = rustStructFields(rust, name).map(camelCase);
+      expect(rustFields.length, `${name} has no fields, so the comparison proves nothing`).toBeGreaterThan(0);
+      expect(sorted(rustFields), `${name} differs between Rust and the interface`).toEqual(
+        sorted(interfaceFields(typescript, name)),
+      );
+    }
+  });
+
   it("keeps the compiled interfaces aligned with the Rust structs", () => {
     // These assignments exist so `tsc` fails if a field is renamed in one language only.
     const envelope: ErrorEnvelope = {
