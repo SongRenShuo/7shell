@@ -108,6 +108,28 @@ All notable changes to 7Shell are documented in this file. The format is
   (5e5b255, 7be2604; the embedded host itself rode in with d33bb5d).
 - The browser tab carrying a hosted desktop asks before leaving while bytes are still moving, the
   same question the desktop's own drop target asks (2d94d22).
+- A container's row menu gains **Monitor**: a dialog that samples the engine's per-container stats
+  every five seconds — only while it is open, its window is in front and the page is visible — and
+  draws CPU, memory and network as the overview's own lines do, the network as a rate measured
+  between readings rather than a running total. The three chart panels became one shared shell
+  (`StatSparkline`), so the overview and the monitor draw the same line at the same measure
+  (da714bf).
+- A container's row menu gains **Clone**: the pane inspects the container and opens the create
+  wizard pre-filled from it — image, name with a `-copy` suffix, privileged, capabilities, labels,
+  networks, ports, volumes, environment, command, CPU weight and memory limit — and the copy starts
+  **unstarted**, the way the reference manager copies. The advanced fields the wire does not carry
+  in its curated shape are read from the inspect document itself, so nothing new crosses the
+  contract (17883b0).
+- The container drawer's detail gains a labels section, read from the same inspect document; the
+  JSON tab and its copy button were already there (17883b0).
+- The log view gains an **errors only** switch: `docker logs` hands both streams down one pipe, so
+  until the wire carries a stream tag the view keeps the lines that say something went wrong — and
+  says so plainly when the filter leaves nothing, instead of looking like a container that has
+  written nothing (96b3272).
+- The rename dialog's button names the write while it runs (`Renaming…`), and the six desktop
+  Docker pages hold the reference manager's 850px floor — below it the content scrolls sideways
+  instead of squeezing every column into a sliver. The application tab's layout is untouched
+  (e300612).
 
 #### Linux desktop workbench
 
