@@ -126,6 +126,10 @@ All notable changes to 7Shell are documented in this file. The format is
   until the wire carries a stream tag the view keeps the lines that say something went wrong — and
   says so plainly when the filter leaves nothing, instead of looking like a container that has
   written nothing (96b3272).
+- A desktop handed to a browser keeps its launcher: the tab's operating system eats a lone Meta
+  press before the page sees the release, so Alt pressed alone opens the starter as well — the
+  same "pressed alone" rule, disarmed by any other key, with Alt+S still somebody's shortcut
+  (290cb37).
 - The rename dialog's button names the write while it runs (`Renaming…`), and the six desktop
   Docker pages hold the reference manager's 850px floor — below it the content scrolls sideways
   instead of squeezing every column into a sliver. The application tab's layout is untouched

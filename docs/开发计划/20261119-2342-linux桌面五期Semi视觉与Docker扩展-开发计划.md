@@ -176,7 +176,7 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 - 引擎：`docker_info`（只读：`RegistryConfig.Mirrors` + `HttpProxy/HttpsProxy/NoProxy`）+ `image_remote_digest`（候选链 **`buildx imagetools inspect` → `manifest inspect --verbose`**，失败落能力位 `manifestInspectAvailable?`）；镜像引用经加速源改写（`docker.gmssh.com/library/<repo>`，加速源只对 Docker Hub 语义生效）。
 - 前端：镜像行「检查更新」→ 徽标；**5 步确认清单**（受影响容器 / 数据风险 / 当前加速源 / 不可取消+防重复 / 失败补救，每步可单独取消）→ 既有 pull 流；「镜像仓库」只读卡片（加速源 + 代理 + 建议 daemon.json 片段**只复制不写盘**）落**镜像页**（协调后避开 DockerOverview）。
 - **真机读数（103.36.220.245，Docker 29.9.3）**：
-  - `docker info --format '{{json .}}'` 字段核实：`RegistryConfig.Mirrors` = 6 条带尾斜杠的加速源 URL；`HttpProxy/HttpsProxy/NoProxy` 均为空串（键名首字母大写 H，车道解析正确）。
+  - `docker info --format json` 字段核实：`RegistryConfig.Mirrors` = 6 条带尾斜杠的加速源 URL；`HttpProxy/HttpsProxy/NoProxy` 均为空串（键名首字母大写 H，车道解析正确）。
   - **直连探测全超时**：`buildx imagetools inspect busybox:1.37` 与 `manifest inspect --verbose busybox:1.37` 打 registry-1.docker.io 均 i/o timeout——加速源只作用于 daemon 的 pull，不作用于这两个探测命令；此宿主因此走**能力位 false 降级**（前端只留手动 pull），正是设计预期的真实场景。
   - **经加速源探测成立**：`docker.gmssh.com/library/busybox:1.37` → imagetools 直出 `Digest: sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec`，与本地 `RepoDigests` 完全一致 → **「已是最新」比较路径真机跑通**；`manifest inspect --verbose` 对 index 给的是平台子 manifest digest（`66a6306…` ≠ pull digest），解析器对数组返回 None（不会误报有新版本）。
   - 零残留复核：13 个用户容器未动、零测试网络、零 compose 目录。
