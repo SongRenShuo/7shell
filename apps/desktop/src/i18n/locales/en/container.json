@@ -370,11 +370,13 @@
       "tail": "Lines",
       "timestamps": "Timestamps",
       "wrap": "Wrap",
+      "errorsOnly": "Errors only",
       "clear": "Clear",
       "pause": "Pause",
       "resume": "Resume",
       "restart": "Read the logs again",
       "empty": "Nothing has been written yet.",
+      "noErrors": "No line reads as an error.",
       "paused": "Paused — lines are kept and appear when resumed.",
       "ended": "The stream has ended."
     },
