@@ -4,7 +4,9 @@
 //! answered by inspecting a configuration: a kubeconfig that names a cluster's own authority must
 //! connect to *that* cluster, and must not connect to one holding a certificate from somewhere else.
 //! The certificates are committed beside this file and signed by two authorities, neither of which
-//! any machine trusts.
+//! any machine trusts. Their leaves carry the `serverAuth` and `clientAuth` extended key usage:
+//! macOS's trust evaluation requires it, so a leaf without one is accepted on Linux and Windows and
+//! refused there — which would make these tests pass for the wrong reason on the strict platform.
 
 mod common;
 
