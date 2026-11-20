@@ -386,7 +386,7 @@ where
     let mut work = vec![Step::Entry {
         path: source.to_path_buf(),
         relative: name,
-        metadata,
+        metadata: Box::new(metadata),
     }];
 
     while let Some(step) = work.pop() {
@@ -419,7 +419,7 @@ where
                         work.push(Step::Entry {
                             path: child_path,
                             relative: beneath(&relative, &child_name),
-                            metadata: child_metadata,
+                            metadata: Box::new(child_metadata),
                         });
                     }
                 } else if metadata.is_file() {
@@ -505,7 +505,9 @@ enum Step {
     Entry {
         path: PathBuf,
         relative: String,
-        metadata: std::fs::Metadata,
+        // Boxed because `Metadata` is large on Unix: unboxed, this variant alone exceeded
+        // clippy's size-difference limit against a `Close` that carries nothing.
+        metadata: Box<std::fs::Metadata>,
     },
     /// The end of the directory whose entries have all been sent.
     Close,
