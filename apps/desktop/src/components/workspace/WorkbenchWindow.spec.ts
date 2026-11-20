@@ -152,7 +152,21 @@ function pointer(type: string, clientX: number, clientY: number): PointerEvent {
 
 /** A whole press: down on the title bar at the given point. */
 function pressTitle(clientX = 200, clientY = 100): void {
-  titleBar().dispatchEvent(pointer("pointerdown", clientX, clientY));
+  const event = pointer("pointerdown", clientX, clientY);
+  titleBar().dispatchEvent(event);
+  // TEMPORARY probe: a press the component refused leaves the later assertion to fail for a reason
+  // that belongs here. It speaks only on that path, so a passing run is timed as before.
+  if (!event.defaultPrevented) {
+    const root = document.querySelector("[data-workbench-window]");
+    console.log("[probe] title press not accepted from the test", {
+      at: `${clientX},${clientY}`,
+      state: root?.getAttribute("data-window-state"),
+      ariaHidden: root?.getAttribute("aria-hidden"),
+      headers: document.querySelectorAll("[data-workbench-window-title]").length,
+      roots: document.querySelectorAll("[data-workbench-window]").length,
+      focus: calls.focus,
+    });
+  }
 }
 
 describe("the chrome", () => {
@@ -435,7 +449,17 @@ describe("resizing from the edge zones", () => {
   });
 
   it("keeps the grip's own contract: the bottom-right grip still asks for a size", () => {
-    grip().dispatchEvent(pointer("pointerdown", 300, 300));
+    const down = pointer("pointerdown", 300, 300);
+    grip().dispatchEvent(down);
+    // TEMPORARY probe: speaks only when the press was refused.
+    if (!down.defaultPrevented) {
+      const root = document.querySelector("[data-workbench-window]");
+      console.log("[probe] grip press not accepted", {
+        state: root?.getAttribute("data-window-state"),
+        ariaHidden: root?.getAttribute("aria-hidden"),
+        roots: document.querySelectorAll("[data-workbench-window]").length,
+      });
+    }
     grip().dispatchEvent(pointer("pointermove", 350, 340));
 
     expect(resizes).toEqual([{ width: 716, height: 462 }]);
