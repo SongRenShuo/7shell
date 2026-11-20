@@ -218,4 +218,8 @@ fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现�
 - **i18n**：1813 键 en+zh 成对；typecheck 净；容器域 191 例。
 - **影响面**：`ContainerPane` flat 分支零 diff（守卫 spec 在案）；应用级界面零可见变化。
 - **文档**：本文件 §2.1/§2.2 对照表收口；CHANGELOG `[Unreleased]` 按提交回填；MEMORY 索引含五期/七期章程与 PIP-0001。
-- **遗留（明确 not done）**：① prune/push/tag 三动词有引擎无表面；② 400px 窄窗截图佐证未拍（spec 已断言 850 地板与滚动盒）；③ 亮色桌面门标签对比度（批次一遗留）未复核；④ NSIS 见下方哈希。
+- **NSIS 重建 + 哈希**（`CARGO_TARGET_DIR=D:/HuanJing/7shell-target pnpm tauri build`，EXIT=0）：
+  - `7Shell_0.2.0_x64-setup.exe` 9.35 MiB — SHA256 `547e99bc86025b2123d8dae63b047b535021431e5e1ce83b48a12a6bdf2f0285`
+  - `7Shell_0.2.0_x64_en-US.msi` 12.37 MiB — SHA256 `c86bd5bd9d116617a48e2c5665f8bb0e15471f86abedfbfc3396392d90316e23`
+  - D9：`bundle.resources: ["resources/desktop/**/*"]` + `beforeBuildCommand` 里的拷贝步骤；装包体积较无资源版 +1.5 MiB，`release/resources/desktop/index.html` 在构建树中落位（Tauri 接受该 glob）。
+- **遗留（明确 not done）**：① prune/push/tag 三动词有引擎无表面；② 400px 窄窗截图佐证未拍（spec 已断言 850 地板与滚动盒）；③ 亮色桌面门标签对比度（批次一遗留）未复核。
