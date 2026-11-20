@@ -134,7 +134,7 @@ beforeEach(() => {
   dockerInfoMock.mockClear();
   pullMock.mockResolvedValue("pull-1");
   removeMock.mockResolvedValue(undefined);
-  remoteDigestMock.mockImplementation(async (connectionId: string, image: string) => ({
+  remoteDigestMock.mockImplementation(async (_connectionId: string, image: string) => ({
     reference: image,
     remoteDigest: "sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
     upToDate: false,
@@ -287,7 +287,10 @@ function updateTag(): string | null {
 }
 
 function footerButton(label: string): HTMLElement | null {
-  return [...document.querySelectorAll("footer button")].find((entry) => entry.textContent?.includes(label)) ?? null;
+  const found = [...document.querySelectorAll<HTMLElement>("footer button")].find((entry) =>
+    entry.textContent?.includes(label),
+  );
+  return found ?? null;
 }
 
 async function checkRedis(): Promise<void> {

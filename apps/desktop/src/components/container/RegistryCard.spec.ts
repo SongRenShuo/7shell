@@ -69,7 +69,7 @@ describe("the registry card", () => {
   });
 
   it("copies the facts as the fragment a daemon configuration would carry", async () => {
-    const writeText = vi.fn(async () => {});
+    const writeText = vi.fn(async (_text: string) => {});
     Object.defineProperty(window.navigator, "clipboard", { value: { writeText }, configurable: true });
     infoMock.mockResolvedValue({
       mirrors: ["https://docker.gmssh.com/"],

@@ -61,7 +61,10 @@ function stepLabel(): string {
 }
 
 function footerButton(label: string): HTMLElement | null {
-  return [...document.querySelectorAll("footer button")].find((entry) => entry.textContent?.includes(label)) ?? null;
+  const found = [...document.querySelectorAll<HTMLElement>("footer button")].find((entry) =>
+    entry.textContent?.includes(label),
+  );
+  return found ?? null;
 }
 
 /**
