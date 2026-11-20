@@ -116,7 +116,14 @@
         "showRelated": "查看使用该镜像的容器",
         "tagLabel": "标签",
         "tagPlaceholder": "latest",
-        "tagInvalid": "标签格式不正确：以字母或数字开头，只能包含字母、数字、点、连字符和下划线。"
+        "tagInvalid": "标签格式不正确：以字母或数字开头，只能包含字母、数字、点、连字符和下划线。",
+        "checkUpdate": "检查更新",
+        "update": "更新此镜像",
+        "checkingTag": "检查中…",
+        "updateTag": "有新版本",
+        "currentTag": "已是最新",
+        "undecidedTag": "无法比对",
+        "checkFailedTag": "检查失败"
       },
       "registry": {
         "title": "镜像仓库",
@@ -127,6 +134,22 @@
         "http": "HTTP 代理：",
         "https": "HTTPS 代理：",
         "no": "不走代理："
+      },
+      "update": {
+        "title": "更新镜像 {name}",
+        "step": "第 {current} 步，共 {total} 步",
+        "affected": "本引擎有 {count} 个容器在使用该镜像。它们按现状继续运行；重建容器才会用上新镜像。",
+        "affectedNone": "本引擎上没有容器使用该镜像。",
+        "dataRisk": "容器的数据在卷和可写层里，不在镜像中：拉取新镜像不会删除任何数据。重建容器才是会影响其数据的步骤。",
+        "sourceLead": "这次拉取将走守护进程当前的来源：",
+        "sourceReading": "正在读取守护进程的应答…",
+        "sourceFailed": "守护进程未应答镜像仓库查询。",
+        "sourceNone": "未配置加速源，拉取直达上游仓库。",
+        "committing": "确认后本弹窗关闭，拉取在任务面板进行——本弹窗不再等待，也无法撤销。同一镜像已在进行的更新不会重复开始。",
+        "failure": "若拉取失败，任务面板会保留原因与日志，可查阅、重试或停止；本机现有镜像不受影响。",
+        "back": "上一步",
+        "continue": "继续",
+        "confirm": "更新"
       }
     },
     "loadingActions": {
