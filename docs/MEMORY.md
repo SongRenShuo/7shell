@@ -8,6 +8,7 @@
 - [`AGENTS.md`](https://github.com/7wdn/7shell/blob/main/AGENTS.md) — 仓库级代理与贡献者指令入口（并行登记、三档测试、提交纪律）
 - [`开发流程-派活与验收清单.md`](开发流程-派活与验收清单.md) — 派活六字段模板、验收五条、测试三档分层、常见坑
 - [`pips/README.md`](pips/README.md) — PIP 提案机制（什么时候写、状态流转）
+- [`pips/PIP-0001-browser-host-embedding.md`](pips/PIP-0001-browser-host-embedding.md) — 内嵌浏览器宿主：loopback-only + 定长 token、默认关闭/按需启停/最后会话自停、D9 静态资源布局
 
 ## 账本与索引
 
@@ -49,6 +50,7 @@
 - [`20261119-0302-linux桌面四期fnOS体验对标-开发计划.md`](开发计划/20261119-0302-linux桌面四期fnOS体验对标-开发计划.md) — 四期总纲：fnOS 精华裁定表、六批次（视觉地基→Docker fnOS 化→桌面形态→功能窗口→全局层→窗口深化）、车道契约与验收清单
 - [`20261119-2342-linux桌面五期Semi视觉与Docker扩展-开发计划.md`](开发计划/20261119-2342-linux桌面五期Semi视觉与Docker扩展-开发计划.md) — 五期总纲：Semi 令牌层路线（React-only 事实裁定）、Docker 对齐 fnOS 六页签（创建向导/网络/Compose/更新流/仓库设置）、品牌色改向与形态评审门
 - [`20261120-0015-linux桌面六期应用功能体验优化-开发计划.md`](开发计划/20261120-0015-linux桌面六期应用功能体验优化-开发计划.md) — 六期总纲：应用可用性迭代（终端标签化/文件双视图多选详情/**文件编辑器 CodeMirror 6 化**/回收站与传输聚合/系统面板过滤/桌面全局层），证据带 file:line，与五期排期正交
+- [`20261120-0203-linux桌面七期浏览器打开模式-开发计划.md`](开发计划/20261120-0203-linux桌面七期浏览器打开模式-开发计划.md) — 七期总纲：桌面交接给浏览器（`sevenshell-web` 拆 lib + 应用内嵌宿主、stub 托管卡、fragment token、按需启停/空闲自停），PIP-0001 为闸门，e2e `zz-browser-desktop` 已过
 
 ## 记忆归档
 
