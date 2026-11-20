@@ -117,6 +117,16 @@
         "tagLabel": "标签",
         "tagPlaceholder": "latest",
         "tagInvalid": "标签格式不正确：以字母或数字开头，只能包含字母、数字、点、连字符和下划线。"
+      },
+      "registry": {
+        "title": "镜像仓库",
+        "snippet": "复制建议配置片段",
+        "reading": "正在读取引擎应答…",
+        "failed": "引擎未应答镜像仓库查询。",
+        "empty": "未配置加速源与代理，拉取直达上游仓库。",
+        "http": "HTTP 代理：",
+        "https": "HTTPS 代理：",
+        "no": "不走代理："
       }
     },
     "loadingActions": {
