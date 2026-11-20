@@ -238,6 +238,8 @@ error_catalog! {
     ContainerNotConnected => "CONTAINER-NOT-CONNECTED", "errors.container.notConnected";
     #[doc = "A Docker network still has containers attached, so the engine refused to remove it."]
     ContainerNetworkInUse => "CONTAINER-NETWORK-IN-USE", "errors.container.networkInUse";
+    #[doc = "No registry answered the request for an image's remote digest, so whether a newer image exists is unknown."]
+    ImageManifestUnavailable => "IMAGE-MANIFEST-UNAVAILABLE", "errors.image.manifestUnavailable";
 
     // -- Kubernetes --------------------------------------------------------
     #[doc = "The Kubernetes API server could not be reached."]

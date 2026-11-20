@@ -123,6 +123,9 @@
       "notConnected": "That container connection is no longer open.",
       "networkInUse": "The network {network} still has {containers} containers attached. Disconnect them before removing it."
     },
+    "image": {
+      "manifestUnavailable": "No registry answered the request for the remote digest of {image}, so whether a newer image exists is unknown."
+    },
     "k8s": {
       "unavailable": "The Kubernetes API server could not be reached.",
       "kubeconfigInvalid": "The kubeconfig could not be read.",
