@@ -408,4 +408,21 @@ describe("the desktop layout of the same list", () => {
     expect(clones[0]?.id).toBe(row.id);
     expect(clones[0]?.name).toBe(row.name);
   });
+
+  it("offers the monitor ask on a running row, and hands the row with it", async () => {
+    const monitored: Array<{ id: string; name: string }> = [];
+    const session = await mountDesktop({
+      onMonitor: (container: { id: string; name: string }) => monitored.push(container),
+    });
+
+    const row = session.containers.find((container) => container.state === "running");
+    if (row === undefined) {
+      throw new Error("the harness seeded no running container");
+    }
+    await openRowMenu(row.name);
+    await runMenuEntry("monitor");
+
+    expect(monitored, "the pane opens the charts over the row that asked").toHaveLength(1);
+    expect(monitored[0]?.id).toBe(row.id);
+  });
 });

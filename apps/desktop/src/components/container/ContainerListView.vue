@@ -20,6 +20,7 @@
  * container's data goes with it. The rows, the filters and the dialogs are the same in both.
  */
 import {
+  Activity,
   Camera,
   Copy,
   Ellipsis,
@@ -89,6 +90,8 @@ const emit = defineEmits<{
   "filter-state": [state: string | null];
   /** The row's "clone" ask: the pane inspects the container and opens the wizard pre-filled from it. */
   clone: [container: ContainerSummary];
+  /** The row's "monitor" ask: the pane opens the per-container charts over this container. */
+  monitor: [container: ContainerSummary];
 }>();
 
 const { t } = useI18n();
@@ -408,6 +411,15 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
         params: { name: container.name },
         icon: ScrollText,
         run: () => openLogs(container),
+      },
+      {
+        kind: "action",
+        id: "monitor",
+        labelKey: "container.action.monitor",
+        params: { name: container.name },
+        icon: Activity,
+        disabled: container.state !== "running",
+        run: () => emit("monitor", container),
       },
       {
         kind: "action",

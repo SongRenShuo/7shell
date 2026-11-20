@@ -39,6 +39,7 @@ import type { ContainerDetail, ContainerSummary } from "@/types/container";
 
 import ContainerImageView from "./ContainerImageView.vue";
 import ContainerListView from "./ContainerListView.vue";
+import ContainerMonitorDialog from "./ContainerMonitorDialog.vue";
 import ContainerOverview from "./ContainerOverview.vue";
 import ContainerWizard, { type ContainerClonePrefill } from "./ContainerWizard.vue";
 
@@ -184,6 +185,15 @@ const wizardNetworks = ref<readonly SelectOption[]>([]);
 
 /** What a clone ask pre-fills the wizard with, or null for a plain create. */
 const wizardPrefill = ref<ContainerClonePrefill | null>(null);
+
+/** The container whose charts are open, and whether that dialog is showing. */
+const monitorTarget = ref<ContainerSummary | null>(null);
+const monitorOpen = ref(false);
+
+function openMonitor(container: ContainerSummary): void {
+  monitorTarget.value = container;
+  monitorOpen.value = true;
+}
 
 const { toast } = useToast();
 
@@ -474,6 +484,7 @@ onBeforeUnmount(() => {
           @clear-state-filter="stateFilter = null"
           @filter-state="stateFilter = $event"
           @clone="cloneContainer"
+          @monitor="openMonitor"
         />
         <ContainerImageView
           v-show="!desktop && view === 'images'"
@@ -506,6 +517,16 @@ onBeforeUnmount(() => {
       :network-options="wizardNetworks"
       :prefill="wizardPrefill"
       @update:open="wizardOpen = $event"
+    />
+
+    <!-- One container's own lines: the same sampling discipline as the overview, one row of stats. -->
+    <ContainerMonitorDialog
+      v-if="desktop && session !== undefined"
+      :open="monitorOpen"
+      :session="session"
+      :target="monitorTarget"
+      :active="props.active"
+      @close="monitorOpen = false"
     />
   </section>
 </template>
