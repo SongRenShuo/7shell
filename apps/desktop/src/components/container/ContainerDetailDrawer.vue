@@ -59,6 +59,27 @@ interface DetailSection {
   fields: [string, string][];
 }
 
+/**
+ * The error words the "errors only" switch reads a line for.
+ *
+ * `docker logs` hands stdout and stderr down one pipe, so a real split needs two streams and a
+ * contract change; until the engine grows a stream tag this is the honest approximation the
+ * reference manager's errLog gives — a line that says it went wrong. The words are matched
+ * case-insensitively anywhere in the line, the way a person scanning a log would.
+ */
+const ERROR_PATTERN = /\b(error|err!|fatal|panic|exception|failed|failure|refused|denied|timeout|timed out)\b/i;
+
+/** Whether the view shows only the lines that read as errors. */
+const errorsOnly = ref(false);
+
+/** The lines the view draws: everything, or only what reads as an error. */
+const shownLines = computed(() => {
+  if (!errorsOnly.value) {
+    return lines.value;
+  }
+  return lines.value.filter((line) => ERROR_PATTERN.test(splitLogLine(line).message));
+});
+
 /** The labels a container's raw inspect document carries, as `k=v` lines. */
 function labelsOf(raw: string): string {
   try {
@@ -459,6 +480,20 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
+            class="rounded-sm border px-1.5 py-0.5 text-[10px] transition-colors"
+            :class="
+              errorsOnly
+                ? 'border-destructive/50 text-destructive'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            "
+            :aria-pressed="errorsOnly"
+            data-logs-errors-only
+            @click="errorsOnly = !errorsOnly"
+          >
+            {{ t("container.logs.errorsOnly") }}
+          </button>
+          <button
+            type="button"
             class="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             @click="togglePause()"
           >
@@ -496,9 +531,14 @@ onBeforeUnmount(() => {
           :class="wrap ? '' : 'overflow-x-auto'"
           :aria-label="t('container.logs.title', { name: props.target?.name ?? '' })"
         >
-          <p v-if="lines.length === 0" class="text-[11px] text-muted-foreground">{{ t("container.logs.empty") }}</p>
+          <p v-if="lines.length === 0" class="text-[11px] text-muted-foreground" data-logs-empty>
+            {{ t("container.logs.empty") }}
+          </p>
+          <p v-else-if="shownLines.length === 0" class="text-[11px] text-muted-foreground" data-logs-no-errors>
+            {{ t("container.logs.noErrors") }}
+          </p>
           <div
-            v-for="(line, index) in lines"
+            v-for="(line, index) in shownLines"
             :key="index"
             :class="wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'"
           >

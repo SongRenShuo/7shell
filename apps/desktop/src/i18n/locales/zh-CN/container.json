@@ -370,11 +370,13 @@
       "tail": "行数",
       "timestamps": "时间戳",
       "wrap": "自动换行",
+      "errorsOnly": "只看错误",
       "clear": "清空",
       "pause": "暂停",
       "resume": "继续",
       "restart": "重新读取日志",
       "empty": "还没有输出。",
+      "noErrors": "没有读起来像错误的行。",
       "paused": "已暂停——新行会保留，继续后显示。",
       "ended": "日志流已结束。"
     },

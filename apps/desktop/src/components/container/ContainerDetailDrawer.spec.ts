@@ -208,4 +208,49 @@ describe("container detail drawer", () => {
       expect(streamStopMock).toHaveBeenCalledWith("log-1");
     });
   });
+
+  it("narrows the log to the lines that read as errors, and says when none do", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalled();
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z started" });
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:01Z connection refused by upstream" });
+    await nextTick();
+    await nextTick();
+
+    const toggle = host?.querySelector<HTMLElement>("[data-logs-errors-only]");
+    if (!toggle) {
+      throw new Error("the log view offers no errors-only switch");
+    }
+    toggle.click();
+    await nextTick();
+
+    expect(host?.textContent).toContain("connection refused by upstream");
+    expect(host?.textContent, "a line that says nothing went wrong is filtered out").not.toContain("started");
+  });
+
+  it("says so plainly when the error filter leaves nothing", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalled();
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z all is well" });
+    await nextTick();
+
+    host?.querySelector<HTMLElement>("[data-logs-errors-only]")?.click();
+    await nextTick();
+
+    expect(host?.querySelector("[data-logs-no-errors]")?.textContent).toContain("No line reads as an error.");
+  });
 });
