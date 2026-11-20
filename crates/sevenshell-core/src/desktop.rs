@@ -12,9 +12,12 @@
 //! Every other platform refuses: the product offers remote desktops on Windows only, rather than
 //! pretending a different client would behave the same.
 
+// Only the Windows path below uses these; elsewhere the module is just the refusal.
+#[cfg(windows)]
 use std::time::Duration;
 
 use sevenshell_error::ShellError;
+#[cfg(windows)]
 use sevenshell_types::Protocol;
 
 use crate::sessions::Core;
