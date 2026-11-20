@@ -1,0 +1,15 @@
+name: Debug macOS TLS
+
+# Temporary: one macOS leg that prints the native-tls result for each variable, so the frozen-line
+# failure can be diagnosed without running the whole matrix. Removed once the cause is known.
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p sevenshell-k8s --test tls_debug -- --nocapture
