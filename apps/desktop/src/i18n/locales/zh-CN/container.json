@@ -208,6 +208,7 @@
     "action": {
       "exec": "在 {name} 中打开 Shell",
       "logs": "查看 {name} 的日志",
+      "monitor": "监控",
       "files": "浏览 {name} 的文件",
       "start": "启动 {name}",
       "stop": "停止 {name}",
@@ -452,6 +453,13 @@
       "layers": "{done}/{total} 层",
       "elapsedSeconds": "{seconds} 秒",
       "elapsedMinutes": "{minutes} 分 {seconds} 秒"
+    },
+    "monitor": {
+      "title": "{name} —— 监控",
+      "cpu": "处理器",
+      "memory": "内存",
+      "network": "网络",
+      "waiting": "等待第一次读数…"
     }
   }
 }

@@ -208,6 +208,7 @@
     "action": {
       "exec": "Open a shell in {name}",
       "logs": "Show the logs of {name}",
+      "monitor": "Monitor",
       "files": "Browse the files of {name}",
       "start": "Start {name}",
       "stop": "Stop {name}",
@@ -452,6 +453,13 @@
       "layers": "{done}/{total} layers",
       "elapsedSeconds": "{seconds}s",
       "elapsedMinutes": "{minutes}m {seconds}s"
+    },
+    "monitor": {
+      "title": "{name} — monitor",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "network": "Network",
+      "waiting": "Waiting for the first reading…"
     }
   }
 }

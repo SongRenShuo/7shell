@@ -22,16 +22,8 @@ import { backend } from "@/lib/backend/api";
 import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerSession } from "@/stores/container";
 
-import {
-  SAMPLE_INTERVAL_MS,
-  SERIES_POINTS,
-  SPARKLINE_HEIGHT,
-  SPARKLINE_WIDTH,
-  aggregateStats,
-  engineHealthy,
-  netRate,
-  sparklinePoints,
-} from "./dockerMetrics";
+import StatSparkline from "./StatSparkline.vue";
+import { SAMPLE_INTERVAL_MS, SERIES_POINTS, aggregateStats, engineHealthy, netRate } from "./dockerMetrics";
 
 const props = defineProps<{ tab: ContainerTab; session: ContainerSession; active: boolean }>();
 
@@ -152,10 +144,6 @@ onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
-const cpuPoints = computed(() => sparklinePoints(cpuSeries.value, SPARKLINE_WIDTH, SPARKLINE_HEIGHT));
-const memoryPoints = computed(() => sparklinePoints(memorySeries.value, SPARKLINE_WIDTH, SPARKLINE_HEIGHT));
-const netPoints = computed(() => sparklinePoints(netSeries.value, SPARKLINE_WIDTH, SPARKLINE_HEIGHT));
-
 function netLabel(): string {
   const rate = netRateNow.value;
   return rate === null ? "—" : `${formatSize(rate)}/s`;
@@ -220,80 +208,28 @@ function netLabel(): string {
 
     <!--
       The three lines. Each is drawn at the fnOS mini chart's measure, from the series this page
-      has sampled — no library, no animation, and a series too young to draw says so honestly.
+      has sampled — the shell is `StatSparkline`, shared with a single container's monitor.
     -->
     <div class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-3" data-docker-overview-charts>
-      <section class="rounded-md border border-border bg-card px-3 py-2.5" data-docker-chart-cpu>
-        <h3 class="mb-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-          {{ t("container.desktop.chart.cpu") }}
-        </h3>
-        <svg
-          v-if="cpuPoints !== ''"
-          :viewBox="`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`"
-          :width="SPARKLINE_WIDTH"
-          :height="SPARKLINE_HEIGHT"
-          role="img"
-          :aria-label="t('container.desktop.chart.cpu')"
-        >
-          <polyline
-            :points="cpuPoints"
-            fill="none"
-            stroke="var(--workbench-accent)"
-            stroke-width="1.5"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <p v-else class="text-[11px] text-muted-foreground">—</p>
-      </section>
-
-      <section class="rounded-md border border-border bg-card px-3 py-2.5" data-docker-chart-memory>
-        <h3 class="mb-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-          {{ t("container.desktop.chart.memory") }}
-        </h3>
-        <svg
-          v-if="memoryPoints !== ''"
-          :viewBox="`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`"
-          :width="SPARKLINE_WIDTH"
-          :height="SPARKLINE_HEIGHT"
-          role="img"
-          :aria-label="t('container.desktop.chart.memory')"
-        >
-          <polyline
-            :points="memoryPoints"
-            fill="none"
-            stroke="var(--success)"
-            stroke-width="1.5"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <p v-else class="text-[11px] text-muted-foreground">—</p>
-      </section>
-
-      <section class="rounded-md border border-border bg-card px-3 py-2.5" data-docker-chart-network>
-        <h3
-          class="mb-1.5 flex items-center justify-between text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
-        >
-          <span>{{ t("container.desktop.chart.network") }}</span>
-          <span class="font-mono text-[10px] normal-case">{{ netLabel() }}</span>
-        </h3>
-        <svg
-          v-if="netPoints !== ''"
-          :viewBox="`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`"
-          :width="SPARKLINE_WIDTH"
-          :height="SPARKLINE_HEIGHT"
-          role="img"
-          :aria-label="t('container.desktop.chart.network')"
-        >
-          <polyline
-            :points="netPoints"
-            fill="none"
-            stroke="var(--warning)"
-            stroke-width="1.5"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <p v-else class="text-[11px] text-muted-foreground">—</p>
-      </section>
+      <StatSparkline
+        data-docker-chart-cpu
+        :label="t('container.desktop.chart.cpu')"
+        :values="cpuSeries"
+        tone="accent"
+      />
+      <StatSparkline
+        data-docker-chart-memory
+        :label="t('container.desktop.chart.memory')"
+        :values="memorySeries"
+        tone="success"
+      />
+      <StatSparkline
+        data-docker-chart-network
+        :label="t('container.desktop.chart.network')"
+        :values="netSeries"
+        tone="warning"
+        :value="netLabel()"
+      />
     </div>
   </div>
 </template>
