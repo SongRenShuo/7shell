@@ -34,6 +34,19 @@
       "noMatches": "No entries matching {query}.",
       "clear": "Clear search"
     },
+    "recent": {
+      "title": "Recent directories",
+      "empty": "No recent directories yet.",
+      "jump": "Go to {path}",
+      "clear": "Clear the list"
+    },
+    "filter": {
+      "folder": "Folders",
+      "document": "Documents",
+      "image": "Images",
+      "archive": "Archives",
+      "other": "Other"
+    },
     "listing": "Files",
     "name": "File name",
     "size": "Size",
@@ -149,7 +162,12 @@
       "resume": "Continue",
       "retry": "Try again",
       "pill": "{count} transfers",
+      "tally": "{done} finished / {remaining} to go",
       "clearSettled": "Clear the {count} transfers that have finished",
+      "failedSummary": "Review the {count} failed transfers",
+      "failedSummaryTitle": "Failed transfers",
+      "failedSummaryDescription": "{count} transfers did not finish. Each line says where it was headed and what went wrong; a line can be tried again.",
+      "failedSummaryMore": "and {count} more",
       "stopAll": "Stop all",
       "stopAllMessage": "Every transfer that is still moving is asked to stop, and each row goes on saying it was cancelled. Whatever was half-written stays on disk as a part file.",
       "onlyCurrent": "Show only the transfers of the session on screen",

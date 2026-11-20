@@ -18,8 +18,10 @@ import type {
   ContainerCreateRequest,
   ContainerDetail,
   ContainerImage,
+  ContainerImageRemoteDigest,
   ContainerImageTransfer,
   ContainerRegistryLogin,
+  ContainerRegistrySettings,
   ContainerRuntimeInfo,
   ContainerStats,
   ContainerStreamEnd,
@@ -920,6 +922,20 @@ export const backend = {
       forward("network_create", () => desktop.networkCreate(connectionId, request)),
     remove: (connectionId: string, name: string): Promise<void> =>
       forward("network_remove", () => desktop.networkRemove(connectionId, name)),
+  },
+
+  /**
+   * Where one engine pulls from, and whether a tag has moved on the registry.
+   *
+   * Both verbs are reads. A check the registry does not answer arrives as its own code
+   * (IMAGE-MANIFEST-UNAVAILABLE), which is "unknown", never "up to date"; the pull that would act
+   * on an answer is `containers.imagePull`, behind the interface's own confirmation.
+   */
+  dockerRegistry: {
+    info: (connectionId: string): Promise<ContainerRegistrySettings> =>
+      forward("docker_info", () => desktop.dockerInfo(connectionId)),
+    remoteDigest: (connectionId: string, image: string): Promise<ContainerImageRemoteDigest> =>
+      forward("image_remote_digest", () => desktop.imageRemoteDigest(connectionId, image)),
   },
 
   /**

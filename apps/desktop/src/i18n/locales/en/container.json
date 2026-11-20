@@ -116,7 +116,40 @@
         "showRelated": "Show the containers using this image",
         "tagLabel": "Tag",
         "tagPlaceholder": "latest",
-        "tagInvalid": "That is not a tag Docker would accept: letters, digits, dots, dashes and underscores, starting with a letter or digit."
+        "tagInvalid": "That is not a tag Docker would accept: letters, digits, dots, dashes and underscores, starting with a letter or digit.",
+        "checkUpdate": "Check for updates",
+        "update": "Update this image",
+        "checkingTag": "Checking…",
+        "updateTag": "New version",
+        "currentTag": "Up to date",
+        "undecidedTag": "Unverifiable",
+        "checkFailedTag": "Check failed"
+      },
+      "registry": {
+        "title": "Image registry",
+        "snippet": "Copy config snippet",
+        "reading": "Reading what the engine reports…",
+        "failed": "The engine did not answer the registry question.",
+        "empty": "No mirror or proxy is configured; pulls go to the upstream registry.",
+        "http": "HTTP proxy:",
+        "https": "HTTPS proxy:",
+        "no": "No proxy for:"
+      },
+      "update": {
+        "title": "Update “{name}”",
+        "step": "Step {current} of {total}",
+        "affected": "{count} containers on this engine use this image. They keep running as they are; recreating one is what points it at the new image.",
+        "affectedNone": "No container on this engine uses this image.",
+        "dataRisk": "A container's data lives in its volumes and writable layers, not in the image: pulling a newer image removes nothing. Recreating a container is the step that can affect what it holds.",
+        "sourceLead": "The pull will go where this daemon sends its pulls:",
+        "sourceReading": "Reading what the daemon reports…",
+        "sourceFailed": "The daemon did not answer the registry question.",
+        "sourceNone": "No mirror is configured; the pull goes to the upstream registry.",
+        "committing": "Confirming closes this dialog and starts the pull in the task panel — this dialog no longer waits and cannot undo it. An update already running for this image is not started a second time.",
+        "failure": "If the pull fails, the task panel keeps the reason and the log to read, retry, or stop; the image on this engine is left exactly as it is.",
+        "back": "Back",
+        "continue": "Continue",
+        "confirm": "Update"
       }
     },
     "loadingActions": {
