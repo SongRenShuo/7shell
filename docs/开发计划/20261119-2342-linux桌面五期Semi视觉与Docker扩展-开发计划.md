@@ -196,6 +196,20 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 
 验收：真机逐项走查 + 每项 spec；页宽规范以 400px 窗宽截图佐证不塌。
 
+**实施记录（主控车道 `phase5-batch7-master`，合并 `e300612`）**：
+
+| 项 | 状态 | 提交与要点 |
+|---|---|---|
+| 1 按容器监控 | ✅ | `da714bf`：`StatSparkline.vue` 抽出三图壳（DockerOverview 改用它，spec 9/9 零行为变化）；`ContainerMonitorDialog.vue` 按容器过滤 stats、双条件采样（开关+前台+可见）、速率用**上一采样差值**；行菜单「监控」仅运行态可用；新增 spec 4 例（首读等待态、两次才成线、按容器过滤、速率非计数） |
+| 2 复制容器 | ✅ | `17883b0`：行菜单「复制容器」→ pane inspect → 向导预填（**零 Rust 触碰**：特权/能力/标签/网络/CPU 权重三档逆映射/内存限制从 `raw` inspect JSON 客户端解析）；`-copy` 后缀、**默认不启动**；spec 2 例 |
+| 3 详情增强 | ✅（缺口只剩标签） | 核查发现复制 JSON 与 json 标签页**前序已交付**；`17883b0` 补标签分区（从 raw 解析，解析失败不显示） |
+| 4 日志错误分离 | ✅（关键字过滤路线） | `96b3272`：`ContainerStreamLine` 无 stdout/stderr 标记 → 真分离需改契约（双流），按章程「或关键字过滤」取轻量路线；「只看错误」开关 + 过滤空态句；spec 2 例 |
+| 5 loading 枚举 | ✅（现有表面） | `e300612`：重命名进行中文案接入；`pulling/creating/removing/restarting/stopping/starting` 前序已在。**prune/push/tag 三动词无 UI 表面**（引擎与桥已有 `imagePrune`，store 有 `pruneImages`），其文案随表面落地，记入遗留 |
+| 6 窄窗规范 | ✅ | `e300612`：六页桌面分支 `min-w-[850px]` + 外层 `overflow-x-auto`（flat 分支零变化）；spec 断言 850 地板与滚动盒存在 |
+
+- 读数：容器域 **191 例**全绿（18 文件）；typecheck 净；i18n **1813 键**双语；DockerOverview 零行为回归（9/9）。
+- 遗留：① prune/push/tag 三个写操作有引擎无表面——建议随六期或后续批次补镜像页动作；② 400px 窗宽截图佐证（非阻塞，随收口走查补）；③ 按容器监控真机读数随收口（stats 同源字段已由批次五真机核实）。
+
 ### 批次六（收口）
 
 （待回填。）
