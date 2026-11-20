@@ -43,6 +43,7 @@ import type { Component } from "vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import TransferFailuresDialog, { type TransferFailureEntry } from "@/components/shell/TransferFailuresDialog.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
@@ -87,7 +88,36 @@ const running = computed(() => files.transfers.filter((entry) => entry.state.kin
 const settled = computed(() =>
   files.transfers.filter((entry) => !isMoving(entry.state) && entry.state.kind !== "failed"),
 );
-const failed = computed(() => files.transfers.some((entry) => entry.state.kind === "failed"));
+
+/**
+ * Every transfer that stopped with a failure, in the order the list draws them — the summary's
+ * whole source, and the header's "something failed" with it.
+ *
+ * The reason a row carries is the string the transfer layer said when it stopped: already the
+ * human words, already scrubbed on the far side. There is no error envelope behind a transfer row
+ * to run through the shared rendering, and there does not need to be one — the summary repeats the
+ * row's own sentence rather than translating the failure into a different one.
+ */
+const failedEntries = computed<TransferFailureEntry[]>(() =>
+  files.transfers.flatMap((entry) =>
+    entry.state.kind === "failed"
+      ? [{ id: entry.id, name: entry.name, remotePath: entry.remotePath, detail: entry.state.detail }]
+      : [],
+  ),
+);
+const failed = computed(() => failedEntries.value.length > 0);
+
+/**
+ * The header's standing tally: what finished, and what is still going to happen.
+ *
+ * "Finished" counts the transfers that landed; "remaining" counts the ones that have not happened
+ * yet — running now, or held on purpose, which is every state this list has that is still going to
+ * become something. A failure and a cancellation are neither: they have stopped happening, and
+ * they stay visible as rows and in the failure summary, where the tally's two numbers would say
+ * less about them than the rows themselves do.
+ */
+const finishedCount = computed(() => files.transfers.filter((entry) => entry.state.kind === "done").length);
+const remainingCount = computed(() => files.transfers.filter((entry) => isMoving(entry.state)).length);
 
 /**
  * How far along everything that is running is, for the pill.
@@ -321,6 +351,29 @@ function stopEverything(): void {
   void files.stopAllTransfers();
 }
 
+/** Whether the summary of what stopped is on screen. */
+const showingFailures = ref(false);
+
+/**
+ * Answers the summary's one action per line: the transfer tries again, the list is read back, and
+ * the line leaves the summary the moment the read says it is moving.
+ */
+function retryFailed(id: string): void {
+  void files.retryTransfer(id);
+}
+
+// A summary with nothing left to summarize is a question already answered: when the last failure
+// leaves the list — tried again here, cleared below, or removed from a row — the dialog goes with
+// it, back to a panel that now shows what the failures became.
+watch(
+  () => failedEntries.value.length,
+  (count) => {
+    if (count === 0) {
+      showingFailures.value = false;
+    }
+  },
+);
+
 /** A failure is worth the room even when the panel was put away: it is the only place it is drawn. */
 const expanded = computed(() => files.panelExpanded || problem.value !== null);
 
@@ -331,14 +384,16 @@ const card = ref<HTMLElement | null>(null);
  *
  * Tucking away and not closing: the rows are the store's, nothing is cancelled, and the pill is one
  * click from being the list again. A click inside a menu the panel opened is not somewhere else —
- * every entry in it is about one of these rows.
+ * every entry in it is about one of these rows — and neither is a click inside a question or a
+ * summary the panel opened: pressing a dialog's own button, the retry on a failure, would otherwise
+ * put the list away in the same press that acted on it.
  */
 function onPointerDown(event: PointerEvent): void {
   const target = event.target;
   if (!(target instanceof Node) || card.value?.contains(target) === true) {
     return;
   }
-  if (target instanceof Element && target.closest("[data-menu-layer]") !== null) {
+  if (target instanceof Element && target.closest("[data-menu-layer], [role='dialog']") !== null) {
     return;
   }
   files.collapsePanel();
@@ -430,12 +485,38 @@ onMounted(() => void files.loadDownloadFolder());
         </h3>
 
         <!--
-          The three controls in this header are icons with their sentences as tooltips, for the reason
+          The standing tally, and the last thing to survive the room the buttons want: what finished
+          and what is still going to happen, read at a glance the way the pill reads the count while
+          the panel is tucked away. With nothing to count it says nothing — the empty list below is
+          the whole story then.
+        -->
+        <p
+          v-if="files.transfers.length > 0"
+          data-transfer-tally
+          class="shrink-0 font-mono text-[10px] text-muted-foreground"
+        >
+          {{ t("files.transfer.tally", { done: finishedCount, remaining: remainingCount }) }}
+        </p>
+
+        <!--
+          The controls in this header are icons with their sentences as tooltips, for the reason
           the row's button is: a word read once is a word on screen for the rest of the session, and
           what it was taking was the room the file names want. Each still says what it does — a
           tooltip for whoever hovers, an aria-label for a reader, and the state of the filter as a
           colour rather than a word.
         -->
+        <button
+          v-if="failed"
+          type="button"
+          data-transfer-failures
+          class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+          :title="t('files.transfer.failedSummary', { count: failedEntries.length })"
+          :aria-label="t('files.transfer.failedSummary', { count: failedEntries.length })"
+          @click="showingFailures = true"
+        >
+          <CircleAlert :size="12" />
+        </button>
+
         <button
           v-if="activeSessionId !== null"
           type="button"
@@ -692,6 +773,19 @@ onMounted(() => void files.loadDownloadFolder());
       danger
       @confirm="stopEverything()"
       @update:open="confirmingStopAll = false"
+    />
+
+    <!--
+      What stopped, gathered: the failures the pill's alert dot stands for, one line each with the
+      retry the row's own button would offer. It draws over the panel and stays while the list
+      behind it still holds a failure to name — the moment the last one leaves, the question it
+      answers has answered itself, and it goes without being dismissed.
+    -->
+    <TransferFailuresDialog
+      :open="showingFailures"
+      :failures="failedEntries"
+      @retry="retryFailed"
+      @update:open="showingFailures = $event"
     />
   </div>
 </template>
