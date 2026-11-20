@@ -157,13 +157,23 @@ function pressTitle(clientX = 200, clientY = 100): void {
   // TEMPORARY probe: a press the component refused leaves every later assertion to fail for a
   // reason that belongs here, so say what the page looked like.
   if (!event.defaultPrevented) {
+    const root = document.querySelector("[data-workbench-window]");
     console.log("[probe] press not accepted", {
       at: `${clientX},${clientY}`,
+      button: event.button,
+      cancelable: event.cancelable,
+      target: event.target instanceof Element ? event.target.tagName : String(event.target),
+      inButton: event.target instanceof Element ? event.target.closest("button") !== null : null,
+      ariaHidden: root?.getAttribute("aria-hidden"),
+      state: root?.getAttribute("data-window-state"),
       headers: document.querySelectorAll("[data-workbench-window-title]").length,
       roots: document.querySelectorAll("[data-workbench-window]").length,
-      state: document.querySelector("[data-workbench-window]")?.getAttribute("data-window-state"),
+      connected: titleBar().isConnected,
       focus: calls.focus,
     });
+    const again = pointer("pointerdown", clientX, clientY);
+    titleBar().dispatchEvent(again);
+    console.log("[probe] a second press is accepted:", again.defaultPrevented);
   }
 }
 
@@ -479,11 +489,14 @@ describe("the end of a move", () => {
 
     // TEMPORARY probe: 0 here means the press never became a drag, not that the gesture missed.
     if (calls.maximize === 0) {
+      const page = document.querySelector("[data-workbench-window]");
       console.log("[probe] no maximize", {
         focus: calls.focus,
         moves: moves.length,
         top: top.value,
-        state: document.querySelector("[data-workbench-window]")?.getAttribute("data-window-state"),
+        state: page?.getAttribute("data-window-state"),
+        ariaHidden: page?.getAttribute("aria-hidden"),
+        className: page?.className,
       });
     }
     expect(calls.maximize).toBe(1);
