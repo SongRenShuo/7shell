@@ -4,7 +4,10 @@
 //! answered by inspecting a configuration: a kubeconfig that names a cluster's own authority must
 //! connect to *that* cluster, and must not connect to one holding a certificate from somewhere else.
 //! The certificates are committed beside this file and signed by two authorities, neither of which
-//! any machine trusts.
+//! any machine trusts. Their leaves live inside the constraints macOS's trust evaluation enforces
+//! and Linux and Windows do not: the `serverAuth`/`clientAuth` extended key usage, and a validity
+//! period under the 398-day cap. A fixture outside them is accepted on two platforms and refused on
+//! the strict one, which makes these tests pass for the wrong reason there.
 
 mod common;
 
