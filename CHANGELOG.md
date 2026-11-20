@@ -97,6 +97,17 @@ All notable changes to 7Shell are documented in this file. The format is
 - The create wizard's seven advanced fields now reach the request: privileged, capabilities,
   networks chosen from the machine's own list, a memory limit, CPU weight, labels as rows, and
   per-volume read-only — the "not applied" markers leave the review (3b86ae5).
+- A desktop can be handed to the system browser: the tab's chrome action — and its right-click
+  menu's entry — opens this machine's desktop in the browser at a loopback address only the
+  device itself can reach, one random token per application run carried in the address's
+  fragment, and the application's own tab collapses to a hosting card: the connection and its
+  secrets stay with the application, the interface's rendering budget moves to the browser, the
+  card offers the link again (the host may have stepped down and changed its port), and one press
+  takes the desktop back inside with its memory intact. A desktop opened in one of the browser's
+  own windows rides the same handover — the browser tab starts straight at the deep-linked desktop
+  (5e5b255, 7be2604; the embedded host itself rode in with d33bb5d).
+- The browser tab carrying a hosted desktop asks before leaving while bytes are still moving, the
+  same question the desktop's own drop target asks (2d94d22).
 
 #### Linux desktop workbench
 
