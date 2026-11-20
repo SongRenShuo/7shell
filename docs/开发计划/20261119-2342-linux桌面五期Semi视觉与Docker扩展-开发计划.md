@@ -38,8 +38,8 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 | **复制容器**（默认不启动） | ❌ | inspect+create 组合（UI 层） | 七 |
 | **按容器实时监控**（the reference：每容器 CPU/内存/网络三图） | ❌（概览只有聚合图） | container_stats 按容器 ✅ | 七 |
 | **容器日志页**（the reference：/logs 页 + 错误日志分离 + 空态） | ⚠️ 日志流有；错误分离/独立日志页形态 ❌ | ✅ | 七 |
-| **镜像更新流**（5 步确认/防重复/「请先关闭容器」清单弹窗） | ❌ | pull/history ✅ | 五 |
-| **镜像仓库**（加速源/代理） | ⚠️ registry 登录 ✅；加速源/代理只读展示 ❌ | `docker info` 只读 | 五 |
+| **镜像更新流**（5 步确认/防重复/「请先关闭容器」清单弹窗） | ✅（更新流 + 5 步确认 + 防重复；直连不可达宿主按能力位降级为手动 pull） | pull/history ✅ | 已收口 |
+| **镜像仓库**（加速源/代理） | ✅ 只读卡片（加速源/代理 + 建议片段只复制不写盘） | `docker info` 只读 | 已收口 |
 | **Compose 项目** | ✅（引擎 aa361c4 + 前端页 a5db83b：项目列表/创建向导/日志窗/能力位降级） | ✅ | 已收口 |
 | **网络** | ✅（引擎 aa361c4 + 前端页 a5db83b：列表/新建表单/护栏弹窗） | ✅ | 已收口 |
 | 服务设置（开关/存储迁移） | ❌ | systemd 通道 | 不做（§八） |
@@ -172,7 +172,16 @@ the reference Docker = 独立子应用，左导航六页签 + 服务设置；7sh
 
 ### 批次五（镜像更新流 + 仓库设置）
 
-（待回填。）
+- **交付**（车道 S3，三任接力；提交 `ff5e60e` 引擎两读动词 → `e87ec1f` 仓库卡片 → `c1a81d9` 更新流 → `a66279a` fmt 基线修复 → `ba903c6` clippy 两处守卫；主控合并 `ddb2bc7`，合并后类型修补 `b0e6fcc`）。
+- 引擎：`docker_info`（只读：`RegistryConfig.Mirrors` + `HttpProxy/HttpsProxy/NoProxy`）+ `image_remote_digest`（候选链 **`buildx imagetools inspect` → `manifest inspect --verbose`**，失败落能力位 `manifestInspectAvailable?`）；镜像引用经加速源改写（`docker.gmssh.com/library/<repo>`，加速源只对 Docker Hub 语义生效）。
+- 前端：镜像行「检查更新」→ 徽标；**5 步确认清单**（受影响容器 / 数据风险 / 当前加速源 / 不可取消+防重复 / 失败补救，每步可单独取消）→ 既有 pull 流；「镜像仓库」只读卡片（加速源 + 代理 + 建议 daemon.json 片段**只复制不写盘**）落**镜像页**（协调后避开 DockerOverview）。
+- **真机读数（103.36.220.245，Docker 29.9.3）**：
+  - `docker info --format '{{json .}}'` 字段核实：`RegistryConfig.Mirrors` = 6 条带尾斜杠的加速源 URL；`HttpProxy/HttpsProxy/NoProxy` 均为空串（键名首字母大写 H，车道解析正确）。
+  - **直连探测全超时**：`buildx imagetools inspect busybox:1.37` 与 `manifest inspect --verbose busybox:1.37` 打 registry-1.docker.io 均 i/o timeout——加速源只作用于 daemon 的 pull，不作用于这两个探测命令；此宿主因此走**能力位 false 降级**（前端只留手动 pull），正是设计预期的真实场景。
+  - **经加速源探测成立**：`docker.gmssh.com/library/busybox:1.37` → imagetools 直出 `Digest: sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec`，与本地 `RepoDigests` 完全一致 → **「已是最新」比较路径真机跑通**；`manifest inspect --verbose` 对 index 给的是平台子 manifest digest（`66a6306…` ≠ pull digest），解析器对数组返回 None（不会误报有新版本）。
+  - 零残留复核：13 个用户容器未动、零测试网络、零 compose 目录。
+- 门禁：Rust **581 例全绿**（container/types/error/policy/core/web）+ clippy `-D warnings` 干净 + `cargo fmt --all --check` 干净（含车道 R 遗留的 9 处基线红，本车道修复）；前端容器域 + 桥 + 契约 **221 例**；i18n **1810 键**双语；typecheck 净。
+- 遗留：直连不可达的宿主上更新流只到「手动 pull」，与 the reference 的加速源语义一致；若后续要探测经加速源自动改写，需先确认 `manifest`/`imagetools` 是否接受镜像名前缀（本机验证：接受）。
 
 ### 批次七：Docker 体验深化（2026-11-20 复分析新增）
 
