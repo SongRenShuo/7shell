@@ -943,6 +943,27 @@ export function desktopOpen(sessionId: string): Promise<void> {
 }
 
 /**
+ * Hands one desktop session to the system browser.
+ *
+ * The embedded host starts (or is reused), the handover URL is opened in the system's browser, and
+ * the URL comes back so the tab it was asked from can keep it where a person can reach it again.
+ */
+export function desktopBrowserOpen(sessionId: string): Promise<string> {
+  return invoke<string>("desktop_browser_open", { sessionId });
+}
+
+/**
+ * The handover URL, without opening anything.
+ *
+ * The stub card's copy action takes it, and so does "take the URL again" — the host may have
+ * stopped itself while no browser session was on it, and this call starts it again, possibly on
+ * another port.
+ */
+export function desktopBrowserUrl(sessionId: string): Promise<string> {
+  return invoke<string>("desktop_browser_url", { sessionId });
+}
+
+/**
  * Runs one workbench power action for a Linux desktop session.
  *
  * The acknowledgement travels with the call rather than being implied: what it says is that a person

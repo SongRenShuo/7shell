@@ -13,7 +13,7 @@
  * unreadable state the first release shipped. 23 pixels tall with 13px text is the strip the
  * desktop this copies draws.
  */
-import { Power } from "@lucide/vue";
+import { ExternalLink, Power } from "@lucide/vue";
 
 defineProps<{
   /** The machine this desktop is about, in the interface's monospace face. */
@@ -24,15 +24,25 @@ defineProps<{
   clock: string;
   /** Whether there is a connection to let go of: an ended session has nothing to disconnect. */
   connected: boolean;
+  /**
+   * Whether handing this desktop to the system browser is a move this host can make. Only the
+   * desktop shell carries the embedded host, so the button is not offered in a browser at all
+   * rather than offered where it can only answer with an error.
+   */
+  browserOpenable?: boolean;
   labels: {
     /** What the disconnect button is called, for its tooltip and its accessible name. */
     disconnect: string;
+    /** What the open-in-browser button is called, for the same two readings. */
+    browserOpen: string;
   };
 }>();
 
 const emit = defineEmits<{
   /** Somebody asked to let the connection go. */
   disconnect: [];
+  /** Somebody asked to draw this desktop in the system browser instead. */
+  openInBrowser: [];
 }>();
 </script>
 
@@ -46,6 +56,22 @@ const emit = defineEmits<{
     <div class="flex min-w-0 items-center gap-3">
       <span class="truncate" data-workbench-status-user>{{ user }}</span>
       <span class="tabular-nums" data-workbench-status-clock>{{ clock }}</span>
+      <!--
+        Handing this desktop to the system browser: the application's own tab collapses to a stub
+        and the browser draws the face. Only the desktop shell can make that move, so a browser
+        never sees the button.
+      -->
+      <button
+        v-if="browserOpenable"
+        type="button"
+        data-workbench-status-browser
+        :title="labels.browserOpen"
+        :aria-label="labels.browserOpen"
+        class="-mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] transition-colors hover:bg-[var(--workbench-wash-hover)]"
+        @click="emit('openInBrowser')"
+      >
+        <ExternalLink :size="14" />
+      </button>
       <!--
         The same control the reference draws as a bare icon at the end of the strip. It is disabled
         when there is nothing to disconnect, because a live button that does nothing reads as broken.

@@ -158,6 +158,9 @@
       "unsupported": "{what} 在当前版本中还没有实现。",
       "internal": "应用内部出现了错误。"
     },
+    "browser": {
+      "hostUnavailable": "把桌面交给浏览器需要在桌面应用中进行：内嵌宿主在那里。"
+    },
     "service": {
       "actionFailed": "机器未接受本次服务操作。{detail}"
     }

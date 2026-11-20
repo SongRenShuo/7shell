@@ -44,7 +44,10 @@ import HomeView from "@/components/views/HomeView.vue";
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs.vue";
 import { describeShellError } from "@/i18n/errors";
 import { useSyncAutoUpload } from "@/composables/useSyncAutoUpload";
+import { useBrowserLeaveGuard } from "@/composables/useBrowserLeaveGuard";
 import { useToast } from "@/composables/useToast";
+import { consumeHandoverLink } from "@/lib/hosted/handover";
+import { openHandoverTarget } from "@/lib/hosted/handoverOpen";
 import { matchesShortcut } from "@/lib/shortcuts/binding";
 import { resolveBindings } from "@/lib/shortcuts/registry";
 import { useTransferNotices } from "@/composables/useTransferNotices";
@@ -88,9 +91,35 @@ const assistant = useAssistantStore();
 useSyncAutoUpload();
 const vault = useVaultStore();
 
+/**
+ * The desktop a browser handover asked for, opened once the library it names a session in is on
+ * screen.
+ *
+ * The link was read at startup and the URL already cleaned of it; what is left is to act when
+ * the vault has answered — either it was already open during startup, or an unlock below the
+ * gate just loaded the library. The target is consumed on the first ready moment, so a session
+ * that was renamed, removed or never existed is one failure notice in the notification centre
+ * and the application simply stays where it was.
+ */
+watch(
+  () => vault.unlocked && library.status === "ready",
+  (ready) => {
+    if (ready) {
+      void openHandoverTarget(consumeHandoverLink());
+    }
+  },
+  { immediate: true },
+);
+
 // Watches for transfers that failed while their list was not on screen. Registered here because the
 // question it answers — what is on screen — is one only the shell can answer.
 useTransferNotices();
+
+/**
+ * The browser page's leave guard: bytes still moving means closing the tab is a question. The
+ * desktop shell registers nothing — its pane owns that window's guard — so this is a no-op there.
+ */
+useBrowserLeaveGuard();
 
 let stopFollowingSystem: (() => void) | undefined;
 let stopTerminalEvents: (() => void) | undefined;

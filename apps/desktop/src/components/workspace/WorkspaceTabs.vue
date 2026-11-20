@@ -52,6 +52,7 @@ import { sessionEndpoint } from "@/lib/menu/sessions";
 import BatchPanel from "@/components/batch/BatchPanel.vue";
 import ContainerPane from "@/components/container/ContainerPane.vue";
 import KubernetesPane from "@/components/k8s/KubernetesPane.vue";
+import WorkbenchHostedCard from "@/components/workspace/WorkbenchHostedCard.vue";
 import WorkbenchPane from "@/components/workspace/WorkbenchPane.vue";
 import CommandInputBar from "@/components/commands/CommandInputBar.vue";
 import CommandsPanel from "@/components/commands/CommandsPanel.vue";
@@ -71,6 +72,7 @@ import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { MENU_TITLES } from "@/lib/menu/titles";
 import { tabMenu } from "@/lib/menu/workspace";
+import { isDesktopRuntime } from "@/lib/runtime";
 import { sessionTabTitle } from "@/lib/sessions/reopen";
 import { MIN_PANE_PX } from "@/lib/workspace/split";
 import { TAB_MAX_WIDTH_PX } from "@/types/app";
@@ -210,6 +212,9 @@ function openTabMenu(event: MouseEvent, tab: WorkspaceTab, index: number): void 
         index,
         total: drawnIds.value.length,
         reconnectable: reconnectable.value,
+        // A desktop handover is the desktop shell's move: in a browser the entry has nothing to
+        // call, so it is not offered there at all.
+        browserOpenable: tab.kind === "workbench" && isDesktopRuntime(),
       },
       {
         duplicate: () => void terminals.duplicate(tab.id),
@@ -223,6 +228,7 @@ function openTabMenu(event: MouseEvent, tab: WorkspaceTab, index: number): void 
         reconnect: () => void terminals.reconnect(tab.id),
         reconnectAll: () => void terminals.reconnectAll(),
         disconnect: () => void terminals.disconnect(tab.id),
+        openInBrowser: () => void terminals.hostInBrowser(tab.id),
       },
     ),
   );
@@ -888,8 +894,21 @@ function tabStyle(): Record<string, string> | undefined {
         so it says so instead, with the reason when there was one.
       -->
       <template v-else-if="tab.kind === 'workbench'">
+        <!--
+          The stub comes first: while a system browser draws this desktop, the pane is not mounted
+          at all — that unmounting is the memory budget the handover buys. The tab, its handle and
+          the session's memories stay exactly where they were, so "take back into the app" is one
+          removal and the pane draws again on the connection it already had.
+        -->
+        <WorkbenchHostedCard
+          v-if="terminals.hostedUrl(tab.session.id) !== null"
+          :key="tab.id"
+          :tab="tab"
+          class="min-h-0 flex-1"
+        />
+
         <WorkbenchPane
-          v-if="tab.handle"
+          v-else-if="tab.handle"
           :key="tab.id"
           :tab="tab"
           :active="tab.id === terminals.activeTabId"
