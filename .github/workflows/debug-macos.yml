@@ -2,8 +2,15 @@ name: Debug macOS TLS
 
 # Temporary: one macOS leg that prints the native-tls result for each variable, so the frozen-line
 # failure can be diagnosed without running the whole matrix. Removed once the cause is known.
+#
+# Push rather than dispatch: a workflow only exists for `workflow_dispatch` on the default branch,
+# and this one is wanted on a feature branch without moving `main`.
 on:
-  workflow_dispatch:
+  push:
+    branches: [desktop-iteration]
+    paths:
+      - "crates/sevenshell-k8s/tests/tls_debug.rs"
+      - ".github/workflows/debug-macos.yml"
 
 jobs:
   debug:
