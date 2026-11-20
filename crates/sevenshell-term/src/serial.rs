@@ -24,6 +24,13 @@ use crate::TerminalEvent;
 /// How long one port read may wait before returning "nothing yet".
 const READ_TIMEOUT: Duration = Duration::from_millis(10);
 
+/// How long the reader waits outside the port lock after a read reports a timeout.
+///
+/// A real port spends `READ_TIMEOUT` blocked, so this only adds a little to the next ask; the fake
+/// in the tests answers its timeout at once, and without this pause it would re-lock immediately and
+/// could keep the write path waiting behind it for the whole of a test's deadline.
+const IDLE_AFTER_TIMEOUT: Duration = Duration::from_millis(2);
+
 /// What to open and how the line is framed.
 #[derive(Debug, Clone)]
 pub struct SerialSpec {
@@ -248,7 +255,12 @@ fn spawn_reader(
                         return;
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::TimedOut => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                    // The lock is already released here; pausing now is what stops a port that
+                    // answers its timeout immediately from starving the write path.
+                    std::thread::sleep(IDLE_AFTER_TIMEOUT);
+                    continue;
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => {
                     let _ = events.blocking_send(TerminalEvent::Closed {
@@ -339,9 +351,9 @@ mod tests {
                         self.offset = 0;
                     }
                     Err(TryRecvError::Empty) => {
-                        // The real port blocks for its read timeout; sleeping is what keeps this
-                        // fake from spinning while the pump is idle.
-                        std::thread::sleep(Duration::from_millis(2));
+                        // The real port blocks for its read timeout; this one answers at once and
+                        // lets the reader loop do the pacing, so the port is not held across a
+                        // sleep while a write is waiting for it.
                         return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "idle"));
                     }
                     Err(TryRecvError::Disconnected) => {
