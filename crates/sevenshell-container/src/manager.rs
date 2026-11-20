@@ -595,7 +595,7 @@ fn namespace_for(runtime: ContainerRuntime, namespace: &str) -> Result<String, S
 /// machine.
 fn remote_query_reference(reference: &str, mirrors: &[String]) -> (String, String) {
     let (repo_path, host) = match reference.split_once('/') {
-        Some((first, rest)) if first == "docker.io" => (rest, Some("docker.io")),
+        Some(("docker.io", rest)) => (rest, Some("docker.io")),
         Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => {
             (reference, Some(first))
         }
@@ -626,7 +626,7 @@ fn remote_query_reference(reference: &str, mirrors: &[String]) -> (String, Strin
 fn mirror_host(mirror: &str) -> Option<&str> {
     let authority = mirror.split_once("://")?.1;
     let host = match authority.split_once('/') {
-        Some((host, path)) if path.is_empty() => host,
+        Some((host, "")) => host,
         Some(_) => return None,
         None => authority,
     };
