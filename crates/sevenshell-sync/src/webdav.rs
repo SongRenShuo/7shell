@@ -1464,15 +1464,22 @@ mod tests {
     #[tokio::test]
     async fn a_server_that_is_not_there_is_unreachable_rather_than_a_status() {
         // A port nothing is listening on: the address is well formed and the answer is that nobody
-        // answered.
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
-        let address = listener.local_addr().expect("an address");
-        drop(listener);
+        // answered. The port is borrowed this way — bind, learn it, drop — and a busy suite makes
+        // that a race: another test can claim the port between the drop and the probe, and then
+        // something *does* answer. So the borrow is retried on a fresh port when that happens;
+        // what the case is about is the unreachable answer, not one particular port.
+        for _ in 0..5 {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+            let address = listener.local_addr().expect("an address");
+            drop(listener);
 
-        let dav = WebDav::new(&service(&format!("http://{address}"))).expect("a client");
-        let error = dav.probe().await.expect_err("nobody there");
-
-        assert_eq!(error.code(), sevenshell_error::ErrorCode::SyncUnreachable);
+            let dav = WebDav::new(&service(&format!("http://{address}"))).expect("a client");
+            let error = dav.probe().await.expect_err("nobody there");
+            if error.code() == sevenshell_error::ErrorCode::SyncUnreachable {
+                return;
+            }
+        }
+        panic!("five borrowed ports all answered, which is not a test failure but a busy machine");
     }
 
     #[tokio::test]
