@@ -117,6 +117,16 @@
         "tagLabel": "Tag",
         "tagPlaceholder": "latest",
         "tagInvalid": "That is not a tag Docker would accept: letters, digits, dots, dashes and underscores, starting with a letter or digit."
+      },
+      "registry": {
+        "title": "Image registry",
+        "snippet": "Copy config snippet",
+        "reading": "Reading what the engine reports…",
+        "failed": "The engine did not answer the registry question.",
+        "empty": "No mirror or proxy is configured; pulls go to the upstream registry.",
+        "http": "HTTP proxy:",
+        "https": "HTTPS proxy:",
+        "no": "No proxy for:"
       }
     },
     "loadingActions": {
