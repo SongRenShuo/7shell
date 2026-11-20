@@ -13,14 +13,16 @@
  * answered shows nothing rather than a spinner that implies progress, and a run stopped by a host
  * key decision says so instead of looking like it is still going.
  */
-import { Check, CircleAlert, ListChecks, LoaderCircle, Play, RotateCw, X } from "@lucide/vue";
-import { computed, onMounted, ref } from "vue";
+import { Check, CircleAlert, History, ListChecks, LoaderCircle, Play, RotateCw, Trash2, X } from "@lucide/vue";
+import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import BatchHostRow from "@/components/batch/BatchHostRow.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import { describeShellError } from "@/i18n/errors";
 import { atLeast, needsApproval } from "@/lib/batch/risk";
+import { clearHistory, loadHistory, pushHistory } from "@/lib/batch/history";
 import { useBatchStore } from "@/stores/batch";
 import { useSessionsStore } from "@/stores/sessions";
 import { useTerminalsStore } from "@/stores/terminals";
@@ -68,6 +70,91 @@ const unfinished = computed(() => batch.failedIds.length);
 
 const retrying = ref(false);
 
+/**
+ * The commands this panel has run, kept for recall.
+ *
+ * `history` mirrors the store on this device (`lib/batch/history`); `historyIndex` is where the
+ * arrow keys are in that list, null meaning at the present — and `draftBeforeRecall` holds what
+ * the box said before the first recall, because walking back through history must be able to
+ * walk forward into it again.
+ */
+const history = ref<string[]>([]);
+const historyIndex = ref<number | null>(null);
+const historyOpen = ref(false);
+const draftBeforeRecall = ref("");
+
+/** Re-reads the store when the popover opens: the run that just happened is already in it. */
+function refreshHistory(): void {
+  history.value = loadHistory();
+}
+
+function pickHistory(command: string): void {
+  historyOpen.value = false;
+  historyIndex.value = null;
+  batch.setCommand(command);
+}
+
+function clearAllHistory(): void {
+  clearHistory();
+  history.value = [];
+  historyIndex.value = null;
+}
+
+/** Whether the caret sits on the textarea's first (or last) line, which is where recall lives. */
+function caretLine(field: HTMLTextAreaElement): number {
+  return field.value.slice(0, field.selectionStart ?? 0).split("\n").length - 1;
+}
+
+function isLastLine(field: HTMLTextAreaElement): boolean {
+  return caretLine(field) >= field.value.split("\n").length - 1;
+}
+
+/** Up on the first line walks back through history; the caret parks at the start to keep walking. */
+function recallPrevious(): void {
+  if (history.value.length === 0) {
+    return;
+  }
+  if (historyIndex.value === null) {
+    draftBeforeRecall.value = batch.command;
+    historyIndex.value = 0;
+  } else {
+    historyIndex.value = Math.min(historyIndex.value + 1, history.value.length - 1);
+  }
+  batch.setCommand(history.value[historyIndex.value] ?? "");
+  void nextTick().then(() => {
+    const field = document.querySelector<HTMLTextAreaElement>("[data-batch-command]");
+    if (field !== null) {
+      field.selectionStart = 0;
+      field.selectionEnd = 0;
+    }
+  });
+}
+
+/** Down walks forward, and past the newest entry hands the box back what it said before. */
+function recallNext(): void {
+  if (historyIndex.value === null) {
+    return;
+  }
+  const next = historyIndex.value - 1;
+  historyIndex.value = next === -1 ? null : next;
+  batch.setCommand(next === -1 ? draftBeforeRecall.value : (history.value[next] ?? ""));
+}
+
+/** The textarea's keydown: only the arrows that recall history are intercepted, and only when the caret is at the edge the gesture means. */
+function onCommandKeydown(event: KeyboardEvent): void {
+  const field = event.target;
+  if (!(field instanceof HTMLTextAreaElement) || field.selectionStart !== field.selectionEnd) {
+    return;
+  }
+  if (event.key === "ArrowUp" && caretLine(field) === 0) {
+    event.preventDefault();
+    recallPrevious();
+  } else if (event.key === "ArrowDown" && isLastLine(field) && historyIndex.value !== null) {
+    event.preventDefault();
+    recallNext();
+  }
+}
+
 /** The two choices the run has, as the interface's own dropdown rather than the platform's. */
 const TIMEOUTS: SelectOption[] = [
   { value: "10000", label: "10s" },
@@ -78,7 +165,10 @@ const TIMEOUTS: SelectOption[] = [
 
 const PARALLEL: SelectOption[] = [1, 2, 4, 8, 16].map((count) => ({ value: String(count), label: String(count) }));
 
-onMounted(() => batch.listen());
+onMounted(() => {
+  batch.listen();
+  history.value = loadHistory();
+});
 
 /** Runs, once the checkbox has said the reasons were read — when there are reasons to read. */
 async function run(): Promise<void> {
@@ -86,9 +176,11 @@ async function run(): Promise<void> {
     return;
   }
   if (batch.approval) {
-    await batch.runAcknowledged();
+    await runAcknowledged();
     return;
   }
+  history.value = pushHistory(batch.command);
+  historyIndex.value = null;
   await batch.run();
 }
 
@@ -108,6 +200,13 @@ async function retryOne(sessionId: string): Promise<void> {
   } finally {
     retrying.value = false;
   }
+}
+
+/** The acknowledged run reaches the machines, so it is the history's entry point too. */
+async function runAcknowledged(): Promise<void> {
+  history.value = pushHistory(batch.command);
+  historyIndex.value = null;
+  await batch.runAcknowledged();
 }
 </script>
 
@@ -173,14 +272,75 @@ async function retryOne(sessionId: string): Promise<void> {
     <section class="flex min-w-0 flex-1 flex-col">
       <div class="space-y-3 border-b border-border px-4 py-3">
         <label class="block">
-          <span class="mb-1 block text-xs font-medium">{{ t("batch.command.label") }}</span>
+          <span class="mb-1 flex items-center justify-between">
+            <span class="text-xs font-medium">{{ t("batch.command.label") }}</span>
+            <PopoverRoot v-model:open="historyOpen">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  data-batch-history
+                  class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('batch.history.title')"
+                  :aria-label="t('batch.history.title')"
+                  @click="refreshHistory()"
+                >
+                  <History :size="11" />
+                  {{ t("batch.history.title") }}
+                </button>
+              </PopoverTrigger>
+              <PopoverPortal>
+                <PopoverContent
+                  align="end"
+                  side="bottom"
+                  :side-offset="4"
+                  class="z-50 w-96 rounded-md border border-border bg-background p-1 shadow-md"
+                >
+                  <div
+                    v-if="history.length === 0"
+                    class="px-2 py-2 text-[11px] text-muted-foreground"
+                    data-batch-history-empty
+                  >
+                    {{ t("batch.history.empty") }}
+                  </div>
+                  <template v-else>
+                    <div class="max-h-64 overflow-auto" data-batch-history-list>
+                      <button
+                        v-for="(entry, index) in history"
+                        :key="`${index}:${entry}`"
+                        type="button"
+                        data-batch-history-entry
+                        class="flex h-6 w-full items-center gap-1.5 rounded-sm px-2 text-left font-mono text-[11px] transition-colors hover:bg-accent hover:text-foreground"
+                        :title="entry"
+                        @click="pickHistory(entry)"
+                      >
+                        <span class="min-w-0 flex-1 truncate">{{ entry }}</span>
+                      </button>
+                    </div>
+                    <div class="border-t border-border pt-1">
+                      <button
+                        type="button"
+                        data-batch-history-clear
+                        class="flex h-6 w-full items-center gap-1.5 rounded-sm px-2 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        @click="clearAllHistory()"
+                      >
+                        <Trash2 :size="11" />
+                        <span>{{ t("batch.history.clear") }}</span>
+                      </button>
+                    </div>
+                  </template>
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+          </span>
           <textarea
             :value="batch.command"
             rows="3"
             spellcheck="false"
+            data-batch-command
             class="w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 font-mono text-xs focus:border-primary focus:outline-none"
             :placeholder="t('batch.command.placeholder')"
             @input="batch.setCommand(($event.target as HTMLTextAreaElement).value)"
+            @keydown="onCommandKeydown"
           ></textarea>
         </label>
 
