@@ -29,15 +29,18 @@ import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vu
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
+import { useToast } from "@/composables/useToast";
 import { backend } from "@/lib/backend/api";
+import { asShellError } from "@/lib/backend/errors";
 import { cn } from "@/lib/utils";
 import { supportsNamespace, useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
+import type { ContainerDetail, ContainerSummary } from "@/types/container";
 
 import ContainerImageView from "./ContainerImageView.vue";
 import ContainerListView from "./ContainerListView.vue";
 import ContainerOverview from "./ContainerOverview.vue";
-import ContainerWizard from "./ContainerWizard.vue";
+import ContainerWizard, { type ContainerClonePrefill } from "./ContainerWizard.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -179,6 +182,96 @@ function chooseNamespace(namespace: string): void {
  */
 const wizardNetworks = ref<readonly SelectOption[]>([]);
 
+/** What a clone ask pre-fills the wizard with, or null for a plain create. */
+const wizardPrefill = ref<ContainerClonePrefill | null>(null);
+
+const { toast } = useToast();
+
+/**
+ * Answers the list's clone ask: inspect the container, hand the wizard what it carried, open the
+ * wizard. The default not started is part of the prefill, so the review is the last word before
+ * anything runs.
+ */
+async function cloneContainer(container: ContainerSummary): Promise<void> {
+  try {
+    const detail = await containers.inspect(props.tab.id, container.id);
+    if (detail === null) {
+      return;
+    }
+    wizardPrefill.value = clonePrefillOf(container, detail);
+    wizardOpen.value = true;
+  } catch (failure) {
+    toast(describeShellError(translate, asShellError(failure, "container_inspect")).message, "failure");
+  }
+}
+
+/**
+ * The wizard fields a container's inspect carries, the raw document answering for the rest: the
+ * privileged switch, the capabilities, the labels, the networks and the weights and limits live
+ * in it rather than in the curated detail. A raw document that will not parse costs those fields
+ * — the curated ones still carry the prefill.
+ */
+function clonePrefillOf(container: ContainerSummary, detail: ContainerDetail): ContainerClonePrefill {
+  let privileged = false;
+  let shares: number | null = null;
+  let memoryBytes: number | null = null;
+  const capabilities: string[] = [];
+  const labels: { name: string; value: string }[] = [];
+  let networks: string[] = [];
+  try {
+    const raw = JSON.parse(detail.raw) as {
+      HostConfig?: { Privileged?: boolean; CapAdd?: readonly string[]; CpuShares?: number; Memory?: number };
+      Config?: { Labels?: Record<string, unknown> };
+      NetworkSettings?: { Networks?: Record<string, unknown> };
+    };
+    privileged = raw.HostConfig?.Privileged === true;
+    capabilities.push(...(raw.HostConfig?.CapAdd ?? []));
+    if (typeof raw.HostConfig?.CpuShares === "number" && raw.HostConfig.CpuShares > 0) {
+      shares = raw.HostConfig.CpuShares;
+    }
+    if (typeof raw.HostConfig?.Memory === "number" && raw.HostConfig.Memory > 0) {
+      memoryBytes = raw.HostConfig.Memory;
+    }
+    for (const [name, value] of Object.entries(raw.Config?.Labels ?? {})) {
+      labels.push({ name, value: String(value) });
+    }
+    networks = Object.keys(raw.NetworkSettings?.Networks ?? {});
+  } catch {
+    // The raw document is an enhancement: the curated fields carry a working prefill alone.
+  }
+  return {
+    // The copy is a sibling, not a twin: the suffix keeps both names legal, and the wizard's own
+    // grammar check has the final word.
+    name: `${container.name}-copy`,
+    image: detail.image,
+    autostart: detail.restartPolicy === "always" || detail.restartPolicy === "unless-stopped",
+    startNow: false,
+    privileged,
+    command: detail.command ?? "",
+    ports: detail.ports.map((port) => ({
+      hostPort: port.hostPort,
+      containerPort: port.containerPort,
+      protocol: port.protocol === "udp" ? ("udp" as const) : ("tcp" as const),
+    })),
+    volumes: detail.mounts.map((mount) => ({
+      hostPath: mount.source,
+      containerPath: mount.destination,
+      readOnly: mount.readOnly,
+    })),
+    env: detail.env.map((line) => {
+      const equals = line.indexOf("=");
+      return equals === -1 ? { key: line, value: "" } : { key: line.slice(0, equals), value: line.slice(equals + 1) };
+    }),
+    labels,
+    networks,
+    capabilities,
+    // The engine's three steps are 768/512/256; anything else (0 is the daemon's default) reads
+    // as the middle choice, which the form makes explicitly anyway.
+    cpuWeight: shares === 768 ? "high" : shares === 256 ? "low" : "mid",
+    memoryLimitMb: memoryBytes === null ? null : String(Math.round(memoryBytes / (1024 * 1024))),
+  };
+}
+
 async function loadWizardNetworks(): Promise<void> {
   const connectionId = session.value?.connectionId;
   if (!connectionId || session.value?.info?.networkAvailable === false) {
@@ -228,7 +321,10 @@ onBeforeUnmount(() => {
         v-if="desktop && view === 'containers'"
         variant="primary"
         data-container-wizard-open
-        @click="wizardOpen = true"
+        @click="
+          wizardPrefill = null;
+          wizardOpen = true;
+        "
       >
         {{ t("container.wizard.open") }}
       </WbButton>
@@ -377,6 +473,7 @@ onBeforeUnmount(() => {
           @clear-image-filter="imageFilter = null"
           @clear-state-filter="stateFilter = null"
           @filter-state="stateFilter = $event"
+          @clone="cloneContainer"
         />
         <ContainerImageView
           v-show="!desktop && view === 'images'"
@@ -407,6 +504,7 @@ onBeforeUnmount(() => {
       :open="wizardOpen"
       :tab-id="props.tab.id"
       :network-options="wizardNetworks"
+      :prefill="wizardPrefill"
       @update:open="wizardOpen = $event"
     />
   </section>

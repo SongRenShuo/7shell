@@ -25,7 +25,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   onContainerStreamEnd: vi.fn(async () => () => {}),
 }));
 
-import ContainerWizard from "@/components/container/ContainerWizard.vue";
+import ContainerWizard, { type ContainerClonePrefill } from "@/components/container/ContainerWizard.vue";
 import { i18n } from "@/i18n";
 import { containerAction, containerCreate, containerList } from "@/lib/backend/tauri";
 import { normalizeShellError } from "@/lib/backend/errors";
@@ -82,7 +82,10 @@ function tab(): ContainerTab {
   };
 }
 
-async function mount(networkOptions?: { value: string; label: string }[]): Promise<void> {
+async function mount(
+  networkOptions?: { value: string; label: string }[],
+  prefill?: ContainerClonePrefill,
+): Promise<void> {
   const engine = tab();
   const pinia = createPinia();
   setActivePinia(pinia);
@@ -95,6 +98,7 @@ async function mount(networkOptions?: { value: string; label: string }[]): Promi
         open: true,
         tabId: engine.id,
         ...(networkOptions ? { networkOptions } : {}),
+        ...(prefill ? { prefill } : {}),
         "onUpdate:open": (value: boolean) => openValues.push(value),
       }),
   });
@@ -800,5 +804,35 @@ describe("canceling", () => {
     button("next").click();
     await settle();
     expect(document.querySelectorAll("[data-wizard-port-host]").length).toBe(0);
+  });
+});
+
+describe("a clone ask", () => {
+  it("writes the inspected fields over the blank form, and the copy starts unstarted", async () => {
+    await mount(undefined, {
+      name: "web-copy",
+      image: "nginx:1.27",
+      autostart: false,
+      startNow: false,
+      privileged: true,
+      command: "",
+      ports: [{ hostPort: "8080", containerPort: "80", protocol: "tcp" }],
+      volumes: [{ hostPath: "/srv/site", containerPath: "/usr/share/html", readOnly: true }],
+      env: [{ key: "NGINX_HOST", value: "example" }],
+      labels: [{ name: "team", value: "edge" }],
+      networks: ["bridge"],
+      capabilities: [],
+      cpuWeight: "high",
+      memoryLimitMb: "256",
+    });
+
+    expect(field("image").value).toBe("nginx:1.27");
+    expect(field("name").value).toBe("web-copy");
+    // The copy is a sibling, not a twin: it does not start with the source.
+    expect(document.querySelector("[data-wizard-start-now]")?.getAttribute("aria-checked")).toBe("false");
+
+    button("next").click();
+    await settle();
+    expect(document.querySelector<HTMLInputElement>("[data-wizard-port-host]")?.value).toBe("8080");
   });
 });
