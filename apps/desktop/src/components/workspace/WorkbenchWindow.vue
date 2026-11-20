@@ -180,20 +180,11 @@ const canRestore = computed(() => props.state === "max");
 
 function onTitlePointerDown(event: PointerEvent): void {
   if (event.button !== 0 || props.state !== "normal" || props.closing) {
-    // TEMPORARY probe: says which of the three guards refused a press.
-    console.log("[probe] down refused", {
-      button: event.button,
-      state: props.state,
-      closing: props.closing,
-      pointerId: event.pointerId,
-    });
     return;
   }
   // A press on one of the three buttons is a press on that button, not the start of a move. The
   // buttons are the only children of the title bar that are not part of the title itself.
   if (event.target instanceof Element && event.target.closest("button") !== null) {
-    // TEMPORARY probe.
-    console.log("[probe] down on a button", { target: event.target.tagName, pointerId: event.pointerId });
     return;
   }
   event.preventDefault();
@@ -211,8 +202,6 @@ function onTitlePointerDown(event: PointerEvent): void {
     grabX: rect === undefined ? 0 : event.clientX - rect.left,
     grabY: rect === undefined ? 0 : event.clientY - rect.top,
   };
-  // TEMPORARY probe.
-  console.log("[probe] down accepted", { state: props.state, top: drag.top, pointerId: event.pointerId });
   titleBar.value?.setPointerCapture?.(event.pointerId);
 }
 
@@ -231,12 +220,6 @@ function onTitleDoubleClick(): void {
 
 function onTitlePointerMove(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] move ignored", {
-      noDrag: drag === null,
-      pointerId: event.pointerId,
-      dragId: drag === null ? null : drag.pointerId,
-    });
     return;
   }
   const nextTop = drag.top + (event.clientY - drag.startY);
@@ -263,12 +246,6 @@ function onTitlePointerMove(event: PointerEvent): void {
 
 function onTitlePointerUp(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] up ignored", {
-      noDrag: drag === null,
-      pointerId: event.pointerId,
-      dragId: drag === null ? null : drag.pointerId,
-    });
     return;
   }
   // The drag ended with the pointer let go — the moment a pending snap, if the pane saw one, is
