@@ -152,7 +152,19 @@ function pointer(type: string, clientX: number, clientY: number): PointerEvent {
 
 /** A whole press: down on the title bar at the given point. */
 function pressTitle(clientX = 200, clientY = 100): void {
-  titleBar().dispatchEvent(pointer("pointerdown", clientX, clientY));
+  const event = pointer("pointerdown", clientX, clientY);
+  titleBar().dispatchEvent(event);
+  // TEMPORARY probe: a press the component refused leaves every later assertion to fail for a
+  // reason that belongs here, so say what the page looked like.
+  if (!event.defaultPrevented) {
+    console.log("[probe] press not accepted", {
+      at: `${clientX},${clientY}`,
+      headers: document.querySelectorAll("[data-workbench-window-title]").length,
+      roots: document.querySelectorAll("[data-workbench-window]").length,
+      state: document.querySelector("[data-workbench-window]")?.getAttribute("data-window-state"),
+      focus: calls.focus,
+    });
+  }
 }
 
 describe("the chrome", () => {
@@ -449,6 +461,14 @@ describe("the end of a move", () => {
     titleBar().dispatchEvent(pointer("pointermove", 220, 120));
     titleBar().dispatchEvent(pointer("pointerup", 220, 120));
 
+    // TEMPORARY probe: the two ways this ends with no moveEnd look identical in the assertion.
+    if (moveEnds.length === 0) {
+      console.log("[probe] no moveEnd", {
+        moves: moves.length,
+        maximize: calls.maximize,
+        state: document.querySelector("[data-workbench-window]")?.getAttribute("data-window-state"),
+      });
+    }
     expect(moveEnds).toEqual([1]);
   });
 
@@ -457,6 +477,15 @@ describe("the end of a move", () => {
     pressTitle(200, 40);
     titleBar().dispatchEvent(pointer("pointermove", 200, -80));
 
+    // TEMPORARY probe: 0 here means the press never became a drag, not that the gesture missed.
+    if (calls.maximize === 0) {
+      console.log("[probe] no maximize", {
+        focus: calls.focus,
+        moves: moves.length,
+        top: top.value,
+        state: document.querySelector("[data-workbench-window]")?.getAttribute("data-window-state"),
+      });
+    }
     expect(calls.maximize).toBe(1);
     expect(moveEnds).toEqual([]);
   });
