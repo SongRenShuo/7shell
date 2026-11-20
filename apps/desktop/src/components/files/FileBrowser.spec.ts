@@ -1270,3 +1270,79 @@ describe("the path the open was asked to land on", () => {
     expect(useFilesStore().browsers[HANDLE]?.path, "the walk would end where it started").toBe("/home/user");
   });
 });
+
+describe("the session's memory", () => {
+  /** The fixture with one of each bucket, for the chips to be seen splitting it. */
+  const mixed: SftpEntry[] = [
+    { name: "logs", path: "/home/user/logs", kind: "directory", size: 0 },
+    { name: "photo.png", path: "/home/user/photo.png", kind: "file", size: 400 },
+    { name: "notes.md", path: "/home/user/notes.md", kind: "file", size: 30 },
+    { name: "dump.zip", path: "/home/user/dump.zip", kind: "file", size: 90 },
+    { name: "Dockerfile", path: "/home/user/Dockerfile", kind: "file", size: 8 },
+  ];
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  /** Clicks a filter chip and gives Vue the two ticks it needs to redraw the listing. */
+  async function pressChip(kind: string): Promise<void> {
+    const chip = host.querySelector<HTMLElement>(`[data-kind-chip="${kind}"]`);
+    if (!chip) throw new Error(`no chip for ${kind}`);
+    chip.click();
+    await nextTick();
+    await nextTick();
+  }
+
+  it("draws the listing in the order this session was last left in", async () => {
+    window.localStorage.setItem("files:order:session-1", JSON.stringify({ column: "size", descending: true }));
+    await render(unsorted);
+
+    // Directories stand on their own shelf whichever column is read; the files follow the size
+    // from the top: the biggest first, which is where the size heading starts.
+    expect(drawn()).toEqual(["logs", "b.txt", "a.txt", "c.txt"]);
+  });
+
+  it("keeps the order a heading pressed, for the next time this session opens the panel", async () => {
+    await render(unsorted);
+    await pressHeading("Size");
+
+    expect(JSON.parse(window.localStorage.getItem("files:order:session-1") ?? "{}")).toEqual({
+      column: "size",
+      descending: true,
+    });
+  });
+
+  it("filters the listing to the kind a chip names, and puts it back when the chip is repressed", async () => {
+    await render(mixed);
+    expect(drawn()).toHaveLength(5);
+
+    await pressChip("folder");
+    expect(drawn()).toEqual(["logs"]);
+
+    await pressChip("image");
+    expect(drawn()).toEqual(["photo.png"]);
+
+    await pressChip("image");
+    expect(drawn(), "the chip in use pressed again is the whole listing").toHaveLength(5);
+  });
+
+  it("composes the kind filter with the search field rather than replacing it", async () => {
+    await render(mixed);
+    await pressChip("document");
+
+    const field = host.querySelector<HTMLInputElement>("[data-search-input]");
+    field!.value = "photo";
+    field!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    await nextTick();
+
+    expect(drawn(), "a document filter and a photo search agree on nothing").toEqual([]);
+  });
+
+  it("collects the directories the session walks into for the recent menu", async () => {
+    await render([]);
+
+    expect(JSON.parse(window.localStorage.getItem("files:recent:session-1") ?? "[]")).toEqual(["/home/user"]);
+  });
+});

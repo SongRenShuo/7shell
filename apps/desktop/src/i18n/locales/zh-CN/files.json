@@ -34,6 +34,19 @@
       "noMatches": "没有匹配 {query} 的条目。",
       "clear": "清除搜索"
     },
+    "recent": {
+      "title": "最近目录",
+      "empty": "还没有最近访问的目录。",
+      "jump": "转到 {path}",
+      "clear": "清空列表"
+    },
+    "filter": {
+      "folder": "目录",
+      "document": "文档",
+      "image": "图片",
+      "archive": "压缩包",
+      "other": "其他"
+    },
     "listing": "文件列表",
     "name": "文件名",
     "size": "大小",
