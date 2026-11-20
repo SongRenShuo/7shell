@@ -212,7 +212,7 @@ fnOS Docker = 独立子应用，左导航六页签 + 服务设置；7shell 现�
 
 ### 批次六（收口）
 
-- **门禁**：`pnpm check` **15/15 全绿**（docs build 10.8s / rust format 4.2s / rust lint 112.8s / rust tests 478.3s / supply chain 24.4s），命令 `CARGO_TARGET_DIR=D:/HuanJing/7shell-target pnpm check`。
+- **门禁**：`pnpm check` **15/15 全绿**（末轮读数：rust lint 58.3s / rust tests 308.1s / supply chain 31.3s），命令 `CARGO_TARGET_DIR=D:/HuanJing/7shell-target pnpm check`；收口树共跑三轮，中间一轮的 `webdav` 端口竞态 flaky 已修（`22d5ecd`）。
 - **e2e**：`make app:e2e`（真应用 + WebView2 CDP）跑通七期浏览器交接用例与前置建库用例（`2 passed`）；五期 Docker 域的 e2e 未单列（该域以真机命令走查 + spec 覆盖，见批次三/四/五记录）。
 - **真机**：网络建删 + 护栏反向（23.1s）、Compose 全链路（38.8s）、镜像加速源与 digest 探测链、仓库卡片数据一致；13 个用户容器全程未动，零残留复核。
 - **i18n**：1813 键 en+zh 成对；typecheck 净；容器域 191 例。
