@@ -6,9 +6,10 @@
 
 use std::time::Duration;
 
-use sevenshell_term::{
-    SerialSpec, Size, TcpSpec, TelnetSpec, TerminalEvent, open_local, open_raw_tcp, open_telnet, open_wsl,
-};
+use sevenshell_term::{SerialSpec, Size, TcpSpec, TelnetSpec, TerminalEvent, open_local, open_raw_tcp, open_telnet};
+// WSL is a Windows transport, and so is the test below that opens one.
+#[cfg(windows)]
+use sevenshell_term::open_wsl;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
