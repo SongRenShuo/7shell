@@ -781,6 +781,16 @@ describe("pure helpers", () => {
     expect(buffer[0]).toBe("line 5");
   });
 
+  it("bounds a merged view's entries the same way, whatever the entry carries", () => {
+    const buffer: { line: string; source: string | null }[] = [];
+    for (let index = 0; index < LOG_LINE_LIMIT + 5; index += 1) {
+      appendLogLine(buffer, { line: `line ${index}`, source: index % 2 === 0 ? "web" : null });
+    }
+    expect(buffer).toHaveLength(LOG_LINE_LIMIT);
+    expect(buffer[0]).toEqual({ line: "line 5", source: null });
+    expect(buffer[1]).toEqual({ line: "line 6", source: "web" });
+  });
+
   it("reads an engine event off a stream line, and refuses one that names nothing", () => {
     expect(parseEngineEvent('{"eventType":"container","action":"die","id":"abc","name":"web"}')).toEqual({
       eventType: "container",
