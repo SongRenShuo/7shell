@@ -37,7 +37,7 @@ import { logFileName, logSourceColor, type LogEntry } from "@/components/contain
 import Select from "@/components/ui/Select.vue";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
-import { appendLogLine, splitLogLine, useContainerStore } from "@/stores/container";
+import { appendLogLine, describeContainerError, splitLogLine, useContainerStore } from "@/stores/container";
 import type { ContainerDetail, ContainerSummary } from "@/types/container";
 
 const props = defineProps<{
@@ -404,7 +404,7 @@ async function startLogs(auto = false): Promise<void> {
     logStream = stream;
   } catch (error) {
     if (generation === logGeneration) {
-      logFailure.value = describeShellError(translate, asShellError(error, "container_logs")).message;
+      logFailure.value = describeContainerError(translate, asShellError(error, "container_logs")).message;
     }
   }
 }
@@ -445,6 +445,8 @@ const mergeOpen = ref(false);
 /** Whether the lines a merged view draws carry the container name they came from. */
 const showPrefixes = ref(true);
 const mergedSources = ref<MergedSource[]>([]);
+/** Why fewer streams opened than were picked: the connection's channel budget said no. */
+const mergedNotice = ref<string | null>(null);
 let mergedGeneration = 0;
 
 /** The containers the same session lists, minus the one this drawer was opened for. */
@@ -490,6 +492,11 @@ function colorOfSource(source: string | null): string {
  * each guest after it opens the same way the lone view does, with its own end. A stream that ends
  * is a container that stopped: its prefix stays on the lines it wrote, its chip says ended, and
  * the others keep coming — the merge is not the anchor's alone to hold up.
+ *
+ * The connection's channel budget is asked before anything opens: a connection holds a bounded
+ * number of channels, and the view opens as many streams as there is room for rather than
+ * walking four asks into refusals. One stream — the anchor — is always attempted, because a
+ * refusal there is a sentence worth reading; the guests are what a short answer trims.
  */
 async function startMergedLogs(): Promise<void> {
   await stopLogs();
@@ -497,19 +504,31 @@ async function startMergedLogs(): Promise<void> {
   backlog.value = [];
   logFailure.value = null;
   logEnded.value = false;
+  mergedNotice.value = null;
   const target = props.target;
   if (props.mode !== "logs" || !target) {
     return;
   }
-  const selection: { id: string; name: string }[] = [
-    { id: target.id, name: target.name },
-    ...mergedIds.value.flatMap((id) => {
-      const name = mergeCandidates.value.find((container) => container.id === id)?.name;
-      return name === undefined ? [] : [{ id, name }];
-    }),
-  ];
+  const picked: { id: string; name: string }[] = mergedIds.value.flatMap((id) => {
+    const name = mergeCandidates.value.find((container) => container.id === id)?.name;
+    return name === undefined ? [] : [{ id, name }];
+  });
+  // One channel for the anchor, one per guest: the room the connection reports decides how many
+  // of the picked guests join. A budget that says nothing (a local engine) answers every ask.
+  const budget = await containers.channels(props.tabId);
+  const free = budget?.free ?? picked.length + 1;
+  const guests = picked.slice(0, Math.max(0, free - 1));
+  if (guests.length < picked.length && budget !== null) {
+    mergedNotice.value = t("container.logs.mergeBudgetNotice", {
+      open: String(guests.length + 1),
+      total: String(picked.length + 1),
+      held: String(budget.held),
+      limit: String(budget.limit),
+    });
+  }
+  const selection: { id: string; name: string }[] = [{ id: target.id, name: target.name }, ...guests];
   const generation = ++mergedGeneration;
-  const sources: MergedSource[] = selection.map((picked) => ({ ...picked, streamId: null, ended: false }));
+  const sources: MergedSource[] = selection.map((entry) => ({ ...entry, streamId: null, ended: false }));
   mergedSources.value = sources;
   for (const source of sources) {
     try {
@@ -546,7 +565,7 @@ async function startMergedLogs(): Promise<void> {
         markSource(source.id, (entry) => {
           entry.ended = true;
         });
-        logFailure.value = describeShellError(translate, asShellError(error, "container_logs")).message;
+        logFailure.value = describeContainerError(translate, asShellError(error, "container_logs")).message;
       }
     }
   }
@@ -1041,6 +1060,9 @@ onBeforeUnmount(() => {
           <span class="text-[10px] text-muted-foreground">{{
             t("container.logs.mergeHint", { max: MERGE_LIMIT })
           }}</span>
+          <span v-if="mergedNotice" class="w-full text-[10px] text-muted-foreground" data-logs-merge-budget>
+            {{ mergedNotice }}
+          </span>
         </div>
 
         <div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-1.5">

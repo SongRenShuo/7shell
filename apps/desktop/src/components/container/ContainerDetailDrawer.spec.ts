@@ -29,6 +29,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerCreate: vi.fn(async () => {}),
   containerInspect: vi.fn(),
   containerLogsStart: vi.fn(async () => "log-1"),
+  containerChannels: vi.fn(async () => null),
   containerStreamStop: vi.fn(async () => {}),
   containerExecOpen: vi.fn(async () => "pty-1"),
   containerImageInspect: vi.fn(),
@@ -47,18 +48,21 @@ vi.mock("@/lib/backend/tauri", () => ({
 import ContainerDetailDrawer from "@/components/container/ContainerDetailDrawer.vue";
 import { i18n } from "@/i18n";
 import {
+  containerChannels,
   containerInspect,
   containerLogsStart,
   containerStreamStop,
   onContainerStreamEnd,
   onContainerStreamLine,
 } from "@/lib/backend/tauri";
+import { normalizeShellError } from "@/lib/backend/errors";
 import { useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerDetail, ContainerStreamEnd, ContainerStreamLine, ContainerSummary } from "@/types/container";
 
 const inspectMock = vi.mocked(containerInspect);
 const logsStartMock = vi.mocked(containerLogsStart);
+const channelsMock = vi.mocked(containerChannels);
 const streamStopMock = vi.mocked(containerStreamStop);
 const lineMock = vi.mocked(onContainerStreamLine);
 const endMock = vi.mocked(onContainerStreamEnd);
@@ -85,6 +89,19 @@ function guest(): ContainerSummary {
   return {
     id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     name: "api",
+    image: "redis:7",
+    state: "running",
+    status: "Up",
+    ports: "6379:6379/tcp",
+    createdAt: "now",
+  };
+}
+
+/** A third container, for the merged view's spec to pick as a second guest. */
+function secondGuest(): ContainerSummary {
+  return {
+    id: "cccccccccccccccccccccccccccccccc",
+    name: "worker",
     image: "redis:7",
     state: "running",
     status: "Up",
@@ -626,5 +643,85 @@ describe("the log view's merged streams", () => {
     const copied = clipboard.written();
     expect(copied).toContain("[web] from the anchor");
     expect(copied).toContain("[api] from the guest");
+  });
+  it("opens only the streams the connection's channel budget has room for, and says what it trimmed", async () => {
+    logsStartMock.mockImplementation(async (_connection: string, containerId: string) =>
+      containerId === guest().id ? "log-2" : containerId === secondGuest().id ? "log-3" : "log-1",
+    );
+    // Two free channels: the anchor always gets its ask, the guests fill what is left over.
+    channelsMock.mockResolvedValue({ limit: 8, held: 6, free: 2, holders: [{ kind: "logs", held: 6 }] });
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener || !endListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    const store = useContainerStore();
+    const session = store.sessionFor("tab-1");
+    if (!session) {
+      throw new Error("the drawer never connected its store");
+    }
+    session.containers = [target(), guest(), secondGuest()];
+
+    host?.querySelector<HTMLElement>("[data-logs-merge]")?.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock, "the merge opens the anchor's own stream").toHaveBeenCalledTimes(2);
+    });
+
+    // Both guests are picked; the view opens only the one the free room covers, and the merge
+    // panel says so rather than walking the second ask into a refusal.
+    const checkboxes = [
+      ...(host?.querySelectorAll<HTMLInputElement>("[data-logs-merge-panel] input[type='checkbox']") ?? []),
+    ];
+    if (checkboxes.length < 2) {
+      throw new Error("the merge panel drew fewer candidate checkboxes than the two guests");
+    }
+    checkboxes[0]?.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock, "the anchor and the first guest opened").toHaveBeenCalledTimes(4);
+    });
+    expect(logsStartMock).toHaveBeenCalledWith("conn-1", guest().id, 500, false);
+
+    checkboxes[1]?.click();
+    await vi.waitFor(() => {
+      expect(
+        host?.querySelector("[data-logs-merge-budget]"),
+        "the trim is named where the person picked the guests",
+      ).not.toBeNull();
+    });
+    expect(logsStartMock, "the anchor and the first guest again, still no room for the second").toHaveBeenCalledTimes(
+      6,
+    );
+    expect(logsStartMock).not.toHaveBeenCalledWith("conn-1", secondGuest().id, 500, false);
+    const notice = host?.querySelector("[data-logs-merge-budget]")?.textContent ?? "";
+    expect(notice).toContain("2 of 3");
+    expect(notice).toContain("6/8");
+  });
+
+  it("a merge the budget cannot open says so with the reason, where the failure is drawn", async () => {
+    channelsMock.mockResolvedValue({ limit: 8, held: 8, free: 0, holders: [{ kind: "logs", held: 8 }] });
+    logsStartMock.mockRejectedValueOnce(
+      normalizeShellError(
+        {
+          code: "SSH-CHANNEL-REFUSED",
+          messageKey: "errors.ssh.channelRefused",
+          messageParams: { host: "host.example", port: "22", held: "8", limit: "8" },
+          origin: { subsystem: "ssh" },
+        },
+        "container_logs_start",
+      ),
+    );
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+
+    host?.querySelector<HTMLElement>("[data-logs-merge]")?.click();
+    await vi.waitFor(() => {
+      expect(host?.textContent, "the dedicated sentence, with the arithmetic the envelope carried").toContain(
+        "channels are full (8/8)",
+      );
+    });
   });
 });

@@ -51,13 +51,13 @@ pub use completion::{
     COMPLETION_TIMEOUT_MAX_MS, COMPLETION_TIMEOUT_MIN_MS, CompletionExecuteRequest, CompletionExecuteResult,
 };
 pub use container::{
-    ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCpuWeight,
-    ContainerCreateRequest, ContainerDetail, ContainerDiskUsage, ContainerDiskUsageKind, ContainerEvent,
-    ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerMount, ContainerPort,
-    ContainerPortMapping, ContainerPruneReport, ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntime,
-    ContainerRuntimeInfo, ContainerSettings, ContainerStateCount, ContainerStats, ContainerStreamEnd,
-    ContainerStreamLine, ContainerSummary, ContainerTransport, ContainerVolume, ImageLayer, NetworkCreateRequest,
-    NetworkSummary, VolumeSummary,
+    ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerChannelBudget, ContainerChannelHolders,
+    ContainerCommitRequest, ContainerCpuWeight, ContainerCreateRequest, ContainerDetail, ContainerDiskUsage,
+    ContainerDiskUsageKind, ContainerEvent, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer,
+    ContainerMount, ContainerPort, ContainerPortMapping, ContainerPruneReport, ContainerRegistryLogin,
+    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerSettings, ContainerStateCount,
+    ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ContainerVolume,
+    ImageLayer, NetworkCreateRequest, NetworkSummary, VolumeSummary,
 };
 pub use generated::{
     AUTH_METHODS, AuthMethod, AuthMethodSpec, CAPABILITIES, Capability, CapabilityGroup, CapabilitySpec,

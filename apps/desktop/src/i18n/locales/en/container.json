@@ -568,7 +568,8 @@
       "downloadHint": "Downloads the lines shown as a .log file — the received lines only.",
       "allServices": "All services",
       "serviceFilter": "Filter by service",
-      "serviceEmpty": "No line comes from this service yet."
+      "serviceEmpty": "No line comes from this service yet.",
+      "mergeBudgetNotice": "Not enough free channels: the merge opened {open} of {total} streams ({held}/{limit} in use)."
     },
     "image": {
       "pull": "Pull",
@@ -657,6 +658,13 @@
       "memory": "Memory",
       "network": "Network",
       "waiting": "Waiting for the first reading…"
+    },
+    "errors": {
+      "channelBudget": "This connection's channels are full ({held}/{limit}): close some log streams or terminals and try again."
+    },
+    "events": {
+      "degraded": "The connection's channels were full, so event following paused: the list now follows by manual refresh. Close some log streams or terminals, then reconnect the event stream.",
+      "resume": "Reconnect the event stream"
     }
   }
 }

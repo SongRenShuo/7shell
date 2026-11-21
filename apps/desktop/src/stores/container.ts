@@ -26,8 +26,10 @@ import { ref } from "vue";
 
 import { backend } from "@/lib/backend/api";
 import { type ShellError, asShellError } from "@/lib/backend/errors";
+import { describeErrorFields, describeShellError, type DescribedError, type Translate } from "@/i18n/errors";
 import type {
   ContainerActionOutcome,
+  ContainerChannelBudget,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -69,6 +71,47 @@ export const EVENT_REFRESH_DEBOUNCE_MS = 300;
 export const EVENT_RECONNECT_BASE_MS = 1_000;
 /** The last wait before an events stream that ended connects again. */
 export const EVENT_RECONNECT_MAX_MS = 30_000;
+/**
+ * The refresh a degraded events stream runs instead of following the engine.
+ *
+ * Degraded is the state after the connection's channel budget refused the stream — the engine's
+ * push is what costs the channel, and a read every ten seconds follows the list without holding
+ * anything. It runs until the person closes other streams and reconnects by hand.
+ */
+export const EVENTS_DEGRADED_POLL_MS = 10_000;
+
+/** The code a budget refusal travels under, and the params its message carries. */
+const CHANNEL_REFUSED_CODE = "SSH-CHANNEL-REFUSED";
+
+/** Whether the refusal is this build's own budget — the envelope carries the held/limit arithmetic. */
+export function isBudgetRefusal(error: unknown): boolean {
+  try {
+    const shellError = asShellError(error, "container_stream");
+    return shellError.code === CHANNEL_REFUSED_CODE && "held" in shellError.messageParams;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Renders a container error, giving a budget refusal its own sentence.
+ *
+ * The shared refused-channel message speaks of a server that refused an open; a refusal this
+ * build's own budget made never reached the server, and its envelope carries the arithmetic
+ * (held/limit) the dedicated sentence needs. Anything else renders the way every other error
+ * does.
+ */
+export function describeContainerError(t: Translate, error: ShellError): DescribedError {
+  if (error.code === CHANNEL_REFUSED_CODE && error.messageParams.held && error.messageParams.limit) {
+    return describeErrorFields(t, {
+      code: error.code,
+      messageKey: "container.errors.channelBudget",
+      messageParams: { held: error.messageParams.held, limit: error.messageParams.limit },
+      detail: error.detail,
+    });
+  }
+  return describeShellError(t, error);
+}
 
 /**
  * Whether one engine event should move the container list.
@@ -155,13 +198,21 @@ export interface ContainerSession {
   tasks: ImageTask[];
   /** The engine's event stream, when the engine has one and it is being followed. */
   eventsStreamId: string | null;
+  /**
+   * Whether the events stream yielded its channel and the list is following by refreshing.
+   *
+   * The backend says so with the stream end's `yielded` marker, or with a refusal the stream's
+   * own open got back from the channel budget. Nothing reconnects on its own in this state —
+   * the person closes other streams and reconnects by hand.
+   */
+  eventsDegraded: boolean;
 }
 
 /** Where a stream's lines go. Registered before the backend starts writing, removed on stop. */
 interface StreamSink {
   readonly session: ContainerSession;
   onLine: (line: string) => void;
-  onEnd: (error?: string) => void;
+  onEnd: (error?: string, yielded?: string) => void;
 }
 
 /** Per-session counters, so an answer that is no longer wanted cannot overwrite a newer one. */
@@ -488,6 +539,8 @@ export const useContainerStore = defineStore("container", () => {
       refreshTimer: ReturnType<typeof setTimeout> | null;
       /** An event arrived while the window was hidden; the return read is its answer. */
       pendingWhileHidden: boolean;
+      /** The refresh a degraded events stream runs; it stands in for the engine's push. */
+      degradedTimer: ReturnType<typeof setInterval> | null;
     }
   >();
   let listening = false;
@@ -517,10 +570,11 @@ export const useContainerStore = defineStore("container", () => {
     reconnectTimer: ReturnType<typeof setTimeout> | null;
     refreshTimer: ReturnType<typeof setTimeout> | null;
     pendingWhileHidden: boolean;
+    degradedTimer: ReturnType<typeof setInterval> | null;
   } {
     let state = eventStates.get(session);
     if (!state) {
-      state = { attempts: 0, reconnectTimer: null, refreshTimer: null, pendingWhileHidden: false };
+      state = { attempts: 0, reconnectTimer: null, refreshTimer: null, pendingWhileHidden: false, degradedTimer: null };
       eventStates.set(session, state);
     }
     return state;
@@ -539,6 +593,10 @@ export const useContainerStore = defineStore("container", () => {
     if (state.refreshTimer !== null) {
       clearTimeout(state.refreshTimer);
       state.refreshTimer = null;
+    }
+    if (state.degradedTimer !== null) {
+      clearInterval(state.degradedTimer);
+      state.degradedTimer = null;
     }
     state.attempts = 0;
     state.pendingWhileHidden = false;
@@ -579,7 +637,7 @@ export const useContainerStore = defineStore("container", () => {
         }
         // Removed before the sink hears about it, so a second end event finds nothing to tell.
         sinks.delete(payload.streamId);
-        sink.onEnd(payload.error);
+        sink.onEnd(payload.error, payload.yielded);
       }),
     ])
       .then((stops) => {
@@ -626,7 +684,7 @@ export const useContainerStore = defineStore("container", () => {
     tabId: string,
     session: ContainerSession,
     start: () => Promise<string>,
-    handlers: { onLine: (line: string) => void; onEnd: (error?: string) => void },
+    handlers: { onLine: (line: string) => void; onEnd: (error?: string, yielded?: string) => void },
   ): Promise<string | null> {
     await listen();
     const streamId = await start();
@@ -692,6 +750,53 @@ export const useContainerStore = defineStore("container", () => {
     }, eventsReconnectDelay(state.attempts));
   }
 
+  /**
+   * Stops following the engine and follows the list by refreshing instead.
+   *
+   * Degraded is the budget yield's landing place: the events stream costs a channel and the
+   * connection has none to spare, so the push goes and a read every ten seconds stands in. The
+   * engine's events are not lost to the person — the same list changes they carried arrive with
+   * the reads, a beat later — and nothing reconnects on its own, because every automatic retry
+   * would walk into the same refusal while the budget is full.
+   */
+  function degradeEventsStream(tabId: string, session: ContainerSession): void {
+    session.eventsStreamId = null;
+    if (sessions.value[tabId] !== session) {
+      return;
+    }
+    session.eventsDegraded = true;
+    const state = eventsStateOf(session);
+    if (state.reconnectTimer !== null) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
+    state.attempts = 0;
+    if (state.degradedTimer === null) {
+      state.degradedTimer = setInterval(() => {
+        // A session that went away between ticks has nothing left to read; the timer is taken
+        // down by the forget path, and this guard only saves one stale tick.
+        if (sessions.value[tabId] === session && session.connectionId !== null) {
+          void refresh(tabId);
+        }
+      }, EVENTS_DEGRADED_POLL_MS);
+    }
+  }
+
+  /** Reconnects the events stream after a degraded stretch, on the person's say-so. */
+  function resumeEventsStream(tabId: string): void {
+    const session = sessions.value[tabId];
+    if (!session || !session.eventsDegraded) {
+      return;
+    }
+    session.eventsDegraded = false;
+    const state = eventsStateOf(session);
+    if (state.degradedTimer !== null) {
+      clearInterval(state.degradedTimer);
+      state.degradedTimer = null;
+    }
+    void openEventsStream(tabId, session);
+  }
+
   async function openEventsStream(tabId: string, session: ContainerSession): Promise<void> {
     if (sessions.value[tabId] !== session || session.connectionId === null) {
       return;
@@ -703,19 +808,40 @@ export const useContainerStore = defineStore("container", () => {
     try {
       const streamId = await openStream(tabId, session, () => backend.containers.eventsStart(connectionId), {
         onLine: (line) => handleEngineEvent(tabId, session, line),
-        onEnd: () => scheduleEventsReconnect(tabId, session),
+        onEnd: (_error, yielded) => {
+          // A yield is the backend saying it spent this stream's channel on something else: the
+          // list follows by refreshing, and no reconnect is scheduled — the budget is still full.
+          if (yielded) {
+            degradeEventsStream(tabId, session);
+            return;
+          }
+          scheduleEventsReconnect(tabId, session);
+        },
       });
       if (streamId !== null) {
         session.eventsStreamId = streamId;
         const state = eventsStateOf(session);
         state.attempts = 0;
+        // A stream that came back — through a manual resume, or the namespace switch that stops
+        // and opens in one go — ends the degraded stretch with it.
+        if (state.degradedTimer !== null) {
+          clearInterval(state.degradedTimer);
+          state.degradedTimer = null;
+        }
+        session.eventsDegraded = false;
         // A stream that just came back — or came up at all — may have missed states while it was
         // gone: the full read is the only answer that converges, and no amount of replaying what
         // the stream never carried can promise the same thing.
         void refresh(tabId, true);
       }
-    } catch {
-      // The ask itself was refused: the same backoff answers it as answers a stream that ended.
+    } catch (error) {
+      // The ask itself was refused. A refusal this build's own budget made would meet the same
+      // wall on every retry while the budget is full, so it degrades instead of backing off;
+      // anything else keeps the same backoff that answers a stream that ended.
+      if (isBudgetRefusal(error)) {
+        degradeEventsStream(tabId, session);
+        return;
+      }
       scheduleEventsReconnect(tabId, session);
     }
   }
@@ -797,6 +923,7 @@ export const useContainerStore = defineStore("container", () => {
       info: null,
       tasks: [],
       eventsStreamId: null,
+      eventsDegraded: false,
     };
     sessions.value[tab.id] = fresh;
     const session = sessions.value[tab.id];
@@ -1152,6 +1279,25 @@ export const useContainerStore = defineStore("container", () => {
     return backend.containers.execOpen(session.connectionId, containerId, shell);
   }
 
+  /**
+   * How much room the connection's channel budget has left, or `null` for an engine that runs
+   * here — a local command holds no SSH channel, and a merged view it serves opens every stream
+   * it was asked for.
+   */
+  async function channels(tabId: string): Promise<ContainerChannelBudget | null> {
+    const session = sessions.value[tabId];
+    if (!session?.connectionId) {
+      return null;
+    }
+    try {
+      return await backend.containers.channels(session.connectionId);
+    } catch {
+      // A read that fails says nothing about the room: a refused open will say it when it
+      // happens, and this answer stays out of the way.
+      return null;
+    }
+  }
+
   /** Keeps a failure this store did not make the call for, so the pane's banner can show it. */
   function reportError(tabId: string, error: unknown, operation: string): void {
     const session = sessions.value[tabId];
@@ -1458,6 +1604,8 @@ export const useContainerStore = defineStore("container", () => {
     startLogs,
     stopStream,
     exec,
+    channels,
+    resumeEventsStream,
     reportError,
     dismissError,
     imageInspect,

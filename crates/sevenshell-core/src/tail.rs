@@ -86,7 +86,10 @@ impl Core {
         };
 
         let command = tail_command(lines, path);
-        let mut source = carrier.connection.open_exec_stream(&command).await?;
+        let mut source = carrier
+            .connection
+            .open_exec_stream(&command, sevenshell_ssh::ChannelHolder::Exec)
+            .await?;
 
         let tail_id = uuid::Uuid::new_v4().to_string();
         let registry = Arc::clone(&self.tail_streams);

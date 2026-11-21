@@ -568,7 +568,8 @@
       "downloadHint": "下载当前显示的行（.log）——只含已接收的行。",
       "allServices": "全部服务",
       "serviceFilter": "按服务过滤",
-      "serviceEmpty": "该服务还没有输出。"
+      "serviceEmpty": "该服务还没有输出。",
+      "mergeBudgetNotice": "连接通道不足：合并已按可容纳的 {open}/{total} 路开启（通道 {held}/{limit}）。"
     },
     "image": {
       "pull": "拉取",
@@ -657,6 +658,13 @@
       "memory": "内存",
       "network": "网络",
       "waiting": "等待第一次读数…"
+    },
+    "errors": {
+      "channelBudget": "该连接的通道已满（{held}/{limit}），先关闭部分日志流/终端再试。"
+    },
+    "events": {
+      "degraded": "通道已满，事件跟进暂停，已退回手动刷新。关闭部分日志流/终端后，再重连事件流。",
+      "resume": "重连事件流"
     }
   }
 }

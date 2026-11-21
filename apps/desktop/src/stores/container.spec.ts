@@ -27,6 +27,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerInspect: vi.fn(),
   containerLogsStart: vi.fn(),
   containerEventsStart: vi.fn(),
+  containerChannels: vi.fn(async () => null),
   containerStreamStop: vi.fn(async () => {}),
   containerExecOpen: vi.fn(),
   containerImageInspect: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 
 import {
   containerAction,
+  containerChannels,
   containerConnect,
   containerDisconnect,
   containerEventsStart,
@@ -59,19 +61,24 @@ import {
   onContainerStreamEnd,
   onContainerStreamLine,
 } from "@/lib/backend/tauri";
+import { normalizeShellError, type ShellError } from "@/lib/backend/errors";
+import type { Translate } from "@/i18n/errors";
 import {
   appendLogLine,
   applyImageProgress,
   CONTAINER_ACTIONS,
+  describeContainerError,
   EVENT_RECONNECT_BASE_MS,
   EVENT_RECONNECT_MAX_MS,
   EVENT_REFRESH_DEBOUNCE_MS,
+  EVENTS_DEGRADED_POLL_MS,
   eventMovesList,
   eventsReconnectDelay,
   filterContainers,
   filterImages,
   imageProgressPercent,
   imageRef,
+  isBudgetRefusal,
   layerCounts,
   LOG_LINE_LIMIT,
   matchesImage,
@@ -110,6 +117,7 @@ const namespaceSetMock = vi.mocked(containerSetNamespace);
 const actionMock = vi.mocked(containerAction);
 const logsStartMock = vi.mocked(containerLogsStart);
 const eventsStartMock = vi.mocked(containerEventsStart);
+const channelsMock = vi.mocked(containerChannels);
 const streamStopMock = vi.mocked(containerStreamStop);
 const pullMock = vi.mocked(containerImagePull);
 const commitMock = vi.mocked(containerImageCommit);
@@ -263,11 +271,11 @@ function emitLine(streamId: string, line: string): void {
   lineListener({ streamId, line });
 }
 
-function emitEnd(streamId: string, error?: string): void {
+function emitEnd(streamId: string, error?: string, yielded?: string): void {
   if (!endListener) {
     throw new Error("the store never subscribed to stream ends");
   }
-  endListener({ streamId, error });
+  endListener({ streamId, error, yielded });
 }
 
 describe("container store connection", () => {
@@ -520,6 +528,191 @@ describe("the engine's event stream", () => {
 
     expect(streamStopMock).toHaveBeenCalledWith("events-1");
     expect(eventsStartMock, "no reconnect after the session is gone").toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the events stream under the channel budget", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets the store's un-awaited event open finish: its chain is microtasks only. */
+  async function flushOpens(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function infoWithEvents(): ContainerRuntimeInfo {
+    return { ...runtimeInfo(), eventsAvailable: true };
+  }
+
+  /** The envelope a budget refusal travels as: the arithmetic rides the message params. */
+  function budgetRefusal(): ShellError {
+    return normalizeShellError(
+      {
+        code: "SSH-CHANNEL-REFUSED",
+        messageKey: "errors.ssh.channelRefused",
+        messageParams: { host: "host.example", port: "22", held: "8", limit: "8" },
+        detail: "a channel for the engine's events was refused by this build's own channel budget",
+        diagnostics: { held: "8", limit: "8", holders: "logs:8" },
+        origin: { subsystem: "ssh" },
+      },
+      "container_events_start",
+    );
+  }
+
+  it("a yielded end degrades to the polling refresh and never reconnects on its own", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBe("events-1");
+
+    // The backend spent the events stream's channel on something else: the end event says which
+    // holder went, and the answer is the polling refresh, not a reconnect into a full budget.
+    emitEnd("events-1", undefined, "events");
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(true);
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBeNull();
+    const readsAtDegrade = listMock.mock.calls.length;
+
+    // Six poll intervals fit in the old reconnect ceiling; not one reconnect happens in them.
+    const waits = (EVENT_RECONNECT_MAX_MS * 2) / EVENTS_DEGRADED_POLL_MS;
+    await vi.advanceTimersByTimeAsync(EVENT_RECONNECT_MAX_MS * 2);
+    expect(eventsStartMock, "nothing reconnects on its own").toHaveBeenCalledTimes(1);
+    expect(listMock.mock.calls.length).toBe(readsAtDegrade + waits);
+
+    // The degraded refresh stands in for the engine's push: one read per interval.
+    await vi.advanceTimersByTimeAsync(EVENTS_DEGRADED_POLL_MS);
+    expect(listMock.mock.calls.length).toBe(readsAtDegrade + waits + 1);
+  });
+
+  it("a budget refusal on the stream's own open degrades the same way", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    eventsStartMock.mockRejectedValueOnce(budgetRefusal());
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(true);
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(EVENT_RECONNECT_MAX_MS * 2);
+    expect(eventsStartMock, "the backoff is not walked into the same wall").toHaveBeenCalledTimes(1);
+    expect(listMock.mock.calls.length, "the polling refresh covers what the stream would have").toBeGreaterThan(1);
+  });
+
+  it("a refusal that is not the budget's keeps the reconnect backoff", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    eventsStartMock.mockClear();
+    eventsStartMock
+      .mockRejectedValueOnce(
+        normalizeShellError({ code: "SSH-UNREACHABLE", messageKey: "errors.ssh.unreachable" }, "c"),
+      )
+      .mockResolvedValueOnce("events-2");
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(false);
+    await vi.advanceTimersByTimeAsync(EVENT_RECONNECT_BASE_MS);
+    expect(eventsStartMock).toHaveBeenCalledTimes(2);
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBe("events-2");
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(false);
+  });
+
+  it("a stream that comes back ends the degraded stretch with it", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    eventsStartMock.mockRejectedValueOnce(budgetRefusal()).mockResolvedValueOnce("events-2");
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(true);
+    const readsAfterDegrade = listMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVENTS_DEGRADED_POLL_MS);
+    expect(listMock.mock.calls.length).toBeGreaterThan(readsAfterDegrade);
+
+    // The person closed other streams and says so: the resume opens the stream again, and the
+    // polling refresh stops standing in.
+    eventsStartMock.mockClear();
+    listMock.mockClear();
+    engine.resumeEventsStream("tab-1");
+    await flushOpens();
+    expect(eventsStartMock).toHaveBeenCalledTimes(1);
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBe("events-2");
+    expect(engine.sessionFor("tab-1")?.eventsDegraded).toBe(false);
+
+    const readsAfterResume = listMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVENTS_DEGRADED_POLL_MS * 2);
+    expect(listMock.mock.calls.length, "the engine's push is back, so no poll refresh runs beside it").toBe(
+      readsAfterResume,
+    );
+  });
+
+  it("answers the budget question for the view that is about to open several streams", async () => {
+    channelsMock.mockResolvedValue({ limit: 8, held: 5, free: 3, holders: [{ kind: "logs", held: 5 }] });
+    const engine = useContainerStore();
+    await engine.connect(tab());
+
+    const budget = await engine.channels("tab-1");
+    expect(budget).toEqual({ limit: 8, held: 5, free: 3, holders: [{ kind: "logs", held: 5 }] });
+
+    // An engine on this machine holds no channels: the backend answers null, and so does a tab
+    // that has nothing to ask about.
+    channelsMock.mockResolvedValue(null);
+    expect(await engine.channels("tab-1")).toBeNull();
+    expect(await engine.channels("tab-that-never-was")).toBeNull();
+  });
+});
+
+describe("budget refusal rendering", () => {
+  /** A translate that makes the key and its params visible in the answer. */
+  const translate: Translate = (key, params) => `${key}:${JSON.stringify(params ?? null)}`;
+
+  it("a budget refusal renders its own sentence with the arithmetic in it", () => {
+    const error = normalizeShellError(
+      {
+        code: "SSH-CHANNEL-REFUSED",
+        messageKey: "errors.ssh.channelRefused",
+        messageParams: { host: "h", port: "22", held: "8", limit: "8" },
+        origin: { subsystem: "ssh" },
+      },
+      "c",
+    );
+    expect(isBudgetRefusal(error)).toBe(true);
+    const described = describeContainerError(translate, error);
+    expect(described.message).toBe('container.errors.channelBudget:{"held":"8","limit":"8"}');
+    expect(described.code).toBe("SSH-CHANNEL-REFUSED");
+  });
+
+  it("a server refusal and every other error keep the sentences they always had", () => {
+    const serverRefusal = normalizeShellError(
+      {
+        code: "SSH-CHANNEL-REFUSED",
+        messageKey: "errors.ssh.channelRefused",
+        messageParams: { host: "h", port: "22" },
+        origin: { subsystem: "ssh" },
+      },
+      "c",
+    );
+    expect(isBudgetRefusal(serverRefusal)).toBe(false);
+    expect(describeContainerError(translate, serverRefusal).message).toBe(
+      'errors.ssh.channelRefused:{"host":"h","port":"22"}',
+    );
+
+    expect(isBudgetRefusal(new Error("nothing about channels"))).toBe(false);
+    const other = normalizeShellError(
+      {
+        code: "SSH-UNREACHABLE",
+        messageKey: "errors.ssh.unreachable",
+        messageParams: { host: "h", port: "22" },
+        origin: { subsystem: "ssh" },
+      },
+      "c",
+    );
+    expect(describeContainerError(translate, other).message).toBe('errors.ssh.unreachable:{"host":"h","port":"22"}');
   });
 });
 

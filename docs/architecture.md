@@ -178,6 +178,18 @@ and is shown next to the forwards that did come up. Each forward counts the conn
 and the ones it could not, because "the tunnel is up but nothing works" is exactly the state that
 needs explaining, and a library has no business writing to somebody's log.
 
+**One connection keeps a channel budget.** A server answers every channel open with its own
+`MaxSessions` arithmetic, and the long-lived streams a window follows (logs, the engine's events, a
+terminal, an sftp browser) are what fill it. So the connection keeps a ledger: every session
+channel is counted under the feature that asked — `events`, `logs`, `pty`, `exec` — the count is
+released by the same RAII slot the channel's lifetime rides on, and an open that would cross the
+ceiling (eight, against OpenSSH's default ten, keeping two slots for the unscheduled asks) is
+refused before the server sees it, with the holders named in the refusal's diagnostics. The events
+stream is the designated yielder: the budget closes it through a hook its owner registered, its end
+event says `yielded: events`, and the container list follows by refreshing instead — the
+reconnect is the person's, once other streams are closed. `direct-tcpip` hops are not charged:
+`MaxSessions` governs session channels only.
+
 ## Remote files
 
 A file browser rides on a connection of its own — or on a terminal's, when one is already open for

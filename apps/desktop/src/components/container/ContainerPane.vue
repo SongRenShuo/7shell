@@ -36,7 +36,7 @@ import { useToast } from "@/composables/useToast";
 import { backend } from "@/lib/backend/api";
 import { asShellError } from "@/lib/backend/errors";
 import { cn } from "@/lib/utils";
-import { supportsNamespace, useContainerStore } from "@/stores/container";
+import { describeContainerError, supportsNamespace, useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerDetail, ContainerSummary } from "@/types/container";
 
@@ -76,7 +76,7 @@ const upgradeOpen = ref(false);
 
 const session = computed(() => containers.sessionFor(props.tab.id));
 const runtime = computed(() => props.tab.session.container?.runtime ?? "docker");
-const problem = computed(() => (session.value?.error ? describeShellError(translate, session.value.error) : null));
+const problem = computed(() => (session.value?.error ? describeContainerError(translate, session.value.error) : null));
 /**
  * The engine's own reason, drawn under the summary sentence: the summary names the operation the
  * runtime refused, the detail is what the engine actually said — "no such container", a template
@@ -178,6 +178,11 @@ function translate(key: string, params?: Record<string, string>): string {
 
 function dismiss(): void {
   containers.dismissError(props.tab.id);
+}
+
+/** Reconnects the events stream the budget yielded, once the person says the room is there. */
+function resumeEvents(): void {
+  containers.resumeEventsStream(props.tab.id);
 }
 
 function retry(): void {
@@ -488,6 +493,27 @@ onBeforeUnmount(() => {
             @click="dismiss()"
           >
             <X :size="11" />
+          </button>
+        </div>
+
+        <!--
+          The budget yield's banner: the events stream gave its channel up and the list follows by
+          refreshing. A notice rather than an error — the list still moves, a beat later — and the
+          reconnect is the person's: closing other streams first is what makes the channel room.
+        -->
+        <div
+          v-if="session?.eventsDegraded"
+          role="status"
+          class="flex shrink-0 items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5 select-text"
+        >
+          <span class="min-w-0 flex-1 text-[11px]">{{ t("container.events.degraded") }}</span>
+          <button
+            type="button"
+            class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+            @click="resumeEvents()"
+          >
+            <RotateCw :size="11" />
+            {{ t("container.events.resume") }}
           </button>
         </div>
 

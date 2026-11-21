@@ -17,6 +17,7 @@ import type {
   ContainerActionOutcome,
   ContainerCommitRequest,
   ContainerCreateRequest,
+  ContainerChannelBudget,
   ContainerDetail,
   ContainerDiskUsage,
   ContainerImage,
@@ -905,6 +906,12 @@ export const backend = {
      */
     eventsStart: (connectionId: string): Promise<string> =>
       forward("container_events_start", () => desktop.containerEventsStart(connectionId)),
+    /**
+     * How full the connection's channel budget is, and who holds the rest. `null` for an engine
+     * on this machine: no SSH channels, no budget, no refusal to plan around.
+     */
+    channels: (connectionId: string): Promise<ContainerChannelBudget | null> =>
+      forward("container_channels", () => desktop.containerChannels(connectionId)),
     streamStop: (streamId: string): Promise<void> =>
       forward("container_stream_stop", () => desktop.containerStreamStop(streamId)),
     execOpen: (connectionId: string, containerId: string, shell: string): Promise<string> =>
