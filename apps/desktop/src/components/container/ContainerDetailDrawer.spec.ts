@@ -4,6 +4,10 @@
  * The log view has three behaviours a store test cannot see — following the tail, pausing without
  * discarding what arrived, and letting go of the stream when it closes — and each of them is
  * observable here by the only evidence that matters: what is on screen and what was sent back.
+ *
+ * The same evidence covers what came later: a search that reads the buffer without touching the
+ * streams and keeps matching the lines that land while it runs, a merge that prefixes each line
+ * with the container that wrote it, and exports that hand out exactly what the view is showing.
  */
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
@@ -72,6 +76,19 @@ function target(): ContainerSummary {
     state: "running",
     status: "Up",
     ports: "8080:80/tcp",
+    createdAt: "now",
+  };
+}
+
+/** A second container, for the merged view's spec to pick as a guest. */
+function guest(): ContainerSummary {
+  return {
+    id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    name: "api",
+    image: "redis:7",
+    state: "running",
+    status: "Up",
+    ports: "6379:6379/tcp",
     createdAt: "now",
   };
 }
@@ -150,6 +167,28 @@ function button(label: string): HTMLButtonElement {
     throw new Error(`there is no button called “${label}”`);
   }
   return element;
+}
+
+/** Types into the log search field the way a keyboard would, and lets the view answer it. */
+async function typeInSearch(value: string): Promise<void> {
+  const field = host?.querySelector<HTMLInputElement>("[data-logs-search]");
+  if (!field) {
+    throw new Error("the log view drew no search field");
+  }
+  field.value = value;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await nextTick();
+  await nextTick();
+}
+
+/** The clipboard a spec can read back, put where the drawer's copy actions look for it. */
+function stubClipboard(): { writeText: ReturnType<typeof vi.fn>; written: () => string } {
+  const written: string[] = [];
+  const writeText = vi.fn(async (text: string) => {
+    written.push(text);
+  });
+  Object.defineProperty(window.navigator, "clipboard", { value: { writeText }, configurable: true });
+  return { writeText, written: () => written.join("\n") };
 }
 
 beforeEach(() => {
@@ -342,5 +381,250 @@ describe("container detail drawer", () => {
     await new Promise((resolve) => setTimeout(resolve, 1_600));
     expect(logsStartMock).toHaveBeenCalledTimes(4);
     expect(host?.textContent).toContain("The stream has ended.");
+  });
+});
+
+describe("the log view's search", () => {
+  it("highlights every hit, counts them, and jumps between them without touching the stream", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z started" });
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:01Z error connecting" });
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:02Z connection error twice" });
+    await nextTick();
+    await nextTick();
+
+    await typeInSearch("err");
+
+    // Every hit is drawn as a mark of its own, and the count stands on the first of them.
+    expect(host?.querySelectorAll("mark")).toHaveLength(2);
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("1 / 2");
+
+    host?.querySelector<HTMLElement>("[data-logs-next]")?.click();
+    await nextTick();
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("2 / 2");
+    // The line the jump stands on is said out loud by the background it wears.
+    expect(host?.querySelector('[data-log-line="2"]')?.className).toContain("bg-accent");
+
+    // Stepping back from the first line wraps to the last.
+    host?.querySelector<HTMLElement>("[data-logs-prev]")?.click();
+    await nextTick();
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("1 / 2");
+
+    // The search never reopens the stream: the one start the view made is still the only one.
+    expect(logsStartMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps matching while the stream keeps arriving — the new lines join the highlights", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z error connecting" });
+    await typeInSearch("err");
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("1 / 1");
+
+    // A line that lands under a live search is matched the moment it is appended.
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:01Z another error lands" });
+    await nextTick();
+    await nextTick();
+
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("1 / 2");
+    expect(host?.querySelectorAll("mark")).toHaveLength(2);
+    expect(host?.textContent).toContain("another error lands");
+    expect(logsStartMock, "a running search never resets the stream").toHaveBeenCalledTimes(1);
+  });
+
+  it("says a broken regex is broken, inline, and goes on matching once it is fixed", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z error connecting" });
+    await nextTick();
+
+    host?.querySelector<HTMLElement>("[data-logs-regex-toggle]")?.click();
+    await nextTick();
+    await typeInSearch("unclosed(");
+
+    // The error is said beside the field, the view does not crash, and nothing is highlighted.
+    expect(host?.querySelector("[data-logs-invalid-regex]")?.textContent).toContain("Invalid regular expression");
+    expect(host?.querySelectorAll("mark")).toHaveLength(0);
+    expect(host?.querySelector("[data-logs-match-count]")).toBeNull();
+
+    await typeInSearch("err");
+    expect(host?.querySelector("[data-logs-invalid-regex]")).toBeNull();
+    expect(host?.querySelector("[data-logs-match-count]")?.textContent?.trim()).toBe("1 / 1");
+    expect(logsStartMock, "the broken query never touched the stream").toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the log view's merged streams", () => {
+  it("prefixes every line with the container that wrote it, in a colour per source", async () => {
+    logsStartMock.mockImplementation(async (_connection: string, containerId: string) =>
+      containerId === guest().id ? "log-2" : "log-1",
+    );
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener || !endListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    const store = useContainerStore();
+    const session = store.sessionFor("tab-1");
+    if (!session) {
+      throw new Error("the drawer never connected its store");
+    }
+    session.containers = [target(), guest()];
+
+    host?.querySelector<HTMLElement>("[data-logs-merge]")?.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock, "the merge opens the anchor's own stream").toHaveBeenCalledTimes(2);
+    });
+
+    // The guest joins through the picker the merge button opened, one checkbox per candidate.
+    const checkbox = host?.querySelector<HTMLInputElement>("[data-logs-merge-panel] input[type='checkbox']");
+    if (!checkbox) {
+      throw new Error("the merge panel drew no candidate checkbox");
+    }
+    checkbox.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock, "the anchor's stream and the guest's stream both opened").toHaveBeenCalledTimes(4);
+    });
+    expect(logsStartMock).toHaveBeenCalledWith("conn-1", guest().id, 500, false);
+
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z from the anchor" });
+    lineListener({ streamId: "log-2", line: "2026-11-10T10:00:01Z from the guest" });
+    await nextTick();
+    await nextTick();
+
+    // Every line says where it came from, and the two sources are told apart by colour.
+    expect(host?.textContent).toContain("[web]");
+    expect(host?.textContent).toContain("[api]");
+    const anchorLine = host?.querySelector('[data-log-line="0"]');
+    expect(anchorLine?.querySelector("span")?.getAttribute("style")).toContain("--log-source-1");
+    expect(anchorLine?.querySelector("span")?.textContent?.trim()).toBe("[web]");
+    const guestLine = host?.querySelector('[data-log-line="1"]');
+    expect(guestLine?.querySelector("span")?.getAttribute("style")).toContain("--log-source-2");
+    expect(guestLine?.querySelector("span")?.textContent?.trim()).toBe("[api]");
+
+    // A stream that ends does not end the view: the guest's chip says so, the anchor keeps coming.
+    endListener({ streamId: "log-2", error: undefined });
+    await nextTick();
+    expect(host?.querySelector("[data-logs-source-ended]")).not.toBeNull();
+
+    // The prefixes can be turned off; the lines themselves stay.
+    host?.querySelector<HTMLElement>("[data-logs-prefixes]")?.click();
+    await nextTick();
+    expect(host?.textContent).not.toContain("[web]");
+    expect(host?.textContent).toContain("from the anchor");
+  });
+
+  it("copies and downloads exactly what the view is showing, filtered as it is", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    const clipboard = stubClipboard();
+    const downloaded: Blob[] = [];
+    const names: string[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn((blob: Blob) => {
+        downloaded.push(blob);
+        return "blob:mock";
+      }),
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true, writable: true });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+
+    lineListener({ streamId: "log-1", line: "first line" });
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z error connecting" });
+    lineListener({ streamId: "log-1", line: "a quiet line to hide" });
+    await nextTick();
+
+    host?.querySelector<HTMLElement>("[data-logs-errors-only]")?.click();
+    await nextTick();
+
+    host?.querySelector<HTMLElement>("[data-logs-copy-all]")?.click();
+    await vi.waitFor(() => {
+      expect(clipboard.writeText).toHaveBeenCalled();
+    });
+    const copied = clipboard.written();
+    expect(copied).toContain("error connecting");
+    expect(copied, "the copy is what the view shows, not the whole buffer").not.toContain("a quiet line to hide");
+
+    host?.querySelector<HTMLElement>("[data-logs-download]")?.click();
+    expect(downloaded).toHaveLength(1);
+    const text = await downloaded[0]?.text();
+    expect(text).toBe(copied);
+    expect(names[0]).toMatch(/^web-\d{8}\.log$/);
+  });
+
+  it("copies the merged view with each line carrying its source, as it is drawn", async () => {
+    logsStartMock.mockImplementation(async (_connection: string, containerId: string) =>
+      containerId === guest().id ? "log-2" : "log-1",
+    );
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    const clipboard = stubClipboard();
+    const store = useContainerStore();
+    const session = store.sessionFor("tab-1");
+    if (!session) {
+      throw new Error("the drawer never connected its store");
+    }
+    session.containers = [target(), guest()];
+
+    host?.querySelector<HTMLElement>("[data-logs-merge]")?.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(2);
+    });
+    const checkbox = host?.querySelector<HTMLInputElement>("[data-logs-merge-panel] input[type='checkbox']");
+    if (!checkbox) {
+      throw new Error("the merge panel drew no candidate checkbox");
+    }
+    checkbox.click();
+    await vi.waitFor(() => {
+      expect(logsStartMock, "the anchor's stream and the guest's stream both opened").toHaveBeenCalledTimes(4);
+    });
+    lineListener({ streamId: "log-1", line: "from the anchor" });
+    lineListener({ streamId: "log-2", line: "from the guest" });
+    await nextTick();
+    await nextTick();
+
+    host?.querySelector<HTMLElement>("[data-logs-copy-all]")?.click();
+    await vi.waitFor(() => {
+      expect(clipboard.writeText).toHaveBeenCalled();
+    });
+    const copied = clipboard.written();
+    expect(copied).toContain("[web] from the anchor");
+    expect(copied).toContain("[api] from the guest");
   });
 });

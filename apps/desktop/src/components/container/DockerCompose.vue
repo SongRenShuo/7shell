@@ -11,7 +11,9 @@
  * The logs follow on the stream channel the container logs use, keyed by stream id the same way:
  * a line that arrives for a window that has moved on reaches nothing. The window itself is the
  * container log window's shape — a drawer beside the list, the buffer bounded, a pause that keeps
- * what arrives instead of dropping it.
+ * what arrives instead of dropping it. A project's lines are filtered by the service that wrote
+ * them, read out of the `name | message` prefix the plugin's logs carry, and the prefix wears a
+ * colour per service so a project's services tell themselves apart at a glance.
  *
  * The list is read when the page opens and when the refresh is pressed, and at no other time. A
  * project is made by somebody's own hand here, and a page that refreshed itself would be guessing
@@ -21,6 +23,7 @@ import { Ellipsis, LoaderCircle, RotateCw, ScrollText, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { composeLogService, logSourceColor, splitComposePrefix } from "@/components/container/logSource";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
 import Switch from "@/components/ui/Switch.vue";
@@ -325,6 +328,8 @@ async function startLogs(): Promise<void> {
 }
 
 watch(logsFor, () => {
+  // A filter names one project's service; another project's window starts with every service.
+  serviceFilter.value = "";
   void startLogs();
 });
 
@@ -353,6 +358,73 @@ function clearLogs(): void {
   lines.value = [];
   backlog.value = [];
 }
+
+// -- the service filter ---------------------------------------------------------
+
+/** The service the window narrows to; `""` is "every service", not a filter. */
+const serviceFilter = ref("");
+
+/**
+ * The services the buffer has heard from, in the order the filter lists them.
+ *
+ * The list is read from the whole buffer rather than the drawn lines, so narrowing to one service
+ * does not take the others out of the dropdown — the way back is always on it.
+ */
+const serviceOptions = computed(() => {
+  const names = new Set<string>();
+  const project = logsFor.value?.name ?? "";
+  for (const line of lines.value) {
+    const service = composeLogService(line, project);
+    if (service !== "") {
+      names.add(service);
+    }
+  }
+  return [
+    { value: "", label: t("container.logs.allServices") },
+    ...[...names].sort().map((name) => ({ value: name, label: name })),
+  ];
+});
+
+/** The lines the window draws: everything, or only the service the filter names. */
+const shownLines = computed(() => {
+  if (serviceFilter.value === "") {
+    return lines.value;
+  }
+  const project = logsFor.value?.name ?? "";
+  return lines.value.filter((line) => composeLogService(line, project) === serviceFilter.value);
+});
+
+/** The colour a service's prefix wears, keyed by its place in the filter's order. */
+function colorOfService(service: string): string {
+  // The filter's first entry is "every service", not a colour of its own.
+  const at = serviceOptions.value.findIndex((option) => option.value === service);
+  return logSourceColor(Math.max(0, at - 1));
+}
+
+/** A drawn line's pieces, cut once: the runtime's timestamp, the prefix, and the message. */
+interface ComposeLineParts {
+  readonly timestamp: string;
+  readonly prefix: string | null;
+  readonly message: string;
+  readonly color: string;
+}
+
+const shownParts = computed<ComposeLineParts[]>(() => {
+  const project = logsFor.value?.name ?? "";
+  return shownLines.value.map((line) => {
+    const { timestamp, message } = splitLogLine(line);
+    const split = splitComposePrefix(message);
+    if (split === null) {
+      return { timestamp, prefix: null, message, color: "" };
+    }
+    return {
+      timestamp,
+      prefix: split.prefix,
+      message: split.message,
+      color: colorOfService(composeLogService(line, project)),
+    };
+  });
+});
 
 // -- the create dialog ------------------------------------------------------------
 
@@ -600,6 +672,15 @@ onBeforeUnmount(() => {
             :aria-label="t('container.logs.tail')"
             @update:model-value="tail = Number($event)"
           />
+          <Select
+            :model-value="serviceFilter"
+            :options="serviceOptions"
+            size="compact"
+            class="w-36"
+            :aria-label="t('container.logs.serviceFilter')"
+            data-compose-logs-service
+            @update:model-value="serviceFilter = $event"
+          />
           <button
             type="button"
             class="flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] transition-colors"
@@ -641,16 +722,33 @@ onBeforeUnmount(() => {
           class="min-h-0 flex-1 overflow-auto px-2.5 py-2 font-mono text-[11px] select-text"
           :class="wrap ? '' : 'overflow-x-auto'"
         >
-          <p v-if="lines.length === 0" class="text-[11px] text-muted-foreground">{{ t("container.logs.empty") }}</p>
+          <p v-if="lines.length === 0 && serviceFilter === ''" class="text-[11px] text-muted-foreground">
+            {{ t("container.logs.empty") }}
+          </p>
+          <p
+            v-else-if="shownLines.length === 0"
+            class="text-[11px] text-muted-foreground"
+            data-compose-logs-service-empty
+          >
+            {{ t("container.logs.serviceEmpty") }}
+          </p>
           <div
-            v-for="(line, index) in lines"
+            v-for="(parts, index) in shownParts"
             :key="index"
             :class="wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'"
           >
-            <span v-if="splitLogLine(line).timestamp" class="mr-1.5 text-muted-foreground">{{
-              splitLogLine(line).timestamp
-            }}</span>
-            <span>{{ splitLogLine(line).message }}</span>
+            <span v-if="parts.timestamp !== ''" class="mr-1.5 text-muted-foreground">{{ parts.timestamp }}</span>
+            <template v-if="parts.prefix !== null">
+              <span
+                class="mr-1.5 font-medium"
+                :style="{ color: parts.color }"
+                :data-compose-logs-prefix="parts.prefix"
+                >{{ parts.prefix }}</span
+              >
+              <span class="mr-1.5 text-muted-foreground">|</span>
+              <span>{{ parts.message }}</span>
+            </template>
+            <span v-else>{{ parts.message }}</span>
           </div>
           <p v-if="logEnded" class="mt-1 text-[10px] text-muted-foreground">{{ t("container.logs.ended") }}</p>
         </div>
