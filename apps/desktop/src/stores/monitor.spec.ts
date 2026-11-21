@@ -37,6 +37,7 @@ import {
   MONITOR_HISTORY,
   MONITOR_MAX_GAP_MS,
   MONITOR_POLL_MS,
+  MONITOR_REPORT_HISTORY,
   PROCESS_PAGE_LIMIT,
   PROCESS_POLL_MS,
   SOCKET_POLL_MS,
@@ -427,6 +428,183 @@ describe("what a sample becomes", () => {
     monitor.stop();
     await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS * 3);
     expect(monitorSampleMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * The report window's own charts: the readings the page draws, which are gathered from samples the
+ * store already took. The discipline they answer to is the panel's — an interval that cannot be
+ * measured sends no point, a hidden document sends no sample at all, and a chart that ran out of
+ * room keeps only what is newest.
+ */
+describe("the report window's charts", () => {
+  /**
+   * The samples are taken on the pump's own clock, and the pump asks the document whether anybody
+   * is looking before each one. These overlays answer for the document, the way the overview spec's
+   * visibility tests do; `showDocument` puts it back so the rest of the file sees a seen page.
+   */
+  function hideDocument(): void {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+  }
+
+  function showDocument(): void {
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  }
+
+  /** A sampler whose readings march: each answer a poll later, its counters a little busier. */
+  function marchingSampler(sample: typeof monitorSampleMock): void {
+    let at = 1_700_000_000_000;
+    let totalTicks = 1_000;
+    let idleTicks = 800;
+    sample.mockImplementation(async () => {
+      at += MONITOR_POLL_MS;
+      totalTicks += 200;
+      idleTicks += 100;
+      return metrics({ sampledAt: at, cpu: cpuCounters(totalTicks, idleTicks) });
+    });
+  }
+
+  it("starts the memory chart on the first sample and the processor chart on the second", async () => {
+    workspaceWith([session], () => "t1");
+    monitorSampleMock.mockResolvedValueOnce(metrics());
+    monitorSampleMock.mockResolvedValueOnce(
+      metrics({
+        sampledAt: 1_700_000_000_000 + MONITOR_POLL_MS,
+        cpu: cpuCounters(1200, 900),
+        memory: {
+          totalBytes: 8_000_000_000,
+          availableBytes: 3_200_000_000,
+          swapTotalBytes: 2_000_000_000,
+          swapFreeBytes: 2_000_000_000,
+        },
+      }),
+    );
+
+    const monitor = useMonitorStore();
+    monitor.start();
+    await settle();
+
+    expect(monitor.cpuHistory, "one sample is no interval").toEqual([]);
+    expect(monitor.memoryHistory, "memory is a level: one sample is a whole reading").toEqual([50]);
+
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS);
+
+    expect(monitor.cpuHistory).toEqual([50]);
+    expect(monitor.memoryHistory).toEqual([50, 60]);
+
+    monitor.stop();
+  });
+
+  it("skips a processor point rather than drawing a fake zero across a gap", async () => {
+    workspaceWith([session], () => "t1");
+    monitorSampleMock.mockResolvedValueOnce(metrics());
+    monitorSampleMock.mockResolvedValueOnce(
+      metrics({
+        sampledAt: 1_700_000_000_000 + MONITOR_MAX_GAP_MS * 10,
+        cpu: cpuCounters(1200, 900),
+      }),
+    );
+
+    const monitor = useMonitorStore();
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS);
+
+    expect(monitor.cpuPercent).toBeNull();
+    expect(monitor.cpuHistory, "an interval that cannot be measured joins no chart").toEqual([]);
+    expect(monitor.memoryHistory.length, "the level stood still, and is still a reading").toBe(2);
+
+    monitor.stop();
+  });
+
+  it("keeps only the newest readings the charts have room for", async () => {
+    workspaceWith([session], () => "t1");
+    marchingSampler(monitorSampleMock);
+
+    const monitor = useMonitorStore();
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS * (MONITOR_REPORT_HISTORY + 5));
+
+    expect(monitor.cpuHistory.length).toBe(MONITOR_REPORT_HISTORY);
+    expect(monitor.memoryHistory.length).toBe(MONITOR_REPORT_HISTORY);
+    expect(
+      monitor.cpuHistory.every((point) => point === 50),
+      "every point is a real reading",
+    ).toBe(true);
+
+    monitor.stop();
+  });
+
+  it("stops adding readings while nobody looks, and resumes when somebody does", async () => {
+    workspaceWith([session], () => "t1");
+    marchingSampler(monitorSampleMock);
+
+    const monitor = useMonitorStore();
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS * 3);
+    const sampled = monitorSampleMock.mock.calls.length;
+    expect(sampled, "the first sample and three on the clock").toBe(4);
+    expect(monitor.cpuHistory.length).toBe(3);
+    expect(monitor.memoryHistory.length).toBe(4);
+
+    hideDocument();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS * 5);
+
+    expect(monitorSampleMock.mock.calls.length, "a hidden document is asked for nothing").toBe(sampled);
+    expect(monitor.cpuHistory.length, "and its charts stand still").toBe(3);
+    expect(monitor.memoryHistory.length).toBe(4);
+
+    showDocument();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS);
+
+    expect(monitorSampleMock.mock.calls.length, "the next tick samples again").toBe(sampled + 1);
+    expect(monitor.cpuHistory.length, "and the charts pick up where they stopped").toBe(4);
+    expect(monitor.memoryHistory.length).toBe(5);
+
+    monitor.stop();
+    showDocument();
+  });
+
+  it("loses its charts with the connection, as it loses every other reading", async () => {
+    workspaceWith([session], () => "t1");
+    marchingSampler(monitorSampleMock);
+
+    const monitor = useMonitorStore();
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(MONITOR_POLL_MS * 2);
+    expect(monitor.cpuHistory.length).toBeGreaterThan(0);
+
+    terminalTabs()[0]!.status = "ended";
+    await settle();
+
+    expect(monitor.cpuHistory).toEqual([]);
+    expect(monitor.memoryHistory).toEqual([]);
+
+    monitor.stop();
+  });
+});
+
+describe("the retry", () => {
+  it("asks for a sample when a page retries", async () => {
+    workspaceWith([session], () => "t1");
+    monitorSampleMock.mockResolvedValue(metrics());
+
+    const monitor = useMonitorStore();
+    monitor.retry();
+    await settle();
+
+    expect(monitorSampleMock).toHaveBeenCalledTimes(1);
+    expect(monitor.sample?.hostname).toBe("web-1");
+  });
+
+  it("retries nothing when there is no connection to sample", async () => {
+    const monitor = useMonitorStore();
+    monitor.retry();
+    await settle();
+
+    expect(monitorSampleMock).not.toHaveBeenCalled();
+    expect(monitor.sample).toBeNull();
   });
 });
 
