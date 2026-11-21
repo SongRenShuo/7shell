@@ -190,6 +190,31 @@ event says `yielded: events`, and the container list follows by refreshing inste
 reconnect is the person's, once other streams are closed. `direct-tcpip` hops are not charged:
 `MaxSessions` governs session channels only.
 
+**A host keeps a carrier pool, because that budget is per connection.** `MaxSessions` is an
+arithmetic each connection runs under, not one the server runs for everybody — so the answer to a
+full carrier is not a refusal if a second authentication will do. The carriers a fresh open would
+have opened one at a time belong to a pool keyed by the peer they serve: host, port, account,
+credential kind and the route they take. Every channel a pooled carrier is asked for is placed on
+the member with the most room — on that carrier, not on the one it was asked on — and when the
+freest member's count shows `limit - 1`, the next channel brings up another connection rather than
+taking the last slot, so the ask after it never waits on a handshake. The group is bounded (three,
+unless the caller chose another number); a connect that failed earns its slot a pause, doubled per
+failure and capped, the same schedule the fresh-carrier gate runs; a carrier whose connection died
+is marked down by the first open that meets the death and refilled *in place* — its slot, its
+place in the group, the same pinned key and the same stored credential, never a second question to
+a person; and carriers nobody holds a channel on are closed when the pool next hands one out, so
+the connections a burst grew do not outlive the burst.
+
+Three things the pool deliberately does not do. It does not keep a second ledger: each carrier's
+budget is the real arithmetic, the totals across carriers are a diagnostic (`pools`, beside the
+refusal's `carriers` and `pool_held`) and nothing more — `MaxSessions` is itself the allocator. It
+does not route the events stream: that stream opens on the carrier it was asked on, the pool
+neither moves it nor grows for it, its yield hook lives on the same ledger its slot does, and at
+most one events stream rides each carrier — a pool multiplies connections, never events streams.
+And it does not touch terminals: a terminal's connection is the terminal's, opened outside any
+pool, and a carrier shared with an open terminal is chosen by the same rule as before. What a
+caller sees is unchanged — a carrier is a carrier, and the routing is the pool's business.
+
 ## Remote files
 
 A file browser rides on a connection of its own — or on a terminal's, when one is already open for

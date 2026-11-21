@@ -8,6 +8,13 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+- A host keeps a carrier pool: the carriers a fresh open would have opened one at a time belong to
+  a group keyed by the peer they serve (host, port, account, credential kind, route), every channel
+  a pooled carrier is asked for is placed on the member with the most room, and the channel that
+  finds the freest carrier one slot from full brings up another connection instead of taking the
+  last slot — bounded at three, dead carriers marked down by the first open that meets the death
+  and refilled in place with the same pinned key and stored credential, idle carriers closed on the
+  next handout, and the events stream never routed and never grown for (8796e26, 75ac7b5).
 - A connection keeps a channel budget: every session channel it opens is counted under the feature
   that asked (events, logs, pty, exec) and released when the channel ends, an open that would cross
   the ceiling of eight is refused before the server sees it with an envelope that names the
