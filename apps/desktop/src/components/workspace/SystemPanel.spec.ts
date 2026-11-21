@@ -129,3 +129,50 @@ describe("the system panel's service verbs", () => {
     expect(actionMock).toHaveBeenCalledWith("session-1", "w1", "nginx.service", "stop", true);
   });
 });
+
+describe("the disk rings", () => {
+  /** A mount filled to the percent named — the sizes are only the ratio a ring reads. */
+  function mountsAt(percent: number): unknown {
+    return {
+      services: [],
+      mounts: [{ filesystem: "/dev/sda1", mountPoint: "/", sizeBytes: 100, availableBytes: 100 - percent }],
+    };
+  }
+
+  function disksTab(): HTMLButtonElement {
+    const found = [...document.querySelectorAll<HTMLButtonElement>("[data-workbench-system-tabs] button")].find(
+      (button) => button.textContent?.trim() === "Disks",
+    );
+    if (!found) {
+      throw new Error("no disks tab is drawn");
+    }
+    return found;
+  }
+
+  function ring(): SVGSVGElement {
+    const found = document.querySelector<SVGSVGElement>("[data-workbench-system-mounts] svg");
+    if (!found) {
+      throw new Error("no disk ring is drawn");
+    }
+    return found;
+  }
+
+  // The rings used to go straight to red at ninety, so ninety-four and ninety-nine wore the same
+  // colour. The gauge draws the arc in the tier `usageTone` names — the amber step between ninety
+  // and ninety-five is the tier the desktops share, not this panel's own.
+  it.each([
+    [89, "var(--success)"],
+    [92, "var(--warning)"],
+    [96, "var(--destructive)"],
+  ] as const)("wears the tier the desktops share at %i%%: %s", async (percent, token) => {
+    overviewMock.mockResolvedValue(mountsAt(percent) as unknown as Awaited<ReturnType<typeof systemOverview>>);
+    await mount();
+    await nextTick();
+
+    disksTab().click();
+    await nextTick();
+    await nextTick();
+
+    expect(ring().querySelectorAll("circle")[1]?.getAttribute("stroke")).toBe(token);
+  });
+});

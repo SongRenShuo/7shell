@@ -280,4 +280,21 @@ describe("the monitor panel", () => {
     expect(empty?.getAttribute("colspan"), "and the line spans the whole table").toBe("3");
     expect(empty?.textContent?.trim()).toBe(i18n.global.t("monitor.processes.empty"));
   });
+
+  /**
+   * The two small trends are the chart vocabulary's bar rows: the monitor samples on a timer, and
+   * a bar says "this is what the interval was" where a line would claim the space between the
+   * samples was measured. The ruling itself is the vocabulary's spec's; what is checked here is
+   * that the panel draws no line form of its own.
+   */
+  it("draws its two small trends as bar rows, never as lines", async () => {
+    await render(metrics());
+
+    const rows = [...host.querySelectorAll<HTMLDivElement>("aside div[role='img']")];
+    expect(rows, "the traffic row and the round-trip row").toHaveLength(2);
+    for (const row of rows) {
+      expect(row.querySelector("svg"), "bars, not a line").toBeNull();
+      expect(row.classList.contains("flex"), "a row that keeps its height for the first sample").toBe(true);
+    }
+  });
 });
