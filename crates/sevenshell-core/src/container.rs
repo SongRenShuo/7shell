@@ -16,10 +16,10 @@ use sevenshell_error::ShellError;
 use sevenshell_policy::PolicyTarget;
 use sevenshell_session::{ForwardedControl, ForwardedSession};
 use sevenshell_types::{
-    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
-    ContainerImageTransfer, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
-    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction, Protocol,
-    RiskAssessment,
+    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerDiskUsage,
+    ContainerImage, ContainerImageTransfer, ContainerPruneReport, ContainerRegistryLogin, ContainerRuntime,
+    ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary,
+    ContainerTransport, ImageLayer, PolicyAction, Protocol, RiskAssessment, VolumeSummary,
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -146,6 +146,9 @@ impl Core {
         // The events bit decides whether the container list follows the engine by itself or keeps
         // its manual refresh; the probe is the same network-free shape as the other two.
         let events_available = provider.events_available().await;
+        // The volumes bit decides whether the rail draws the volumes page at all. The df and prune
+        // words came to the CLI in the same release, so this one probe stands for the family.
+        let volume_available = provider.volumes_available().await;
         self.containers.add(id.clone(), provider)?;
         self.desktop_engines
             .lock()
@@ -157,6 +160,7 @@ impl Core {
                 compose_available,
                 manifest_inspect_available,
                 events_available,
+                volume_available,
             },
         );
         Ok(id)
@@ -270,6 +274,7 @@ impl Core {
             info.network_available = true;
             info.manifest_inspect_available = caps.manifest_inspect_available;
             info.events_available = caps.events_available;
+            info.volume_available = caps.volume_available;
         }
         Ok(info)
     }
@@ -311,6 +316,91 @@ impl Core {
         let verdict = sevenshell_policy::container_action("prune");
         self.container_gate("container.prune", &verdict, acknowledged, "container.remove", None)?;
         self.container_provider(connection_id)?.image_prune().await
+    }
+
+    /// The engine's own disk-usage reading: what each kind of object occupies and how much of it
+    /// the engine says it could give back. Read-only, and deliberately first — the cleanup page
+    /// draws these numbers before any prune is offered, so the confirmation quotes a reading the
+    /// engine itself gave.
+    pub async fn container_system_df(&self, connection_id: &str) -> Result<Vec<ContainerDiskUsage>, ShellError> {
+        self.container_provider(connection_id)?.system_df().await
+    }
+
+    /// Removes the stopped containers, and answers what went with them. A prune is destructive
+    /// with the same verdict an image prune carries, and the acknowledgement is the confirm
+    /// dialog's own answer.
+    pub async fn container_prune(
+        &self,
+        connection_id: &str,
+        acknowledged: bool,
+    ) -> Result<ContainerPruneReport, ShellError> {
+        let verdict = sevenshell_policy::container_action("prune");
+        self.container_gate("container.prune", &verdict, acknowledged, "container.remove", None)?;
+        self.container_provider(connection_id)?.container_prune().await
+    }
+
+    /// The volumes the engine holds. Read-only; the page that draws them makes nothing.
+    pub async fn container_volume_list(&self, connection_id: &str) -> Result<Vec<VolumeSummary>, ShellError> {
+        self.container_provider(connection_id)?.volume_list().await
+    }
+
+    /// Removes one named volume. Destructive — a volume is where data lives — so the gate runs
+    /// before the engine is even looked up. A volume a container still mounts is refused by the
+    /// engine itself, and that refusal reaches the interface unchanged.
+    pub async fn container_volume_remove(
+        &self,
+        connection_id: &str,
+        name: &str,
+        acknowledged: bool,
+    ) -> Result<(), ShellError> {
+        let verdict = sevenshell_policy::container_action("remove");
+        self.container_gate(
+            "container.volume-remove",
+            &verdict,
+            acknowledged,
+            "container.remove",
+            Some(name),
+        )?;
+        self.container_provider(connection_id)?.volume_remove(name).await
+    }
+
+    /// Removes the volumes nothing is mounted from. The verdict is the prune verdict, but the
+    /// acknowledgement that reaches it carries the volume sentence — the interface may not send
+    /// this until the person agreed that unmounted volumes go with it, because no other verb in
+    /// this surface takes that much data with one click.
+    pub async fn container_volume_prune(
+        &self,
+        connection_id: &str,
+        acknowledged: bool,
+    ) -> Result<ContainerPruneReport, ShellError> {
+        let verdict = sevenshell_policy::container_action("prune");
+        self.container_gate(
+            "container.volume-prune",
+            &verdict,
+            acknowledged,
+            "container.remove",
+            None,
+        )?;
+        self.container_provider(connection_id)?.volume_prune().await
+    }
+
+    /// Drops the build cache — the reclaimable half of the build-cache reading, and the one prune
+    /// whose objects are all reproducible. The gate runs like the other prunes', with the
+    /// acknowledgement carried from the confirm dialog.
+    pub async fn container_build_cache_prune(
+        &self,
+        connection_id: &str,
+        acknowledged: bool,
+    ) -> Result<ContainerPruneReport, ShellError> {
+        let verdict = sevenshell_policy::container_action("prune");
+        self.container_gate(
+            "container.build-cache-prune",
+            &verdict,
+            acknowledged,
+            "container.remove",
+            None,
+        )?;
+        self.container_provider(connection_id)?.build_cache_prune().await
     }
 
     /// Tags one image. A tag is a pointer, not data — reversible by pointing it back — so the
@@ -723,6 +813,63 @@ mod tests {
         let events = journal.events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "container.image-remove");
+    }
+
+    #[tokio::test]
+    async fn volume_writes_are_journaled_and_refused_by_a_deny_even_acknowledged() {
+        let (_directory, core, journal) = core_with_denial();
+
+        // The removal carries the volume's name, because a refusal that names no volume is a
+        // refusal nobody can act on.
+        let error = core
+            .container_volume_remove("connection-that-never-existed", "site-data", true)
+            .await
+            .expect_err("a deny refuses the removal");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        let events = journal.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "container.volume-remove");
+        assert_eq!(events[0].subject.as_deref(), Some("site-data"));
+
+        let error = core
+            .container_volume_prune("connection-that-never-existed", true)
+            .await
+            .expect_err("a deny refuses the prune");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        let error = core
+            .container_build_cache_prune("connection-that-never-existed", true)
+            .await
+            .expect_err("a deny refuses the prune");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        let error = core
+            .container_prune("connection-that-never-existed", true)
+            .await
+            .expect_err("a deny refuses the prune");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyDenied);
+        let events = journal.events();
+        assert_eq!(events.len(), 4, "one decision per verb, on the trail");
+        assert_eq!(events[1].action, "container.volume-prune");
+        assert_eq!(events[2].action, "container.build-cache-prune");
+        assert_eq!(events[3].action, "container.prune");
+    }
+
+    #[tokio::test]
+    async fn an_unacknowledged_volume_write_meets_the_approval_gate() {
+        let (_directory, core, _journal) = core_with_default_journal();
+
+        // Acknowledged is what the confirm dialog's answer becomes; without it the destructive
+        // verdict asks, the same way an unattended image removal does — and the question arrives
+        // before the engine is looked up, so a missing connection cannot make the verdict moot.
+        let error = core
+            .container_volume_remove("connection-that-never-existed", "site-data", false)
+            .await
+            .expect_err("the destructive verdict asks");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
+        let error = core
+            .container_volume_prune("connection-that-never-existed", false)
+            .await
+            .expect_err("the destructive verdict asks");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::PolicyApprovalRequired);
     }
 
     /// A vault holding one session of `protocol`, plus the core and the temp dir that owns the file.

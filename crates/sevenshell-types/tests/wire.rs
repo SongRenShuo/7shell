@@ -16,25 +16,26 @@ use sevenshell_types::{
     AgentOrigin, AiContextSummary, AiProviderConfig, AiProviderKind, AiProviderView, AiSessionDetail, AiSessionSummary,
     AiToolOutcome, AppLayout, AppSettings, AuthMethod, BackgroundDisplayMode, BackgroundImage, BatchHostOutcome,
     BatchHostRef, BatchHostResult, BatchOutcome, BatchRequest, CommandHistoryEntry, CompletionExecuteResult,
-    CompletionWord, ConnectionTestOutcome, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime,
-    ContainerSettings, ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey,
-    CustomColors, DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesDeleteMode, FilesLayout,
-    ForwardMode, HomeLayout, HostFailure, HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm,
-    KeyInfo, KnownHostEntry, KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward,
-    McpAccessPolicy, McpPrompt, McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource,
-    McpResourceContent, McpResourceRead, McpResourceTemplate, McpScope, McpServerConfig, McpServerContent,
-    McpServerState, McpServerStatus, McpServerTransport, McpToolPolicy, MemoryUsage, NetworkCounters, OpenOutcome,
-    OpenTunnel, PolicyAction, PolicyMatrix, PolicyRule, PresentedHostKey, ProcessDetail, ProcessPage, ProcessSample,
-    Protocol, RiskAssessment, RiskLevel, RiskReason, SendFailure, SendOutcome, SendReport, SendTarget, Session,
-    SessionAuth, SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SessionLayout,
-    SessionReopen, SftpPasteItem, SftpPasteOutcome, Snippet, SnippetGroup, SnippetProvider, SnippetStatus,
-    SnippetUploadReceipt, SocketRow, SshConfigHost, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome,
-    SyncInspectOutcome, SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout,
-    TabMaxWidth, TabPlacement, TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme,
+    CompletionWord, ConnectionTestOutcome, ContainerDetail, ContainerDiskUsage, ContainerDiskUsageKind, ContainerMount,
+    ContainerPort, ContainerPruneReport, ContainerRuntime, ContainerSettings, ContainerSummary, ContainerTransport,
+    CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey, CustomColors, DiskUsage, DownloadFolderView,
+    EnvironmentEntry, FileBookmark, FilesDeleteMode, FilesLayout, ForwardMode, HomeLayout, HostFailure, HostMetrics,
+    HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry, KubeContextInfo,
+    KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy, McpPrompt, McpPromptArgument,
+    McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent, McpResourceRead,
+    McpResourceTemplate, McpScope, McpServerConfig, McpServerContent, McpServerState, McpServerStatus,
+    McpServerTransport, McpToolPolicy, MemoryUsage, NetworkCounters, OpenOutcome, OpenTunnel, PolicyAction,
+    PolicyMatrix, PolicyRule, PresentedHostKey, ProcessDetail, ProcessPage, ProcessSample, Protocol, RiskAssessment,
+    RiskLevel, RiskReason, SendFailure, SendOutcome, SendReport, SendTarget, Session, SessionAuth,
+    SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SessionLayout, SessionReopen,
+    SftpPasteItem, SftpPasteOutcome, Snippet, SnippetGroup, SnippetProvider, SnippetStatus, SnippetUploadReceipt,
+    SocketRow, SshConfigHost, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome, SyncInspectOutcome,
+    SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout, TabMaxWidth,
+    TabPlacement, TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme,
     TerminalEncoding, TerminalHighlightMode, TerminalHighlightRule, TerminalPanelPlacement, TerminalSchemeBackground,
     TerminalSchemeProfile, TerminalSchemeSource, TerminalSettings, ThemeMode, ThemePalette, TrashEmptyOutcome,
     TrashEntry, TrashMoveOutcome, TrashMoveRequest, TunnelFailure, UpdateCheck, UpdateProgress, UploadAnswer,
-    UploadOutcome, VaultArchive, VaultKeychainStatus, VaultState,
+    UploadOutcome, VaultArchive, VaultKeychainStatus, VaultState, VolumeSummary,
 };
 
 /// Fails on any key that is not camelCase, however deep it sits.
@@ -1996,6 +1997,64 @@ fn container_and_cluster_wire_types_keep_their_camel_case_fields() {
         "K8sResponse",
     );
     assert_eq!(response["status"], serde_json::json!(200));
+}
+
+/// The lifecycle batch's wire shapes: the disk-usage row the cleanup page draws, the volume row the
+/// volumes page draws, and the prune report that answers what a prune took with it.
+#[test]
+fn disk_usage_volumes_and_prune_reports_keep_their_camel_case_fields() {
+    let usage = check(
+        &ContainerDiskUsage {
+            kind: ContainerDiskUsageKind::BuildCache,
+            count: 12,
+            size: 209_715_200,
+            reclaimable: 188_743_680,
+        },
+        "ContainerDiskUsage",
+    );
+    assert_eq!(usage["kind"], serde_json::json!("buildCache"));
+    assert_eq!(usage["reclaimable"], serde_json::json!(188743680));
+
+    let volume = check(
+        &VolumeSummary {
+            name: "site-data".to_owned(),
+            driver: "local".to_owned(),
+            mountpoint: "/var/lib/docker/volumes/site-data/_data".to_owned(),
+            size: "1.5GB".to_owned(),
+            created_at: "2026-11-10T10:00:00Z".to_owned(),
+        },
+        "VolumeSummary",
+    );
+    assert_eq!(
+        volume["mountpoint"],
+        serde_json::json!("/var/lib/docker/volumes/site-data/_data")
+    );
+    // A listing that prints no sizes leaves the field off the wire, and the mirror reads it as
+    // optional — a zero would read as "nothing stored", which nobody said.
+    let unsized_row = check(
+        &VolumeSummary {
+            name: "site-data".to_owned(),
+            driver: "local".to_owned(),
+            mountpoint: "/var/lib/docker/volumes/site-data/_data".to_owned(),
+            size: String::new(),
+            created_at: String::new(),
+        },
+        "VolumeSummary::no_size",
+    );
+    assert!(unsized_row.get("size").is_none());
+    assert!(unsized_row.get("createdAt").is_none());
+
+    let report = check(
+        &ContainerPruneReport {
+            reclaimed: 57_996_544,
+            deleted: vec!["4d1a1d0c8bd0".to_owned(), "6c5d0b5f3e2a".to_owned()],
+        },
+        "ContainerPruneReport",
+    );
+    assert_eq!(report["reclaimed"], serde_json::json!(57996544));
+    assert_eq!(report["deleted"][0], serde_json::json!("4d1a1d0c8bd0"));
+    let empty = check(&ContainerPruneReport::default(), "ContainerPruneReport::empty");
+    assert!(empty.get("deleted").is_none());
 }
 
 /// An external MCP server's two shapes: the configuration the settings file holds, and the state

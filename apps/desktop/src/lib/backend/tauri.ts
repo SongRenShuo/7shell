@@ -34,9 +34,11 @@ import type {
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
+  ContainerDiskUsage,
   ContainerImage,
   ContainerImageRemoteDigest,
   ContainerImageTransfer,
+  ContainerPruneReport,
   ContainerRegistryLogin,
   ContainerRegistrySettings,
   ContainerRuntimeInfo,
@@ -47,6 +49,7 @@ import type {
   ImageLayer,
   NetworkCreateRequest,
   NetworkSummary,
+  VolumeSummary,
 } from "@/types/container";
 import type {
   K8sExecRequest,
@@ -1614,6 +1617,38 @@ export function networkCreate(connectionId: string, request: NetworkCreateReques
 /** A network the engine says is still in use is refused with CONTAINER-NETWORK-IN-USE. */
 export function networkRemove(connectionId: string, name: string): Promise<void> {
   return invoke<void>("network_remove", { connectionId, name });
+}
+
+// -- Desktop engine: disk usage, volumes, prunes ---------------------------------
+
+/** The engine's own disk-usage reading; the cleanup page draws its numbers from it before any prune. */
+export function systemDf(connectionId: string): Promise<ContainerDiskUsage[]> {
+  return invoke<ContainerDiskUsage[]>("system_df", { connectionId });
+}
+
+/** Removes the stopped containers, and answers what went with them. */
+export function containerPrune(connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> {
+  return invoke<ContainerPruneReport>("container_prune", { connectionId, acknowledged });
+}
+
+/** The volumes the engine holds — the volumes page's own read. */
+export function volumeList(connectionId: string): Promise<VolumeSummary[]> {
+  return invoke<VolumeSummary[]>("volume_list", { connectionId });
+}
+
+/** A volume the engine says is still mounted is refused with the daemon's own sentence. */
+export function volumeRemove(connectionId: string, name: string, acknowledged: boolean): Promise<void> {
+  return invoke<void>("volume_remove", { connectionId, name, acknowledged });
+}
+
+/** Removes the volumes nothing is mounted from; the flag is the confirm dialog's answer. */
+export function volumePrune(connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> {
+  return invoke<ContainerPruneReport>("volume_prune", { connectionId, acknowledged });
+}
+
+/** Drops the build cache, and answers what it gave back. */
+export function buildCachePrune(connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> {
+  return invoke<ContainerPruneReport>("build_cache_prune", { connectionId, acknowledged });
 }
 
 // -- Desktop engine: registry reads ----------------------------------------------

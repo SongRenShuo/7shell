@@ -640,6 +640,92 @@ fn cidr<'a>(operation: &str, kind: &str, value: &'a str) -> Result<&'a str, Shel
     }
 }
 
+// -- Disk usage, volumes, prunes ----------------------------------------------
+//
+// The cleanup page's readings and the volumes page's rows. Like the network surface, they belong to
+// the desktop's Docker engine: the other runtimes' volume and builder dialects were never exercised
+// here, and an untested command line is refused rather than guessed at.
+
+/// The engine's own disk-usage answer, one JSON document per kind of disk object. Read-only, and
+/// the reading that comes before every prune: the page shows the numbers first.
+pub(crate) fn system_df(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the disk-usage reading on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("system".to_owned());
+    argv.push("df".to_owned());
+    argv.extend(json_format_flag(runtime));
+    Ok(argv)
+}
+
+/// Removes the stopped containers the engine counts as reclaimable. `-f` because the confirmation
+/// prompt opens on a channel nobody is typing into — the confirmation happened in the interface,
+/// and the acknowledged flag carried it.
+pub(crate) fn container_prune(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the container prune on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("container".to_owned());
+    argv.push("prune".to_owned());
+    argv.push("-f".to_owned());
+    Ok(argv)
+}
+
+/// The volumes the engine holds. Read-only; the removal's guardrail is the engine's own refusal.
+pub(crate) fn volume_list(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "volume listing on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("volume".to_owned());
+    argv.push("ls".to_owned());
+    argv.extend(json_format_flag(runtime));
+    Ok(argv)
+}
+
+pub(crate) fn volume_remove(runtime: ContainerRuntime, name: &str) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "volume removal on this runtime")?;
+    let name = identifier("the volume removal request", "volume name", name)?;
+    let mut argv = base(runtime, "");
+    argv.push("volume".to_owned());
+    argv.push("rm".to_owned());
+    argv.push(name.to_owned());
+    Ok(argv)
+}
+
+/// Removes the volumes nothing is mounted from. No `--all`: the named volumes a person made are
+/// data somebody chose to keep, and the bare prune only takes the unmounted ones — the sentence
+/// the interface's confirmation carries before this command line is ever built.
+pub(crate) fn volume_prune(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the volume prune on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("volume".to_owned());
+    argv.push("prune".to_owned());
+    argv.push("-f".to_owned());
+    Ok(argv)
+}
+
+/// Drops the build cache. The dangling cache is the reclaimable half of the build-cache reading,
+/// and `-f` keeps the prompt off the channel nobody types into.
+pub(crate) fn build_cache_prune(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    require_docker(runtime, "the build-cache prune on this runtime")?;
+    let mut argv = base(runtime, "");
+    argv.push("builder".to_owned());
+    argv.push("prune".to_owned());
+    argv.push("-f".to_owned());
+    Ok(argv)
+}
+
+/// The one cheap, network-free probe for whether this CLI can answer a volume request at all —
+/// the same shape the events and Compose bits are answered by. The df and prune words came to the
+/// CLI in the same release, so this one probe stands for the family.
+pub(crate) fn volume_probe(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    if runtime != ContainerRuntime::Docker {
+        return Err(ShellError::app_unsupported("volume listing on this runtime"));
+    }
+    let mut argv = base(runtime, "");
+    argv.push("volume".to_owned());
+    argv.push("ls".to_owned());
+    argv.push("--help".to_owned());
+    Ok(argv)
+}
+
 // -- Compose -----------------------------------------------------------------
 //
 // The Compose plugin rides the same `docker` program and the same argv discipline. The project
@@ -852,6 +938,22 @@ pub(crate) fn create(
     }
     if request.privileged {
         argv.push("--privileged".to_owned());
+    }
+    // An entrypoint rides only when the request named one: the flag with no value resets to the
+    // image's default, which is what leaving the field out already means. It is one word behind a
+    // flag, so it passes the identifier gate like every other word the request names.
+    if let Some(entrypoint) = request
+        .entrypoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if runtime == ContainerRuntime::Wslc {
+            return Err(ShellError::app_unsupported("an entrypoint on the WSLC runtime"));
+        }
+        let entrypoint = identifier("the create request", "entrypoint", entrypoint)?;
+        argv.push("--entrypoint".to_owned());
+        argv.push(entrypoint.to_owned());
     }
     for capability in &request.capabilities {
         argv.push("--cap-add".to_owned());
@@ -1886,6 +1988,59 @@ mod tests {
             ..ContainerCreateRequest::default()
         };
         assert!(create(ContainerRuntime::Docker, "", &bad_label).is_err());
+        let bad_entrypoint = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            entrypoint: Some("--reset".to_owned()),
+            ..ContainerCreateRequest::default()
+        };
+        assert!(create(ContainerRuntime::Docker, "", &bad_entrypoint).is_err());
+    }
+
+    #[test]
+    fn an_entrypoint_rides_only_when_the_request_named_one() {
+        let with = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            entrypoint: Some("/docker-entrypoint.sh".to_owned()),
+            command: "nginx -g 'daemon off;'".to_owned(),
+            ..ContainerCreateRequest::default()
+        };
+        assert_eq!(
+            create(ContainerRuntime::Docker, "", &with).unwrap(),
+            vec![
+                "docker",
+                "run",
+                "-d",
+                "--entrypoint",
+                "/docker-entrypoint.sh",
+                "nginx",
+                "nginx",
+                "-g",
+                "daemon off;"
+            ]
+        );
+        // Absent, empty and whitespace all mean the image's own default, and none of them puts a
+        // flag on the line.
+        for entrypoint in [None, Some(String::new()), Some("   ".to_owned())] {
+            let bare = ContainerCreateRequest {
+                image: "nginx".to_owned(),
+                entrypoint,
+                ..ContainerCreateRequest::default()
+            };
+            let argv = create(ContainerRuntime::Docker, "", &bare).unwrap();
+            assert!(
+                !argv.iter().any(|argument| argument == "--entrypoint"),
+                "an unnamed entrypoint put the flag on the line: {argv:?}"
+            );
+        }
+        let wslc = ContainerCreateRequest {
+            image: "nginx".to_owned(),
+            entrypoint: Some("/docker-entrypoint.sh".to_owned()),
+            ..ContainerCreateRequest::default()
+        };
+        assert_eq!(
+            create(ContainerRuntime::Wslc, "", &wslc).unwrap_err().code(),
+            sevenshell_error::ErrorCode::AppUnsupported
+        );
     }
 
     #[test]
@@ -2060,6 +2215,87 @@ mod tests {
             vec!["docker", "network", "inspect", "bridge", "host"]
         );
         assert!(network_inspect(ContainerRuntime::Docker, &["-x".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn the_disk_reading_and_the_prunes_are_docker_words_with_the_prompt_off() {
+        assert_eq!(
+            system_df(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "system", "df", "--format", "{{json .}}"]
+        );
+        assert_eq!(
+            container_prune(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "container", "prune", "-f"]
+        );
+        assert_eq!(
+            volume_prune(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "volume", "prune", "-f"],
+            "no --all: a bare volume prune takes the unmounted volumes only, which is the sentence the confirmation carries"
+        );
+        assert_eq!(
+            build_cache_prune(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "builder", "prune", "-f"]
+        );
+        for runtime in [
+            ContainerRuntime::Podman,
+            ContainerRuntime::Nerdctl,
+            ContainerRuntime::Wslc,
+        ] {
+            assert_eq!(
+                system_df(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+            assert_eq!(
+                container_prune(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+            assert_eq!(
+                volume_prune(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+            assert_eq!(
+                build_cache_prune(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
+    }
+
+    #[test]
+    fn volume_listing_and_removal_are_docker_words_and_removal_refuses_an_option_shaped_name() {
+        assert_eq!(
+            volume_list(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "volume", "ls", "--format", "{{json .}}"]
+        );
+        assert_eq!(
+            volume_remove(ContainerRuntime::Docker, "site-data").unwrap(),
+            vec!["docker", "volume", "rm", "site-data"]
+        );
+        for name in ["", "  ", "--force", "-f", "a\nb"] {
+            assert!(
+                volume_remove(ContainerRuntime::Docker, name).is_err(),
+                "volume rm accepted {name:?}"
+            );
+        }
+        for runtime in [
+            ContainerRuntime::Podman,
+            ContainerRuntime::Nerdctl,
+            ContainerRuntime::Wslc,
+        ] {
+            assert_eq!(
+                volume_list(runtime).unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+            assert_eq!(
+                volume_remove(runtime, "site-data").unwrap_err().code(),
+                sevenshell_error::ErrorCode::AppUnsupported
+            );
+        }
+        assert_eq!(
+            volume_probe(ContainerRuntime::Docker).unwrap(),
+            vec!["docker", "volume", "ls", "--help"],
+            "the probe is network-free: a help read, not a listing"
+        );
+        assert!(volume_probe(ContainerRuntime::Podman).is_err());
     }
 
     #[test]
