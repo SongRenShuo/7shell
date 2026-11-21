@@ -209,7 +209,10 @@
         "down": "下载",
         "up": "上传",
         "used": "已用",
-        "free": "可用"
+        "free": "可用",
+        "cpuTrend": "占用趋势",
+        "netTrend": "吞吐趋势",
+        "usedShare": "存储已用"
       }
     },
     "power": {

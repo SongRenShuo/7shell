@@ -1,7 +1,7 @@
 /**
- * The monitor dialog, as a person meets it: the first reading arrives and the three lines appear,
- * a second reading turns into a rate rather than a total, only the row it was opened for is drawn,
- * and a closed dialog asks the engine nothing.
+ * The monitor dialog, as a person meets it: the first reading arrives and the three lines appear
+ * (each titled with the row's newest number), a second reading turns into a rate rather than a
+ * total, only the row it was opened for is drawn, and a closed dialog asks the engine nothing.
  *
  * The sampling discipline itself (in front and visible) is the overview's, whose suite already
  * pins it; what can only be seen here is the per-container cut and the dialog's own lifecycle.
@@ -128,5 +128,29 @@ describe("the container monitor", () => {
     const network = document.querySelector("[data-container-monitor-network]");
     expect(network?.textContent).toContain("/s");
     expect(network?.textContent, "a rate, not the counter").not.toContain("6000");
+  });
+
+  it("titles each chart with the row's newest reading, the overview's own visual", async () => {
+    vi.useFakeTimers();
+    statsMock.mockResolvedValue([stats({ cpuPercent: 12.5, memoryPercent: 50 })]);
+    await render();
+
+    expect(document.querySelector("[data-container-monitor-cpu]")?.textContent).toContain("12.5%");
+    expect(document.querySelector("[data-container-monitor-memory]")?.textContent).toContain("50.0%");
+    expect(document.querySelector("[data-container-monitor-network]")?.textContent).toContain("/s");
+  });
+
+  it("draws only the row it was opened for: another container's numbers stay off the titles", async () => {
+    vi.useFakeTimers();
+    statsMock.mockResolvedValue([
+      stats({ id: "other", name: "db", cpuPercent: 99, memoryPercent: 88 }),
+      stats({ cpuPercent: 12.5, memoryPercent: 50 }),
+    ]);
+    await render();
+    await nextTick();
+
+    const cpu = document.querySelector("[data-container-monitor-cpu]")?.textContent ?? "";
+    expect(cpu, "the opened row's reading, not the loudest row of the answer").toContain("12.5%");
+    expect(cpu).not.toContain("99%");
   });
 });

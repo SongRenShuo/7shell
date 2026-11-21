@@ -15,6 +15,14 @@
  * after a pause shows the level readings and waits for the next tick to say a rate, which is
  * honest — a rate made from a stale previous sample would be a number about nothing.
  *
+ * The CPU and network cards carry a trend strip each — the chart layer's SparklineStrip, sixty
+ * samples the pump gathers as it goes — and the storage card a capacity bar. The strips grow only
+ * when a sample lands, so a paused pump leaves them standing where they are: a strip that kept
+ * growing behind a hidden window would be the sampling discipline's first breach. The tier colours
+ * (the storage bar's fill, a hot CPU's number) come from `usageTone` resolved in the workbench
+ * family, because the theme's tokens do not follow onto the wallpaper. A different machine resets
+ * every reading and every strip — the desk of one host is not the desk of another.
+ *
  * The enabled set is handed in; what it means and where it lives is the pane's business.
  */
 import { Cpu, HardDrive, House, Wifi } from "@lucide/vue";
@@ -22,6 +30,8 @@ import type { Component } from "vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import SparklineStrip from "@/components/charts/SparklineStrip.vue";
+import { TONE_WORKBENCH } from "@/components/charts/tone";
 import { backend } from "@/lib/backend/api";
 import { usageTone, type WorkbenchWidgetId } from "@/lib/workbench/desktopWidgets";
 import type { HostMetrics } from "@/types/monitor";
@@ -45,8 +55,17 @@ const { t } = useI18n();
 /** How often the machine is asked, while somebody is watching. */
 const SAMPLE_INTERVAL_MS = 2_000;
 
+/**
+ * How many samples the trend strips keep. Sixty twos are two minutes of history — the shape the
+ * plan asked the desk to hold, gathered by the pump itself, with no buffer of its own to sample.
+ */
+const TREND_POINTS = 60;
+
 const latest = ref<HostMetrics | null>(null);
 const previous = ref<HostMetrics | null>(null);
+/** The busy share and the throughput, as the pump sampled them: the strips' own history. */
+const cpuTrend = ref<number[]>([]);
+const netTrend = ref<number[]>([]);
 let ticker: ReturnType<typeof setInterval> | undefined;
 let onVisibility: (() => void) | undefined;
 /**
@@ -67,6 +86,22 @@ function shouldPump(): boolean {
   return props.active && props.handle !== null && visible();
 }
 
+/** Keeps a strip's history at the plan's length, dropping the oldest sample first. */
+function pushTrend(series: number[], value: number): void {
+  series.push(value);
+  if (series.length > TREND_POINTS) {
+    series.shift();
+  }
+}
+
+/** A different machine is a different desk: every reading and strip starts over with it. */
+function resetReadings(): void {
+  latest.value = null;
+  previous.value = null;
+  cpuTrend.value = [];
+  netTrend.value = [];
+}
+
 async function sample(): Promise<void> {
   const handle = props.handle;
   if (handle === null || inFlight) {
@@ -78,6 +113,16 @@ async function sample(): Promise<void> {
     const next = await backend.monitor.sample(handle);
     previous.value = latest.value;
     latest.value = next;
+    // The strips grow only here — a sample that landed. A paused pump freezes them where they
+    // stand, which is the discipline the readings already keep: nothing about nothing.
+    const busy = cpuPercent.value;
+    if (busy !== null) {
+      pushTrend(cpuTrend.value, busy);
+    }
+    const rates = netRates.value;
+    if (rates !== null) {
+      pushTrend(netTrend.value, rates.received + rates.sent);
+    }
   } catch {
     // A sample that failed leaves the last readings on the desk: a widget that blinked away on a
     // hiccup would be a widget less useful than no widget.
@@ -104,8 +149,11 @@ function stopPump(): void {
 }
 
 watch(
-  () => [props.active, props.handle],
-  () => {
+  () => [props.active, props.handle] as const,
+  ([, handle], [, wasHandle]) => {
+    if (handle !== wasHandle) {
+      resetReadings();
+    }
     if (shouldPump()) {
       startPump();
     } else {
@@ -257,6 +305,17 @@ interface WidgetCard {
   readonly icon: Component;
   readonly title: string;
   readonly lines: { label: string; value: string; tone?: "ok" | "warn" | "danger" }[];
+  /**
+   * The card's recent history, drawn as the strip of bars the desk's chart layer calls
+   * SparklineStrip. A card with no history yet (or none at all, for the system card) leaves it out.
+   */
+  readonly trend?: { readonly values: readonly number[]; readonly label: string };
+  /**
+   * A capacity reading's bar, for the storage card: how full, at the width the card can spare.
+   * The fill wears the tier `usageTone` named, resolved in the workbench family — the theme's
+   * tokens do not follow onto the wallpaper, and these are the desk's own.
+   */
+  readonly bar?: { readonly percent: number; readonly fill: string; readonly label: string };
 }
 
 const cards = computed<WidgetCard[]>(() => {
@@ -282,12 +341,14 @@ const cards = computed<WidgetCard[]>(() => {
         {
           label: t("workbench.desktop.widgets.busy"),
           value: cpuPercent.value === null ? "—" : `${cpuPercent.value}%`,
+          tone: cpuPercent.value === null ? undefined : usageTone(cpuPercent.value),
         },
         {
           label: t("workbench.desktop.widgets.cores"),
           value: latest.value?.cores === undefined ? "—" : `${latest.value.cores}`,
         },
       ],
+      trend: { values: cpuTrend.value, label: t("workbench.desktop.widgets.cpuTrend") },
     });
   }
   if (props.enabled.includes("net")) {
@@ -305,6 +366,7 @@ const cards = computed<WidgetCard[]>(() => {
           value: netRates.value === null ? "—" : `${formatBytes(netRates.value.sent)}/s`,
         },
       ],
+      trend: { values: netTrend.value, label: t("workbench.desktop.widgets.netTrend") },
     });
   }
   if (props.enabled.includes("storage")) {
@@ -323,6 +385,14 @@ const cards = computed<WidgetCard[]>(() => {
           value: storage.value === null ? "—" : formatBytes(storage.value.available),
         },
       ],
+      bar:
+        storage.value === null
+          ? undefined
+          : {
+              percent: storage.value.percent,
+              fill: TONE_WORKBENCH[storage.value.tone],
+              label: `${t("workbench.desktop.widgets.usedShare")} ${storage.value.percent}%`,
+            },
     });
   }
   return drawn;
@@ -362,6 +432,21 @@ function targetOf(id: WorkbenchWidgetId): "monitor" | "system" {
           :class="line.tone === 'warn' ? 'is-warn' : line.tone === 'danger' ? 'is-danger' : undefined"
           >{{ line.value }}</span
         >
+      </span>
+      <!-- The card's trend, the chart layer's SparklineStrip wearing the desk's own accent. -->
+      <SparklineStrip
+        v-if="card.trend"
+        :values="card.trend.values"
+        :label="card.trend.label"
+        tone="accent"
+        height-class="h-4"
+      />
+      <!--
+        The storage card's fill: how full the fullest filesystem is, in the one bar a widget can
+        carry. The tier colour comes pre-resolved from the workbench family, never the theme's.
+      -->
+      <span v-if="card.bar" class="widget-bar" role="img" :aria-label="card.bar.label">
+        <span class="widget-bar-fill" :style="{ width: `${card.bar.percent}%`, background: card.bar.fill }"></span>
       </span>
     </button>
   </aside>
@@ -438,6 +523,25 @@ function targetOf(id: WorkbenchWidgetId): "monitor" | "system" {
 .widget-value {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The storage card's capacity bar, MiniBar's shape in the desk's own colors: the track is the
+ * wallpaper text at a whisper, and the fill is the tier pre-resolved by the card data — the
+ * theme's semantic tokens never reach the wallpaper, so neither does this bar.
+ */
+.widget-bar {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--workbench-on-picture) 16%, transparent);
+}
+
+.widget-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
 }
 
 /* The thresholds the desktops share: 90-95 wears amber, past 95 wears red. */

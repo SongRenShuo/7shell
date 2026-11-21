@@ -209,7 +209,10 @@
         "down": "Down",
         "up": "Up",
         "used": "Used",
-        "free": "Free"
+        "free": "Free",
+        "cpuTrend": "Busy share trend",
+        "netTrend": "Throughput trend",
+        "usedShare": "Storage used"
       }
     },
     "power": {
