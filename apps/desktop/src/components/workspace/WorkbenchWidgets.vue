@@ -49,6 +49,14 @@ const latest = ref<HostMetrics | null>(null);
 const previous = ref<HostMetrics | null>(null);
 let ticker: ReturnType<typeof setInterval> | undefined;
 let onVisibility: (() => void) | undefined;
+/**
+ * Whether one sample is still on its way.
+ *
+ * The tick skips rather than overlaps: two samples in flight at once are two commands on the
+ * connection the terminal is typing into, and a sample slower than the interval — a `df` on a
+ * busy NAS is the usual one — would otherwise stack a channel for every tick that passed it.
+ */
+let inFlight = false;
 
 function visible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -61,9 +69,11 @@ function shouldPump(): boolean {
 
 async function sample(): Promise<void> {
   const handle = props.handle;
-  if (handle === null) {
+  if (handle === null || inFlight) {
     return;
   }
+
+  inFlight = true;
   try {
     const next = await backend.monitor.sample(handle);
     previous.value = latest.value;
@@ -71,6 +81,8 @@ async function sample(): Promise<void> {
   } catch {
     // A sample that failed leaves the last readings on the desk: a widget that blinked away on a
     // hiccup would be a widget less useful than no widget.
+  } finally {
+    inFlight = false;
   }
 }
 

@@ -76,6 +76,10 @@ error_catalog! {
     SshTimeout => "SSH-TIMEOUT", "errors.ssh.timeout";
     #[doc = "A channel, pty request or subsystem request failed."]
     SshChannelFailed => "SSH-CHANNEL-FAILED", "errors.ssh.channelFailed";
+    #[doc = "The server refused to open a channel on this connection — its session slots are in use."]
+    SshChannelRefused => "SSH-CHANNEL-REFUSED", "errors.ssh.channelRefused";
+    #[doc = "Reconnection is paused after repeated failures; the next attempt is allowed later."]
+    SshBackoff => "SSH-BACKOFF", "errors.ssh.backoff";
     #[doc = "The key file could not be read, or its passphrase was wrong."]
     SshKeyInvalid => "SSH-KEY-INVALID", "errors.ssh.keyInvalid";
     #[doc = "The key is of a kind this build cannot use."]
@@ -343,6 +347,8 @@ error_catalog! {
     AppUnsupported => "APP-UNSUPPORTED", "errors.app.unsupported";
     #[doc = "An unexpected internal failure."]
     AppInternal => "APP-INTERNAL", "errors.app.internal";
+    #[doc = "Something else is already using it; the caller is asked to wait rather than queue."]
+    AppBusy => "APP-BUSY", "errors.app.busy";
 }
 
 impl ErrorCode {

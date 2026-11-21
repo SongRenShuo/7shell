@@ -92,6 +92,11 @@ pub struct SshSession {
 }
 
 impl SshSession {
+    /// The host and port this connection is on, for messages that name where the problem is.
+    pub fn peer(&self) -> (&str, u16) {
+        (&self.host, self.port)
+    }
+
     /// Verifies the host key, authenticates, and opens a shell channel with a pty.
     ///
     /// Output arrives on `events`; the channel closes when the sender is dropped or the server
@@ -204,9 +209,10 @@ impl SshSession {
     ///
     /// A subsystem is a program the server runs for the life of the channel, so it goes on a
     /// channel of its own: a file browser and a terminal can share one connection without either
-    /// seeing the other's traffic.
+    /// seeing the other's traffic. A request that is refused closes the channel before the error
+    /// travels, because the stream the caller would have held is the thing that closes it.
     pub async fn open_subsystem_stream(&self, name: &str) -> Result<BoxedStream, ShellError> {
-        let channel = self
+        let mut channel = self
             .handle
             .channel_open_session()
             .await
@@ -214,10 +220,11 @@ impl SshSession {
 
         // A reply is asked for so a server without the subsystem says so, instead of the caller
         // waiting for output that will never come.
-        channel
-            .request_subsystem(true, name.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("the server refused the {name} subsystem"), &error))?;
+        if let Err(error) = channel.request_subsystem(true, name.to_owned()).await {
+            let error = self.channel_failure(&format!("the server refused the {name} subsystem"), &error);
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         Ok(Box::new(channel.into_stream()))
     }
@@ -227,13 +234,21 @@ impl SshSession {
     /// [`exec`](Self::exec) is the same channel with both ends collected into a value; a protocol
     /// that answers a record with a record needs the conversation instead. Nothing about the
     /// channel differs — it is a session channel with one command on it — so it is opened here,
-    /// beside the other channel shapes, and handed over as bytes.
+    /// beside the other channel shapes, and handed over as bytes. A start that is refused closes
+    /// the channel, for the same reason a refused subsystem does.
     pub async fn open_exec_stream(&self, command: &str) -> Result<BoxedStream, ShellError> {
-        let channel = self.open_session_channel_for("a command").await?;
-        channel
-            .exec(true, command.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
+        let mut channel = self.open_session_channel_for("a command").await?;
+        if let Err(error) = channel.exec(true, command.to_owned()).await {
+            let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
+
+        let mut early = Early::default();
+        if let Err(error) = await_command_reply(&mut channel, self, "the command", &mut early).await {
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
         Ok(Box::new(channel.into_stream()))
     }
 
@@ -273,7 +288,7 @@ impl SshSession {
 
     /// The failure shape for everything that happens on an established session.
     pub(crate) fn channel_failure(&self, what: &str, error: &russh::Error) -> ShellError {
-        ShellError::ssh_channel_failed(&self.host, self.port, format!("{what}: {error}"))
+        channel_failure(&self.host, self.port, what, error)
     }
 }
 
@@ -348,17 +363,23 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
             let mut channel = handle
                 .channel_open_session()
                 .await
-                .map_err(|error| channel_failure(&target, "a session channel could not be opened", &error))?;
-            request_terminal(&mut channel, &target, &terminal_type, size, &events).await?;
+                .map_err(|error| target_channel_failure(&target, "a session channel could not be opened", &error))?;
+            if let Err(error) = request_terminal(&mut channel, &target, &terminal_type, size, &events).await {
+                // The pty or the shell was refused: the channel is open but produces nothing, so
+                // it is closed here rather than left to hold a session slot on the server.
+                close_channel_quietly(&mut channel).await;
+                return Err(error);
+            }
 
             if forward_agent {
                 // Asked with `want_reply: false`, the way the ssh command line asks: a server that
                 // does not forward the agent simply does not, and there is nothing useful to say to
                 // whoever is opening a terminal about it.
-                channel
-                    .agent_forward(false)
-                    .await
-                    .map_err(|error| channel_failure(&target, "the agent could not be offered", &error))?;
+                if let Err(error) = channel.agent_forward(false).await {
+                    let error = target_channel_failure(&target, "the agent could not be offered", &error);
+                    close_channel_quietly(&mut channel).await;
+                    return Err(error);
+                }
                 agent_forwarding.store(true, Ordering::Relaxed);
             }
 
@@ -489,9 +510,44 @@ pub(crate) fn failure_envelope(host: &str, port: u16, timeout: Duration, failure
     }
 }
 
-/// The failure shape for everything that happens on an established session.
-fn channel_failure(target: &Target, what: &str, error: &russh::Error) -> ShellError {
-    ShellError::ssh_channel_failed(&target.host, target.port, format!("{what}: {error}"))
+/// The failure shape for everything that happens on an established session, when the caller
+/// holds the target rather than the session.
+fn target_channel_failure(target: &Target, what: &str, error: &russh::Error) -> ShellError {
+    channel_failure(&target.host, target.port, what, error)
+}
+
+/// The failure shape for a request on a connection that is up, classified once.
+///
+/// A server refusing the channel *open* is a different answer from every other channel failure:
+/// it means the connection's session slots are occupied — OpenSSH answers an exhausted
+/// `MaxSessions` with "administratively prohibited", often reading "no more sessions" — and the
+/// same request sent again immediately meets the same refusal. That answer travels under its own
+/// code so callers back off instead of retrying into the wall.
+fn channel_failure(host: &str, port: u16, what: &str, error: &russh::Error) -> ShellError {
+    match error {
+        russh::Error::ChannelOpenFailure(reason) => ShellError::ssh_channel_refused(
+            host,
+            port,
+            format!(
+                "{what}: the server refused to open the channel ({}); its session slots for this \
+                 connection are in use, and channels not closed by this side keep the slots occupied",
+                reason.description()
+            ),
+        ),
+        other => ShellError::ssh_channel_failed(host, port, format!("{what}: {other}")),
+    }
+}
+
+/// Closes a channel this side opened, without waiting for anything.
+///
+/// russh's `Channel` sends nothing when dropped, so a channel that is abandoned on a timeout or
+/// an error path would leave the server holding a session slot until the connection dies — which
+/// is how a sampling loop eats a server's `MaxSessions`. Every path that stops reading a channel
+/// it opened closes it here, and the errors are deliberately dropped: a close that cannot be sent
+/// means the connection is already gone, and there is nothing left on it to leak.
+pub(crate) async fn close_channel_quietly(channel: &mut Channel<Msg>) {
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
 }
 
 /// Keeps the first failure of a teardown and carries on with the rest of it.
@@ -740,13 +796,13 @@ async fn request_terminal(
     channel
         .request_pty(true, terminal_type, size.columns, size.rows, 0, 0, &[])
         .await
-        .map_err(|error| channel_failure(target, "the pseudo-terminal could not be requested", &error))?;
+        .map_err(|error| target_channel_failure(target, "the pseudo-terminal could not be requested", &error))?;
     await_reply(channel, target, events, "the pseudo-terminal").await?;
 
     channel
         .request_shell(true)
         .await
-        .map_err(|error| channel_failure(target, "the shell could not be started", &error))?;
+        .map_err(|error| target_channel_failure(target, "the shell could not be started", &error))?;
     await_reply(channel, target, events, "the shell").await
 }
 
@@ -1083,10 +1139,51 @@ mod tests {
             std::io::ErrorKind::ConnectionRefused,
             "connection refused",
         )));
-        let error = failure_envelope("127.0.0.1", 9, Duration::from_secs(10), failure);
+        let error = failure_envelope("host.example", 22, Duration::from_secs(10), failure);
         assert_eq!(error.code(), ErrorCode::SshUnreachable);
         assert_eq!(error.outcome(), OperationOutcome::NotSent);
         assert!(error.detail().unwrap_or_default().contains("connection refused"));
+    }
+
+    #[test]
+    fn a_server_refusing_the_channel_open_is_reported_as_refused_with_the_slot_semantics() {
+        // What OpenSSH answers on an exhausted `MaxSessions`: reason 1, usually reading
+        // "no more sessions". The envelope has to say what that means, because the library
+        // drops the server's own words.
+        let error = channel_failure(
+            "host.example",
+            22,
+            "a channel for a command",
+            &russh::Error::ChannelOpenFailure(russh::ChannelOpenFailure::AdministrativelyProhibited),
+        );
+        assert_eq!(error.code(), ErrorCode::SshChannelRefused);
+        let detail = error.detail().unwrap_or_default();
+        assert!(detail.contains("session slots"), "detail was: {detail}");
+        assert!(detail.contains("Administratively prohibited"), "detail was: {detail}");
+    }
+
+    #[test]
+    fn a_resource_shortage_refusal_is_reported_as_refused_too() {
+        let error = channel_failure(
+            "host.example",
+            22,
+            "a channel for a command",
+            &russh::Error::ChannelOpenFailure(russh::ChannelOpenFailure::ResourceShortage),
+        );
+        assert_eq!(error.code(), ErrorCode::SshChannelRefused);
+        assert!(error.detail().unwrap_or_default().contains("Resource shortage"));
+    }
+
+    #[test]
+    fn a_channel_failure_that_is_not_a_refusal_keeps_its_old_shape() {
+        let error = channel_failure(
+            "host.example",
+            22,
+            "a command",
+            &russh::Error::IO(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe")),
+        );
+        assert_eq!(error.code(), ErrorCode::SshChannelFailed);
+        assert!(error.detail().unwrap_or_default().contains("broken pipe"));
     }
 
     #[test]
@@ -1388,18 +1485,19 @@ impl SshSession {
     ) -> Result<PtyExecChannel, ShellError> {
         let mut channel = self.open_session_channel_for("a command").await?;
 
-        channel
-            .request_pty(true, terminal_type, columns, rows, 0, 0, &[])
+        let early = match self
+            .start_pty_command(&mut channel, command, terminal_type, columns, rows)
             .await
-            .map_err(|error| self.channel_failure("the pseudo-terminal could not be requested", &error))?;
-        let mut early = Early::default();
-        await_command_reply(&mut channel, self, "the pseudo-terminal", &mut early).await?;
-
-        channel
-            .exec(true, command.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
-        await_command_reply(&mut channel, self, "the command", &mut early).await?;
+        {
+            Ok(early) => early,
+            // The channel is open but produces nothing: whatever was refused stays refused, so it
+            // is closed here instead of holding a session slot on the server until the
+            // connection dies.
+            Err(error) => {
+                close_channel_quietly(&mut channel).await;
+                return Err(error);
+            }
+        };
 
         let (reading, writing) = channel.split();
         let exit_code = Arc::new(Mutex::new(None));
@@ -1415,6 +1513,34 @@ impl SshSession {
             host: self.host.clone(),
             port: self.port,
         })
+    }
+
+    /// Asks for the pty and starts the command on it, collecting output that arrived early.
+    ///
+    /// One function so [`open_pty_exec`](Self::open_pty_exec) can close the channel it opened
+    /// when any step of this is refused — every step here leaves the channel alive on the
+    /// server, and a refusal means the caller never gets the value that would close it.
+    async fn start_pty_command(
+        &self,
+        channel: &mut Channel<Msg>,
+        command: &str,
+        terminal_type: &str,
+        columns: u32,
+        rows: u32,
+    ) -> Result<Early, ShellError> {
+        channel
+            .request_pty(true, terminal_type, columns, rows, 0, 0, &[])
+            .await
+            .map_err(|error| self.channel_failure("the pseudo-terminal could not be requested", &error))?;
+        let mut early = Early::default();
+        await_command_reply(channel, self, "the pseudo-terminal", &mut early).await?;
+
+        channel
+            .exec(true, command.to_owned())
+            .await
+            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
+        await_command_reply(channel, self, "the command", &mut early).await?;
+        Ok(early)
     }
 
     /// Runs one command with bytes fed to its standard input, and waits for it to finish.
@@ -1434,19 +1560,29 @@ impl SshSession {
     ) -> Result<crate::ExecCapture, ShellError> {
         let started = Instant::now();
         let mut channel = self.open_session_channel_for("a command").await?;
-        channel
-            .exec(true, command.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
+        if let Err(error) = channel.exec(true, command.to_owned()).await {
+            let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         let mut early = Early::default();
-        await_command_reply(&mut channel, self, "the command", &mut early).await?;
+        if let Err(error) = await_command_reply(&mut channel, self, "the command", &mut early).await {
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         let (mut reading, writing) = channel.split();
+        // Behind an `Arc` because the writer task owns a copy of it: the same half is what
+        // closes the channel when this read ends without the server having closed it.
+        let writing = Arc::new(writing);
         let bytes = input.to_vec();
-        let writer = tokio::spawn(async move {
-            writing.data_bytes(bytes).await?;
-            writing.eof().await
+        let writer = tokio::spawn({
+            let writing = Arc::clone(&writing);
+            async move {
+                writing.data_bytes(bytes).await?;
+                writing.eof().await
+            }
         });
 
         let mut stdout = Vec::new();
@@ -1455,6 +1591,10 @@ impl SshSession {
 
         let mut exit_code = None;
         let mut truncated = false;
+        // Set when the server said Close itself: the one way this read ends with nothing left to
+        // release. A timeout, a full output ceiling or a vanished connection all end with a
+        // channel the server is still holding, and those are closed below.
+        let mut server_closed = false;
 
         let collect = async {
             // Read until the channel closes, not until it ends: the exit status is sent after the
@@ -1465,7 +1605,10 @@ impl SshSession {
                     // Stream 1 is standard error; there is no other stream this talks to.
                     ChannelMsg::ExtendedData { data, ext: 1 } => stderr.extend_from_slice(&data),
                     ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
-                    ChannelMsg::Close => break,
+                    ChannelMsg::Close => {
+                        server_closed = true;
+                        break;
+                    }
                     _ => {}
                 }
                 if stdout.len() + stderr.len() > max_output_bytes {
@@ -1480,6 +1623,14 @@ impl SshSession {
         // command that exited without reading all of its input answers with its exit status, and a
         // write error would only restate that.
         writer.abort();
+
+        if !server_closed {
+            // A timeout leaves the command running on the far side; a full ceiling leaves it
+            // mid-write. Either way the channel still holds a session slot, and the server frees
+            // the slot only when it is told Close — which the reader this ends with will not send.
+            let _ = writing.eof().await;
+            let _ = writing.close().await;
+        }
 
         if timed_out {
             return Err(ShellError::ssh_timeout(&self.host, self.port, whole_seconds(timeout)));
@@ -1507,13 +1658,17 @@ impl SshSession {
     /// arrive after the last byte and are the only account of why a stream ended early.
     pub async fn open_exec_command(&self, command: &str) -> Result<ExecCommand, ShellError> {
         let mut channel = self.open_session_channel_for("a command").await?;
-        channel
-            .exec(true, command.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
+        if let Err(error) = channel.exec(true, command.to_owned()).await {
+            let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         let mut early = Early::default();
-        await_command_reply(&mut channel, self, "the command", &mut early).await?;
+        if let Err(error) = await_command_reply(&mut channel, self, "the command", &mut early).await {
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         let (reading, writing) = channel.split();
         let writing = Arc::new(writing);

@@ -17,6 +17,8 @@
       "unreachable": "Could not reach {host}:{port}.",
       "timeout": "{host}:{port} did not respond within {seconds} seconds.",
       "channelFailed": "An SSH channel on {host}:{port} could not be opened or used.",
+      "channelRefused": "The server at {host}:{port} refused a channel: this connection's session slots are in use. {detail}",
+      "backoff": "Connections to {host}:{port} are paused after repeated failures; the next attempt is allowed in {seconds} seconds.",
       "keyInvalid": "The key could not be read. If it has a passphrase, check that too.",
       "keyUnsupported": "This build cannot use that kind of key.",
       "configUnsupported": "This OpenSSH configuration uses {directive}, which this build cannot honour. Nothing was sent.",
@@ -180,7 +182,8 @@
       "notReady": "The application is still starting up.",
       "noTransport": "{operation} needs the desktop application.",
       "unsupported": "{what} is not implemented in this version yet.",
-      "internal": "Something went wrong inside the application."
+      "internal": "Something went wrong inside the application.",
+      "busy": "It is already in use by another operation. Waiting for that one to finish."
     },
     "browser": {
       "hostUnavailable": "Handing a desktop to the browser needs the desktop application: the embedded host lives there."

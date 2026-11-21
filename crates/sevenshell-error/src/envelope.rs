@@ -393,6 +393,33 @@ impl ShellError {
             .with_detail(detail)
     }
 
+    /// The server refused to open a channel on a connection that is up.
+    ///
+    /// Distinct from [`Self::ssh_channel_failed`] on purpose: a refused channel-open means the
+    /// connection's session slots are occupied (a server's `MaxSessions`), so the same request
+    /// sent again immediately meets the same refusal. Callers are expected to back off, and the
+    /// detail carries the refusal the server named.
+    pub fn ssh_channel_refused(host: &str, port: u16, detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::SshChannelRefused, ssh_origin(host, port))
+            .with_param("host", host)
+            .with_param("port", port.to_string())
+            .with_detail(detail)
+    }
+
+    /// A reconnection is paused because the last attempts to this host failed.
+    ///
+    /// The `seconds` parameter says how long until the next attempt is allowed. The envelope is
+    /// a fast, honest answer for callers that would otherwise queue up against a host that is
+    /// already refusing connections.
+    pub fn ssh_backoff(host: &str, port: u16, seconds: u64, failures: u32, detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::SshBackoff, ssh_origin(host, port))
+            .with_param("host", host)
+            .with_param("port", port.to_string())
+            .with_param("seconds", seconds.to_string())
+            .with_param("failures", failures.to_string())
+            .with_detail(detail)
+    }
+
     // -- Terminal transports (Telnet, serial, local shells) ----------------
 
     /// A Telnet console could not be reached. The peer is the address the person typed; the
@@ -968,6 +995,14 @@ impl ShellError {
 
     pub fn app_internal(detail: impl AsRef<str>) -> Self {
         Self::new(ErrorCode::AppInternal, Origin::new(Subsystem::App)).with_detail(detail)
+    }
+
+    /// Something else is already using the thing the call names, and the call was skipped rather
+    /// than queued behind it. A throttle's answer, not a failure of the thing itself.
+    pub fn app_busy(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::AppBusy, Origin::new(Subsystem::App))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::NotSent)
     }
 
     /// Handing a desktop to the system browser asks the desktop shell, because the embedded host
