@@ -8,6 +8,7 @@
 //! callable from a command line later.
 
 mod archive;
+mod backoff;
 mod batch;
 mod completion;
 mod compose;
