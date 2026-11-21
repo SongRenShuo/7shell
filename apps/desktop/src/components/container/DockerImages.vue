@@ -15,8 +15,12 @@
  *
  * The update check is the same pull, entered from the other end: the row asks the registry what a
  * tag names now, and the answer — a newer image or an honest failure to learn either way — lives
- * on the row until a pull of that image completes. An engine whose command line cannot answer the
- * question offers the manual pull only; the check is the one thing the capability bit trims.
+ * on the row until a pull of that image completes. The whole list can be asked at once from the
+ * page's own button: every image the engine can question is checked, a few at a time, each row
+ * saying where it is, and an answer that turns an image from "unknown" to "newer" is told to the
+ * notification centre, because the sweep is usually started and then left alone. An engine whose
+ * command line cannot answer the question offers the manual pull only; the check is the one thing
+ * the capability bit trims.
  */
 import { Ellipsis, RotateCw } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
@@ -30,6 +34,7 @@ import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
 import { backend } from "@/lib/backend/api";
+import { runLimited } from "@/lib/concurrency";
 import type { MenuEntry } from "@/lib/menu/types";
 import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
@@ -41,6 +46,7 @@ import {
   relatedContainers,
   useContainerStore,
 } from "@/stores/container";
+import { useNotificationsStore } from "@/stores/notifications";
 import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerImage } from "@/types/container";
 
@@ -184,16 +190,84 @@ watch(
   },
 );
 
+/**
+ * How many images one sweep keeps in flight. Registries rate-limit, and a hundred images asked at
+ * once is a hundred waits queued behind one connection; four is where the sweep stays quick
+ * without turning the question into a flood.
+ */
+const IMAGE_CHECK_CONCURRENCY = 4;
+
+const checkAllRunning = ref(false);
+const checkAllDone = ref(0);
+const checkAllTotal = ref(0);
+
+const notifications = useNotificationsStore();
+
+/**
+ * Tells the notification centre that one image came back newer.
+ *
+ * The sweep is the notice's source on purpose: it runs while the person may be elsewhere, so the
+ * discovery is worth a line the centre keeps. A row menu check is read off the row itself, the
+ * person is looking straight at the answer, and saying it twice would be noise.
+ */
+function announceUpdate(reference: string): void {
+  notifications.push({
+    source: "image",
+    titleKey: "workbench.notices.image.update",
+    bodyKey: "workbench.notices.image.updateDetail",
+    params: { image: reference },
+  });
+}
+
+/**
+ * Asks the registry about every image the engine can question, a few at a time.
+ *
+ * The list does not wait: each row flips to "checking" as its question leaves and is answered in
+ * place, the button's label carries the count, and a row that lands on "newer" — arriving from a
+ * state that was not already "newer", so re-running the sweep does not re-announce what it said
+ * last time — is told to the notification centre.
+ */
+async function checkAllUpdates(): Promise<void> {
+  if (checkAllRunning.value) {
+    return;
+  }
+  const targets = props.session.images.filter((image) => updateOffered(image));
+  if (targets.length === 0) {
+    return;
+  }
+  checkAllRunning.value = true;
+  checkAllDone.value = 0;
+  checkAllTotal.value = targets.length;
+  try {
+    await runLimited(targets, IMAGE_CHECK_CONCURRENCY, async (image) => {
+      const reference = imageRef(image);
+      const before = updateChecks.value.get(reference)?.kind;
+      await checkUpdate(image);
+      checkAllDone.value += 1;
+      if (before !== "newer" && updateChecks.value.get(reference)?.kind === "newer") {
+        announceUpdate(reference);
+      }
+    });
+  } finally {
+    checkAllRunning.value = false;
+  }
+}
+
 interface UpdateTag {
   label: string;
   tone: WbTagTone;
   title?: string;
 }
 
-function updateTagFor(image: ContainerImage): UpdateTag | null {
+/**
+ * What the update column says about one image, always something: the column is a three-state
+ * indicator, so a row the engine has never asked reads "not checked" rather than a blank —
+ * the honest third state between "up to date" and "newer".
+ */
+function updateTagFor(image: ContainerImage): UpdateTag {
   const check = updateChecks.value.get(imageRef(image));
   if (!check) {
-    return null;
+    return { label: t("container.desktop.images.unknownTag"), tone: "neutral" };
   }
   switch (check.kind) {
     case "checking":
@@ -201,7 +275,7 @@ function updateTagFor(image: ContainerImage): UpdateTag | null {
     case "newer":
       return { label: t("container.desktop.images.updateTag"), tone: "warning" };
     case "current":
-      return { label: t("container.desktop.images.currentTag"), tone: "neutral" };
+      return { label: t("container.desktop.images.currentTag"), tone: "success" };
     case "undecided":
       return { label: t("container.desktop.images.undecidedTag"), tone: "neutral" };
     case "failed":
@@ -323,6 +397,30 @@ async function removeImage(): Promise<void> {
         :aria-label="t('container.images.filter')"
       />
       <div class="min-w-0 flex-1"></div>
+      <!--
+        The one sweep: every image the engine can question, checked a few at a time. The label
+        carries the count while it runs, so progress is read where the button was, and the list
+        keeps answering while the sweep is on its way.
+      -->
+      <button
+        v-if="checkOffered"
+        type="button"
+        data-docker-images-checkall
+        class="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+        :disabled="checkAllRunning"
+        :title="t('container.desktop.images.checkUpdate')"
+        :aria-label="t('container.desktop.images.checkUpdate')"
+        @click="checkAllUpdates()"
+      >
+        {{
+          checkAllRunning
+            ? t("container.desktop.images.checkingProgress", {
+                done: String(checkAllDone),
+                total: String(checkAllTotal),
+              })
+            : t("container.desktop.images.checkUpdate")
+        }}
+      </button>
       <WbButton variant="primary" data-docker-images-pull @click="openPull()">
         {{ t("container.image.pull") }}
       </WbButton>
@@ -340,14 +438,15 @@ async function removeImage(): Promise<void> {
     <div class="min-h-0 flex-1 overflow-auto px-3">
       <table
         :class="cn(TABLE.page.table, 'table-fixed')"
-        :style="{ minWidth: '640px' }"
+        :style="{ minWidth: '720px' }"
         :aria-label="t('container.rail.images')"
       >
         <thead :class="TABLE.page.head">
           <tr :class="TABLE.page.headRow">
-            <th class="w-[42%]" :class="TABLE.page.headCell">{{ t("container.col.tag") }}</th>
-            <th class="w-[14%]" :class="TABLE.page.headCell">{{ t("container.col.size") }}</th>
-            <th class="w-[18%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
+            <th class="w-[34%]" :class="TABLE.page.headCell">{{ t("container.col.tag") }}</th>
+            <th class="w-[12%]" :class="TABLE.page.headCell">{{ t("container.col.update") }}</th>
+            <th class="w-[12%]" :class="TABLE.page.headCell">{{ t("container.col.size") }}</th>
+            <th class="w-[16%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
             <th class="w-[18%]" :class="TABLE.page.headCell">{{ t("container.desktop.images.usedBy") }}</th>
             <th class="w-[3rem]" :class="TABLE.page.headCell">{{ t("container.col.actions") }}</th>
           </tr>
@@ -355,19 +454,20 @@ async function removeImage(): Promise<void> {
         <tbody>
           <tr v-for="image in rows" :key="image.id" :class="cn(rowClass('page', { clickable: true, striped: true }))">
             <td :class="TABLE.page.cell">
-              <div class="flex items-center gap-1.5">
-                <span class="block min-w-0 truncate font-mono text-[11px]" :title="imageRef(image)">
-                  {{ imageRef(image) }}
-                </span>
-                <WbTag
-                  v-if="updateTagFor(image)"
-                  :tone="updateTagFor(image)!.tone"
-                  :title="updateTagFor(image)!.title"
-                  data-docker-image-update
-                >
-                  {{ updateTagFor(image)!.label }}
-                </WbTag>
-              </div>
+              <span class="block min-w-0 truncate font-mono text-[11px]" :title="imageRef(image)">
+                {{ imageRef(image) }}
+              </span>
+            </td>
+            <!--
+              The question the column exists to answer, one of three ways: the registry said there
+              is nothing newer, it said there is, or it has not been asked yet. A finer answer the
+              engine can give — cannot compare, refused — is still drawn, in the unknown's own
+              neutral wash, with its reason in the tooltip.
+            -->
+            <td :class="TABLE.page.cell">
+              <WbTag :tone="updateTagFor(image).tone" :title="updateTagFor(image).title" data-docker-image-update>
+                {{ updateTagFor(image).label }}
+              </WbTag>
             </td>
             <td :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]">{{ image.size }}</span>
@@ -393,7 +493,7 @@ async function removeImage(): Promise<void> {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td :colspan="5" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
+            <td :colspan="6" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
               <WbEmpty scenario="noData" size="sm" :description="t('container.images.none')" class="mx-auto" />
             </td>
           </tr>

@@ -1002,6 +1002,7 @@ const noticeRows = computed(() =>
 const noticeGroupLabels = computed<Record<NoticeSourceKey, string>>(() => ({
   transfer: t("workbench.notices.group.transfer"),
   container: t("workbench.notices.group.container"),
+  image: t("workbench.notices.group.image"),
   tail: t("workbench.notices.group.tail"),
   power: t("workbench.notices.group.power"),
   browser: t("workbench.notices.group.browser"),

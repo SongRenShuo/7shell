@@ -27,6 +27,7 @@ import { ref } from "vue";
 import { backend } from "@/lib/backend/api";
 import { type ShellError, asShellError } from "@/lib/backend/errors";
 import type {
+  ContainerActionOutcome,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -488,7 +489,7 @@ export const useContainerStore = defineStore("container", () => {
   let subscriptionToken = 0;
   let transferSequence = 0;
   /** Write actions that are still on their way, keyed so a double click meets the first call. */
-  const inflightActions = new Map<string, Promise<void>>();
+  const inflightActions = new Map<string, Promise<ContainerActionOutcome>>();
   let visibilityWatcherInstalled = false;
 
   function sessionFor(tabId: string): ContainerSession | undefined {
@@ -1008,18 +1009,24 @@ export const useContainerStore = defineStore("container", () => {
   }
 
   /**
-   * Runs one container action.
+   * Runs one container action, answering what the engine said it came back as.
    *
    * A second ask for the same write while the first is still on its way meets the first call and
    * shares its answer — a double click is one stop, not two, and a stop racing itself is a stop
    * that can answer 304 to itself. The refusal is thrown as well as kept: the view that asked is
    * where the person is looking, so it can say so in a toast without the pane's banner having to
-   * be read first.
+   * be read first. The outcome (`done` / `alreadySatisfied`) is the caller's to read — a batch
+   * summary counts the two apart, which is why it is not swallowed here.
    */
-  function action(tabId: string, containerId: string, name: ContainerActionName, acknowledged = false): Promise<void> {
+  function action(
+    tabId: string,
+    containerId: string,
+    name: ContainerActionName,
+    acknowledged = false,
+  ): Promise<ContainerActionOutcome> {
     const session = sessions.value[tabId];
     if (!session?.connectionId) {
-      return Promise.resolve();
+      return Promise.resolve("done");
     }
     const key = `${tabId}\u0000${containerId}\u0000${name}`;
     const running = inflightActions.get(key);
@@ -1039,25 +1046,27 @@ export const useContainerStore = defineStore("container", () => {
     containerId: string,
     name: ContainerActionName,
     acknowledged: boolean,
-  ): Promise<void> {
+  ): Promise<ContainerActionOutcome> {
     const connectionId = session.connectionId;
     if (!connectionId) {
-      return;
+      return "done";
     }
+    let outcome: ContainerActionOutcome;
     try {
       // A race the engine settled first answers `alreadySatisfied` — a success with a name. It is
       // not shown as anything: the state the person asked for is on its way to the list already.
-      await backend.containers.action(connectionId, containerId, name, acknowledged);
+      outcome = await backend.containers.action(connectionId, containerId, name, acknowledged);
     } catch (error) {
       const failure = asShellError(error, "container_action");
       session.error = failure;
       throw failure;
     }
     if (sessions.value[tabId] !== session) {
-      return;
+      return outcome;
     }
     session.error = null;
     await refresh(tabId);
+    return outcome;
   }
 
   async function rename(tabId: string, containerId: string, name: string): Promise<void> {

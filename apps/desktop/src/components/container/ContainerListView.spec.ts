@@ -67,6 +67,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 
 import ContainerListView from "@/components/container/ContainerListView.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
+import { useToast } from "@/composables/useToast";
 import { i18n } from "@/i18n";
 import { containerAction, containerExecOpen, filesOpenContainer } from "@/lib/backend/tauri";
 import { useContainerStore, type ContainerSession } from "@/stores/container";
@@ -459,5 +460,177 @@ describe("the desktop layout of the same list", () => {
 
     expect(monitored, "the pane opens the charts over the row that asked").toHaveLength(1);
     expect(monitored[0]?.id).toBe(row.id);
+  });
+
+  it("offers the batch bar to the desktop layout as well", async () => {
+    await mountDesktop();
+    const webCheck = host?.querySelector<HTMLInputElement>(
+      'input[data-container-select][aria-label="Select container web"]',
+    );
+    webCheck?.click();
+    await nextTick();
+    expect(host?.querySelector("[data-container-batch-bar]"), "the ticked row opens the batch bar").not.toBeNull();
+    expect(host?.querySelector("[data-container-batch-count]")?.textContent).toContain("1 selected");
+  });
+});
+
+describe("batch operations on the ticked rows", () => {
+  /** The row checkboxes, one per visible row, in row order. */
+  function rowChecks(): HTMLInputElement[] {
+    return [...(host?.querySelectorAll<HTMLInputElement>("input[data-container-select]") ?? [])];
+  }
+
+  function batchBar(): HTMLElement | null {
+    return host?.querySelector<HTMLElement>("[data-container-batch-bar]") ?? null;
+  }
+
+  function batchButton(name: string): HTMLButtonElement {
+    const element = host?.querySelector<HTMLButtonElement>(`[data-container-batch-${name}]`);
+    if (!element) {
+      throw new Error(`there is no batch ${name} button`);
+    }
+    return element;
+  }
+
+  /** Turns the default "running only" off, so both fixture rows can be ticked. */
+  async function showBoth(): Promise<void> {
+    const checkbox = host?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    checkbox?.click();
+    await nextTick();
+  }
+
+  /** Ticks every visible row by its own checkbox, the way a person does it. */
+  async function tickAll(): Promise<void> {
+    await showBoth();
+    for (const check of rowChecks()) {
+      check.click();
+    }
+    await nextTick();
+  }
+
+  /** The batch confirmation's confirm button, found by its exact verb. */
+  function confirmButton(label: string): HTMLButtonElement {
+    const element = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+    if (!element) {
+      throw new Error(`the batch confirmation has no ${label} button`);
+    }
+    return element;
+  }
+
+  it("ticks rows with their checkboxes, counts them, and clears them", async () => {
+    await mount();
+    await showBoth();
+
+    expect(batchBar(), "nothing ticked, no bar").toBeNull();
+    rowChecks()[0]?.click();
+    await nextTick();
+    expect(batchBar()?.textContent).toContain("1 selected");
+
+    rowChecks()[1]?.click();
+    await nextTick();
+    expect(batchBar()?.textContent).toContain("2 selected");
+
+    batchButton("clear").click();
+    await nextTick();
+    expect(batchBar(), "cleared, the bar goes away").toBeNull();
+    expect(rowChecks().every((check) => !check.checked)).toBe(true);
+  });
+
+  it("answers for every row shown with the header checkbox, both ways", async () => {
+    await mount();
+    await showBoth();
+
+    host?.querySelector<HTMLInputElement>("input[data-container-select-all]")?.click();
+    await nextTick();
+    expect(batchBar()?.textContent).toContain("2 selected");
+
+    host?.querySelector<HTMLInputElement>("input[data-container-select-all]")?.click();
+    await nextTick();
+    expect(batchBar(), "unticked, the bar goes away").toBeNull();
+  });
+
+  it("starts the ticked containers without asking, one call each", async () => {
+    await mount();
+    await tickAll();
+
+    batchButton("start").click();
+
+    await vi.waitFor(() => expect(actionMock).toHaveBeenCalledTimes(2));
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "start", false);
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "start", false);
+  });
+
+  it("asks once before stopping the lot, and sends every row the acknowledged answer", async () => {
+    await mount();
+    await tickAll();
+
+    batchButton("stop").click();
+    await nextTick();
+
+    expect(actionMock, "the question stands between the bar and the engine").not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Stop 2 containers?");
+    expect(document.body.textContent).toContain("The 2 selected containers will be stopped");
+
+    confirmButton("Stop").click();
+    await vi.waitFor(() => expect(actionMock).toHaveBeenCalledTimes(2));
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "stop", true);
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "stop", true);
+  });
+
+  it("merges the removal consequence into one confirmation for the whole selection", async () => {
+    await mount();
+    await tickAll();
+
+    batchButton("remove").click();
+    await nextTick();
+
+    expect(actionMock).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Remove 2 containers?");
+    expect(document.body.textContent).toContain("all data inside them is lost");
+
+    confirmButton("Remove").click();
+    await vi.waitFor(() => expect(actionMock).toHaveBeenCalledTimes(2));
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "rm", true);
+    expect(actionMock).toHaveBeenCalledWith("conn-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "rm", true);
+    await vi.waitFor(() => expect(batchBar(), "the run's end clears the selection").toBeNull());
+  });
+
+  it("sorts the answers into the summary: succeeded, already-satisfied", async () => {
+    actionMock.mockImplementation(async (_connectionId: string, containerId: string) =>
+      containerId === "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ? "alreadySatisfied" : "done",
+    );
+    await mount();
+    await tickAll();
+
+    batchButton("start").click();
+
+    const toast = useToast();
+    // The toast is one window-wide slot a previous test may still be holding: wait for the one
+    // reading only this run can produce, then assert the rest against it.
+    await vi.waitFor(() => expect(toast.message.value).toContain("(1 already in the requested state)"));
+    expect(toast.message.value).toContain("2 succeeded, 0 failed");
+    expect(toast.tier.value).toBe("result");
+  });
+
+  it("names the refused rows in the summary instead of letting them pass in silence", async () => {
+    actionMock.mockImplementation(async (_connectionId: string, containerId: string) => {
+      if (containerId === "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+        throw Object.assign(new Error("the engine refused the write"), { code: "CONTAINER-ACTION-FAILED" });
+      }
+      return "done";
+    });
+    await mount();
+    await tickAll();
+
+    batchButton("stop").click();
+    await nextTick();
+    confirmButton("Stop").click();
+
+    const toast = useToast();
+    await vi.waitFor(() => expect(toast.message.value).toContain("1 succeeded, 1 failed"));
+    expect(toast.message.value).toContain("old:");
+    expect(toast.tier.value).toBe("failure");
   });
 });
