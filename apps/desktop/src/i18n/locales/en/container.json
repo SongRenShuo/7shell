@@ -190,10 +190,10 @@
         "upTitle": "Start the project “{name}”?",
         "upMessage": "The project is brought up detached from the project's own file; the containers are created and started."
       },
-      "summary": {
-        "containers": "Containers: {total} in total, {running} running",
-        "images": "Images: {total} in total",
-        "abnormal": "Abnormal containers: {count}"
+      "tile": {
+        "containers": "Containers · {running} running",
+        "images": "Images",
+        "engine": "Engine health"
       },
       "health": {
         "healthy": "All services are running normally.",

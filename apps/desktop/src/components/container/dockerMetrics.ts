@@ -14,10 +14,6 @@ export const SAMPLE_INTERVAL_MS = 5_000;
 /** How many samples each line keeps. Thirty fives are two and a half minutes of history. */
 export const SERIES_POINTS = 30;
 
-/** The chart's own size, the reference mini AreaChart measure. */
-export const SPARKLINE_WIDTH = 290;
-export const SPARKLINE_HEIGHT = 74;
-
 /** One sampled moment: the three things the overview tracks, already totalled across containers. */
 export interface EngineSample {
   readonly cpuPercent: number;
@@ -58,32 +54,6 @@ export function netRate(currentBytes: number, previousBytes: number | null, seco
     return 0;
   }
   return Math.max(0, (currentBytes - previousBytes) / seconds);
-}
-
-/**
- * The points string a line is drawn with, normalized to the tallest value in its own series.
- *
- * An all-zero series draws a flat line on the floor rather than a division by zero; fewer than two
- * points draws nothing, because a line of one point is an invisible dot that reads as a glitch.
- */
-export function sparklinePoints(values: readonly number[], width: number, height: number): string {
-  if (values.length < 2) {
-    return "";
-  }
-  const max = Math.max(...values, 0);
-  const peak = max > 0 ? max : 1;
-  const step = width / (values.length - 1);
-  return values
-    .map((value, index) => {
-      const x = index * step;
-      const y = height - (value / peak) * (height - 2) - 1;
-      return `${round(x)},${round(y)}`;
-    })
-    .join(" ");
-}
-
-function round(value: number): string {
-  return value.toFixed(1);
 }
 
 /**
