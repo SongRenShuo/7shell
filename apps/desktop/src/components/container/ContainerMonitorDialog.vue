@@ -21,7 +21,9 @@ import { backend } from "@/lib/backend/api";
 import type { ContainerSession } from "@/stores/container";
 import type { ContainerStats, ContainerSummary } from "@/types/container";
 
-import StatSparkline from "./StatSparkline.vue";
+import SparkArea from "@/components/charts/SparkArea.vue";
+import { usageTone } from "@/components/charts/tone";
+
 import { SAMPLE_INTERVAL_MS, SERIES_POINTS, netRate } from "./dockerMetrics";
 
 const props = defineProps<{
@@ -175,6 +177,16 @@ function netLabel(): string {
   const rate = netRateNow.value;
   return rate === null ? "—" : `${formatSize(rate)}/s`;
 }
+
+/**
+ * The memory line wears the tier the desktops share, from the reading it has just drawn — the one
+ * series here that is a usage. The overview's own line follows the same rule, so a container and
+ * its engine disagree only in numbers, never in what the colours mean.
+ */
+const memoryTone = computed<"ok" | "warn" | "danger">(() => {
+  const latest = memorySeries.value[memorySeries.value.length - 1];
+  return latest === undefined ? "ok" : usageTone(latest);
+});
 </script>
 
 <template>
@@ -209,23 +221,18 @@ function netLabel(): string {
           {{ t("container.monitor.waiting") }}
         </p>
         <div class="grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-3">
-          <StatSparkline
-            data-container-monitor-cpu
-            :label="t('container.monitor.cpu')"
-            :values="cpuSeries"
-            tone="accent"
-          />
-          <StatSparkline
+          <SparkArea data-container-monitor-cpu :label="t('container.monitor.cpu')" :values="cpuSeries" tone="accent" />
+          <SparkArea
             data-container-monitor-memory
             :label="t('container.monitor.memory')"
             :values="memorySeries"
-            tone="success"
+            :tone="memoryTone"
           />
-          <StatSparkline
+          <SparkArea
             data-container-monitor-network
             :label="t('container.monitor.network')"
             :values="netSeries"
-            tone="warning"
+            tone="warn"
             :value="netLabel()"
           />
         </div>

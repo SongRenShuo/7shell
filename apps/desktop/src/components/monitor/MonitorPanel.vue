@@ -24,8 +24,9 @@ import { Activity, ArrowDown, ArrowUp, Check, ChevronRight, CircleAlert, Copy, X
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import SparkBars from "@/components/charts/SparkBars.vue";
+import { TONE_TOKENS, usageTone } from "@/components/charts/tone";
 import InterfacePicker from "@/components/inspect/InterfacePicker.vue";
-import MonitorSpark from "@/components/monitor/MonitorSpark.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { formatSize } from "@/lib/files/format";
@@ -138,6 +139,18 @@ function percent(value: number | null): string {
 /** A bar for a percentage, or an empty track when there is nothing to draw. */
 function barWidth(value: number | null): string {
   return `${Math.min(Math.max(value ?? 0, 0), 100)}%`;
+}
+
+/**
+ * The fill a usage bar wears, at the 90/95 the desktops share: the tier `usageTone` names, painted
+ * by the theme's own tokens. A reading that never arrived keeps the quiet ink — a bar with no
+ * number beside it is not a reading of calm, and it draws no colour at all.
+ */
+function usageFill(value: number | null): { background: string } | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  return { background: TONE_TOKENS[usageTone(value)] };
 }
 
 /** Opens a host page for the session on screen. A panel with no connection has no page to open. */
@@ -311,7 +324,10 @@ function openDiskMenu(event: MouseEvent, disk: DiskUsage): void {
         <div class="flex items-center gap-2" :title="t('monitor.cpuHint')">
           <span class="w-10 shrink-0 text-muted-foreground">{{ t("monitor.cpu") }}</span>
           <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-            <span class="block h-full rounded-sm bg-primary/70" :style="{ width: barWidth(monitor.cpuPercent) }" />
+            <span
+              class="block h-full rounded-sm bg-primary/70"
+              :style="{ width: barWidth(monitor.cpuPercent), ...usageFill(monitor.cpuPercent) }"
+            />
           </span>
           <span class="w-8 shrink-0 text-right font-mono">{{ percent(monitor.cpuPercent) }}</span>
         </div>
@@ -319,7 +335,10 @@ function openDiskMenu(event: MouseEvent, disk: DiskUsage): void {
         <div class="flex items-center gap-2">
           <span class="w-10 shrink-0 text-muted-foreground">{{ t("monitor.memory") }}</span>
           <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-            <span class="block h-full rounded-sm bg-primary/70" :style="{ width: barWidth(memoryPercent) }" />
+            <span
+              class="block h-full rounded-sm bg-primary/70"
+              :style="{ width: barWidth(memoryPercent), ...usageFill(memoryPercent) }"
+            />
           </span>
           <span class="w-8 shrink-0 text-right font-mono">{{ percent(memoryPercent) }}</span>
           <span class="w-24 shrink-0 truncate text-right font-mono text-muted-foreground">{{ memoryText }}</span>
@@ -328,7 +347,10 @@ function openDiskMenu(event: MouseEvent, disk: DiskUsage): void {
         <div class="flex items-center gap-2">
           <span class="w-10 shrink-0 text-muted-foreground">{{ t("monitor.swap") }}</span>
           <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-            <span class="block h-full rounded-sm bg-primary/70" :style="{ width: barWidth(swapPercent) }" />
+            <span
+              class="block h-full rounded-sm bg-primary/70"
+              :style="{ width: barWidth(swapPercent), ...usageFill(swapPercent) }"
+            />
           </span>
           <span class="w-8 shrink-0 text-right font-mono">{{ percent(swapPercent) }}</span>
           <span class="w-24 shrink-0 truncate text-right font-mono text-muted-foreground">{{ swapText }}</span>
@@ -415,7 +437,7 @@ function openDiskMenu(event: MouseEvent, disk: DiskUsage): void {
             {{ rate ? perSecond(rate.received) : "-" }}
           </span>
         </div>
-        <MonitorSpark class="mt-1" :series="trafficSeries" :label="trafficLabel" />
+        <SparkBars class="mt-1" :series="trafficSeries" :label="trafficLabel" />
         <p v-if="sample && sample.network.length === 0" class="mt-1 text-[10px] text-muted-foreground">
           {{ t("monitor.network.empty") }}
         </p>
@@ -431,7 +453,7 @@ function openDiskMenu(event: MouseEvent, disk: DiskUsage): void {
             {{ t("monitor.sample.roundTrip") }}
           </span>
         </div>
-        <MonitorSpark :series="roundTripSeries" :label="roundTripLabel" />
+        <SparkBars :series="roundTripSeries" :label="roundTripLabel" />
       </section>
 
       <section>

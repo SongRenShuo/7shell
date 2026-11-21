@@ -22,7 +22,9 @@ import { backend } from "@/lib/backend/api";
 import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerSession } from "@/stores/container";
 
-import StatSparkline from "./StatSparkline.vue";
+import SparkArea from "@/components/charts/SparkArea.vue";
+import { usageTone } from "@/components/charts/tone";
+
 import { SAMPLE_INTERVAL_MS, SERIES_POINTS, aggregateStats, engineHealthy, netRate } from "./dockerMetrics";
 
 const props = defineProps<{ tab: ContainerTab; session: ContainerSession; active: boolean }>();
@@ -151,6 +153,16 @@ function netLabel(): string {
   const rate = netRateNow.value;
   return rate === null ? "—" : `${formatSize(rate)}/s`;
 }
+
+/**
+ * The memory line wears the tier the desktops share, from the reading it has just drawn: memory is
+ * the one series here that is a usage. A rate has no ninety, so the network line keeps its own
+ * series colour, and CPU keeps the accent — thresholds that are not usages would be decoration.
+ */
+const memoryTone = computed<"ok" | "warn" | "danger">(() => {
+  const latest = memorySeries.value[memorySeries.value.length - 1];
+  return latest === undefined ? "ok" : usageTone(latest);
+});
 </script>
 
 <template>
@@ -212,27 +224,22 @@ function netLabel(): string {
 
     <!--
       The three lines. Each is drawn at the reference mini chart's measure, from the series this
-      page
-      has sampled — the shell is `StatSparkline`, shared with a single container's monitor.
+      page has sampled — the shell is `SparkArea`, shared with a single container's monitor, and it
+      draws the samples as an area rather than a line: the samples are intervals, not a continuum.
     -->
     <div class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-3" data-docker-overview-charts>
-      <StatSparkline
-        data-docker-chart-cpu
-        :label="t('container.desktop.chart.cpu')"
-        :values="cpuSeries"
-        tone="accent"
-      />
-      <StatSparkline
+      <SparkArea data-docker-chart-cpu :label="t('container.desktop.chart.cpu')" :values="cpuSeries" tone="accent" />
+      <SparkArea
         data-docker-chart-memory
         :label="t('container.desktop.chart.memory')"
         :values="memorySeries"
-        tone="success"
+        :tone="memoryTone"
       />
-      <StatSparkline
+      <SparkArea
         data-docker-chart-network
         :label="t('container.desktop.chart.network')"
         :values="netSeries"
-        tone="warning"
+        tone="warn"
         :value="netLabel()"
       />
     </div>

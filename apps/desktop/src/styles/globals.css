@@ -1149,6 +1149,75 @@
   .rounded {
     border-radius: var(--radius-sm);
   }
+
+  /*
+   * Numbers get their own track, apart from the monospace one.
+   *
+   * `tabular-nums` keeps digits the same width so a reading that changes every couple of seconds
+   * does not shuffle the line it sits in; `font-mono` is for paths, commands, code and error codes
+   * — things that are quoted. A dynamic reading wearing `font-mono` drags its whole cell into
+   * monospace to get what this one class gives it, and the two were drifting apart: the widgets
+   * said `tabular-nums`, the pages said `font-mono`, and both were answers to the same question.
+   * Numbers-and-units wear `.nums`; what stays `font-mono` is what gets copied as text.
+   */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * The skeleton: a grey block that breathes, mirroring the shape it stands in for.
+   *
+   * It is only for a page whose structure is known before its data is — a first read of a window
+   * whose sections are always the same — because a skeleton of the wrong shape is a promise the
+   * page then breaks. A single thing being waited for keeps the spinner; a wait under a second
+   * draws no indicator at all, because an indicator that flashes past is noise about nothing.
+   */
+  .skeleton {
+    background-color: var(--color-muted);
+    border-radius: var(--radius-sm);
+    animation: skeleton-breathe 1.5s var(--semi-ease-in-out) infinite;
+  }
+
+  /*
+   * The empty state: one sentence about why there is nothing here, and the action that leaves it.
+   *
+   * It is a layout, not a look: centred, roomy, in the muted voice, with the gap between sentence
+   * and action the group rhythm fixes at one step. The action is the consumer's own button — an
+   * empty state without a way out ("去连接/去创建/重试") is a dead end drawn in grey.
+   */
+  .state-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--color-muted-foreground);
+  }
+}
+
+/*
+ * The skeleton's breath. Said beside the utilities layer rather than inside it, the way the other
+ * keyframes in this file stand beside the classes that call them.
+ */
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }
 
 @layer base {

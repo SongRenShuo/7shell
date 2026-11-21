@@ -62,6 +62,18 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+#### The charts stop being three private shapes
+
+- The desktop's charts draw from one vocabulary now — a bar row, an area, a ring gauge, a mini bar,
+  a stat tile and a widgets' trend strip, all painted from the theme's tokens and all asking the
+  one threshold: 90 wears amber, 95 wears red (0a29895).
+- The monitor panel's usage bars wear those tiers for the first time — 90-95 amber, past 95 red,
+  calm green, and a reading that never arrived keeps the neutral ink (0a29895).
+- The system panel's disk rings gain the amber step: they went straight to red at ninety, so
+  ninety-four and ninety-nine wore the same colour (0a29895).
+- The Docker windows' three trends are areas now, not bare lines — the samples are intervals, not
+  a continuum — and the memory line wears the tier its reading earns (0a29895).
+
 #### The desk grows a desktop's daily shape
 
 - Windows reopen where their kind was last left: each kind's geometry is written down per session

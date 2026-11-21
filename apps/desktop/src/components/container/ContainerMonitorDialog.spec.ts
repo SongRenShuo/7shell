@@ -80,16 +80,16 @@ describe("the container monitor", () => {
     statsMock.mockResolvedValue([stats()]);
     await render();
 
-    // The first reading answers the waiting sentence; one point is not yet a line.
+    // The first reading answers the waiting sentence; one point is not yet a band.
     expect(document.querySelector("[data-container-monitor-waiting]")).toBeNull();
-    expect(document.querySelector("[data-container-monitor-cpu] polyline")).toBeNull();
+    expect(document.querySelector("[data-container-monitor-cpu] svg")).toBeNull();
 
     await vi.advanceTimersByTimeAsync(5000);
     await nextTick();
 
-    expect(document.querySelector("[data-container-monitor-cpu] polyline")).not.toBeNull();
-    expect(document.querySelector("[data-container-monitor-memory] polyline")).not.toBeNull();
-    expect(document.querySelector("[data-container-monitor-network] polyline")).not.toBeNull();
+    expect(document.querySelector("[data-container-monitor-cpu] path")).not.toBeNull();
+    expect(document.querySelector("[data-container-monitor-memory] path")).not.toBeNull();
+    expect(document.querySelector("[data-container-monitor-network] path")).not.toBeNull();
   });
 
   it("draws the row it was opened for, out of the engine-wide answer", async () => {
@@ -103,7 +103,7 @@ describe("the container monitor", () => {
     await vi.advanceTimersByTimeAsync(5000);
     await nextTick();
 
-    expect(document.querySelector("[data-container-monitor-cpu] polyline")).not.toBeNull();
+    expect(document.querySelector("[data-container-monitor-cpu] path")).not.toBeNull();
     expect(statsMock).toHaveBeenCalledWith("conn-1");
   });
 

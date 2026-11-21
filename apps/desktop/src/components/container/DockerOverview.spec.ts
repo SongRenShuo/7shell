@@ -236,14 +236,14 @@ describe("the sampling", () => {
     };
   }
 
-  it("asks the engine once on mount, draws its line on the second sample, and says a too-young series honestly", async () => {
+  it("asks the engine once on mount, draws its band on the second sample, and says a too-young series honestly", async () => {
     statsMock.mockResolvedValue([stat(12.5, 40, 100, 50)]);
     vi.useFakeTimers();
     await mount();
     await nextTick();
 
-    // One sample is not a line: a series too young to draw says so rather than drawing a dot.
-    expect(document.querySelector("[data-docker-chart-cpu] polyline")).toBeNull();
+    // One sample is not an area: a series too young to draw says so rather than drawing a dot.
+    expect(document.querySelector("[data-docker-chart-cpu] svg")).toBeNull();
     expect(document.querySelector("[data-docker-chart-cpu]")?.textContent).toContain("—");
     expect(statsMock).toHaveBeenCalledTimes(1);
     expect(statsMock).toHaveBeenCalledWith("conn-1");
@@ -251,7 +251,7 @@ describe("the sampling", () => {
     vi.advanceTimersByTime(SAMPLE_INTERVAL_MS);
     await flush();
     await nextTick();
-    expect(document.querySelector("[data-docker-chart-cpu] polyline")).not.toBeNull();
+    expect(document.querySelector("[data-docker-chart-cpu] path")).not.toBeNull();
   });
 
   it("samples again every interval while the page is visible", async () => {
@@ -292,5 +292,21 @@ describe("the sampling", () => {
     vi.advanceTimersByTime(SAMPLE_INTERVAL_MS * 3);
     await flush();
     expect(statsMock.mock.calls.length).toBe(seen);
+  });
+
+  it.each([
+    [40, "var(--success)"],
+    [92, "var(--warning)"],
+    [96, "var(--destructive)"],
+  ] as const)("paints the memory line in the tier the desktops share: %i%% wears %s", async (memoryPercent, token) => {
+    statsMock.mockResolvedValue([stat(12.5, memoryPercent, 100, 50)]);
+    vi.useFakeTimers();
+    await mount();
+    vi.advanceTimersByTime(SAMPLE_INTERVAL_MS);
+    await flush();
+    await nextTick();
+
+    const edge = document.querySelector("[data-docker-chart-memory]")?.querySelectorAll("path")[1];
+    expect(edge?.getAttribute("stroke"), `the reading at ${memoryPercent} wears ${token}`).toBe(token);
   });
 });
