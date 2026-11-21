@@ -295,6 +295,16 @@ impl Core {
         self.container_provider(connection_id)?.image_history(image).await
     }
 
+    /// Every tag one repository has on the engine — the image drawer's tags section. A read; the
+    /// update question about any one of them is `image_remote_digest`'s, behind its own probe.
+    pub async fn container_image_tags(
+        &self,
+        connection_id: &str,
+        repository: &str,
+    ) -> Result<Vec<ContainerImage>, ShellError> {
+        self.container_provider(connection_id)?.image_tags(repository).await
+    }
+
     pub async fn container_image_remove(
         &self,
         connection_id: &str,

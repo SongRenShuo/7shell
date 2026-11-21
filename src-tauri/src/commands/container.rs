@@ -199,6 +199,17 @@ pub async fn container_image_history(
     state.core().container_image_history(&connection_id, &image).await
 }
 
+/// Every tag one repository has on the engine — the image drawer's tags section. A read; whether
+/// a tag has moved on the registry is `image_remote_digest`'s own question.
+#[tauri::command]
+pub async fn container_image_tags(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    repository: String,
+) -> Result<Vec<ContainerImage>, ShellError> {
+    state.core().container_image_tags(&connection_id, &repository).await
+}
+
 #[tauri::command]
 pub async fn container_image_pull(
     app: AppHandle,

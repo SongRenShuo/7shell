@@ -39,6 +39,13 @@ import { asShellError } from "@/lib/backend/errors";
 import { CONTAINER_ACTIONS, useContainerStore } from "@/stores/container";
 import { useNotificationsStore } from "@/stores/notifications";
 import type { ContainerCpuWeight } from "@/types/container";
+import {
+  type ContainerTemplate,
+  type ContainerTemplateValues,
+  deleteContainerTemplate,
+  loadContainerTemplates,
+  saveContainerTemplate,
+} from "./containerTemplates";
 import { IMAGE_TAG_PATTERN } from "./imageTags";
 
 const props = defineProps<{
@@ -107,9 +114,14 @@ type CpuWeight = "low" | "mid" | "high";
 
 /**
  * What the pane hands the wizard when a container is being cloned: every field the create
- * request carries, read from the container's inspect — the engine-side weights and limits
- * included, via the raw document the detail carries. The name is already suffixed and the
- * start switch already says no: a copy starts unstarted, the way the reference manager copies.
+ * request carries, read from the container's inspect — the engine-side weights and limits included,
+ * via the raw document the detail carries. The name is already suffixed and the start switch
+ * already says no: a copy starts unstarted, the way the reference manager copies.
+ *
+ * A saved template carries the same fields (`ContainerTemplateValues` beside this file), and the
+ * two fill the form through one mapping — a template is applied exactly the way a copy is. The
+ * clone ask is the stronger prefill: while one stands, the template shelf saves but does not
+ * apply.
  */
 export interface ContainerClonePrefill {
   readonly name: string;
@@ -177,6 +189,112 @@ const steps = computed(() => [
   { id: 3 as const, label: t("container.wizard.stepReview") },
 ]);
 
+// -- the template shelf ------------------------------------------------------------
+
+/**
+ * The named sets of answers this device keeps. A template fills the form the way a clone does —
+ * the same fields, the same mapping — but it never overrides a clone ask: what was inspected is
+ * the stronger prefill, and while it stands, applying a template is not offered. Saving what the
+ * form holds stays available either way, because a copy worth making is a set worth keeping.
+ */
+const templates = ref<ContainerTemplate[]>([]);
+const chosenTemplate = ref("");
+const templateName = ref("");
+const savingTemplate = ref(false);
+
+const templateOptions = computed(() =>
+  templates.value.map((template) => ({ value: template.name, label: template.name })),
+);
+
+/** A clone ask is the stronger prefill; the shelf steps aside while one stands. */
+const templateLocked = computed(() => props.prefill !== undefined && props.prefill !== null);
+
+const chosenValues = computed(
+  () => templates.value.find((template) => template.name === chosenTemplate.value)?.values ?? null,
+);
+
+const templateNameProblem = computed(() =>
+  templateName.value.trim() === "" ? t("container.wizard.templateNameRequired") : null,
+);
+
+function reloadTemplates(): void {
+  templates.value = loadContainerTemplates();
+  chosenTemplate.value = "";
+  templateName.value = "";
+  savingTemplate.value = false;
+}
+
+/** Writes one set of answers over the form — the mapping a clone ask walks, shared with it. */
+function applyValues(values: ContainerClonePrefill | ContainerTemplateValues): void {
+  form.image = values.image;
+  form.name = values.name;
+  form.autostart = values.autostart;
+  form.startNow = values.startNow;
+  form.privileged = values.privileged;
+  form.ports = values.ports.map((row) => ({ ...row }));
+  form.volumes = values.volumes.map((row) => ({ ...row }));
+  form.env = values.env.map((row) => ({ ...row }));
+  form.labels = values.labels.map((row) => ({ ...row }));
+  form.networks = [...values.networks];
+  form.capabilities = [...values.capabilities];
+  form.command = values.command;
+  form.cpuWeight = values.cpuWeight;
+  if (values.memoryLimitMb !== null) {
+    form.memoryLimited = true;
+    form.memoryLimitMb = values.memoryLimitMb;
+  }
+}
+
+function applyTemplate(): void {
+  const values = chosenValues.value;
+  if (values === null || templateLocked.value) {
+    return;
+  }
+  step.value = 1;
+  reached.value = 1;
+  attemptedBasic.value = false;
+  applyValues(values);
+}
+
+/** What the form holds right now, as a template carries it. */
+function currentValues(): ContainerTemplateValues {
+  return {
+    name: form.name.trim(),
+    image: form.image.trim(),
+    autostart: form.autostart,
+    startNow: form.startNow,
+    privileged: form.privileged,
+    ports: form.ports.map((row) => ({ ...row })),
+    volumes: form.volumes.map((row) => ({ ...row })),
+    env: form.env.map((row) => ({ ...row })),
+    labels: form.labels.map((row) => ({ ...row })),
+    networks: [...networkNames.value],
+    capabilities: [...form.capabilities],
+    command: form.command.trim(),
+    cpuWeight: form.cpuWeight,
+    memoryLimitMb: form.memoryLimited ? form.memoryLimitMb.trim() : null,
+  };
+}
+
+function saveTemplate(): void {
+  if (templateName.value.trim() === "") {
+    savingTemplate.value = true;
+    return;
+  }
+  templates.value = saveContainerTemplate(templateName.value, currentValues());
+  chosenTemplate.value = templateName.value.trim();
+  templateName.value = "";
+  savingTemplate.value = false;
+}
+
+function deleteTemplate(): void {
+  if (chosenTemplate.value === "" || templateLocked.value) {
+    return;
+  }
+  templates.value = deleteContainerTemplate(chosenTemplate.value);
+  chosenTemplate.value = "";
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -204,27 +322,12 @@ watch(
     attemptedBasic.value = false;
     busy.value = false;
     failure.value = null;
+    reloadTemplates();
     // A clone ask lands after the reset: what was inspected writes itself over the blank form.
     // immediate: the very first open of a mounted wizard answers to this watch too.
     const prefill = props.prefill;
     if (prefill !== undefined && prefill !== null) {
-      form.image = prefill.image;
-      form.name = prefill.name;
-      form.autostart = prefill.autostart;
-      form.startNow = prefill.startNow;
-      form.privileged = prefill.privileged;
-      form.ports = prefill.ports.map((row) => ({ ...row }));
-      form.volumes = prefill.volumes.map((row) => ({ ...row }));
-      form.env = prefill.env.map((row) => ({ ...row }));
-      form.labels = prefill.labels.map((row) => ({ ...row }));
-      form.networks = [...prefill.networks];
-      form.capabilities = [...prefill.capabilities];
-      form.command = prefill.command;
-      form.cpuWeight = prefill.cpuWeight;
-      if (prefill.memoryLimitMb !== null) {
-        form.memoryLimited = true;
-        form.memoryLimitMb = prefill.memoryLimitMb;
-      }
+      applyValues(prefill);
     }
   },
   { immediate: true },
@@ -737,6 +840,73 @@ const hasNetworkOptions = computed(() => (props.networkOptions?.length ?? 0) > 0
         <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3 select-text">
           <!-- Step 1: what the container is. -->
           <div v-if="step === 1" class="flex flex-col gap-3" data-wizard-basic>
+            <!--
+              The template shelf: a named set of answers saved from this form, filled back in on
+              the next create. A clone ask is the stronger prefill, so while one stands the shelf
+              only saves — applying one over inspected values would quietly undo the clone.
+            -->
+            <section class="rounded-lg border border-border p-3" data-wizard-template>
+              <h4 class="mb-1 text-[11px] font-medium text-muted-foreground">
+                {{ t("container.wizard.templateTitle") }}
+              </h4>
+              <p v-if="templateLocked" class="mb-2 text-[10px] text-muted-foreground">
+                {{ t("container.wizard.templateCloneHint") }}
+              </p>
+              <p v-else class="mb-2 text-[10px] text-muted-foreground">{{ t("container.wizard.templateHint") }}</p>
+              <div class="flex items-center gap-1.5">
+                <Select
+                  :model-value="chosenTemplate"
+                  :options="templateOptions"
+                  size="compact"
+                  class="min-w-0 flex-1"
+                  :disabled="templateLocked || templateOptions.length === 0"
+                  :placeholder="
+                    templateOptions.length === 0
+                      ? t('container.wizard.templateNone')
+                      : t('container.wizard.templatePick')
+                  "
+                  :aria-label="t('container.wizard.templatePick')"
+                  data-wizard-template-select
+                  @update:model-value="chosenTemplate = $event"
+                />
+                <WbButton
+                  size="sm"
+                  data-wizard-template-apply
+                  :disabled="templateLocked || chosenValues === null"
+                  @click="applyTemplate()"
+                >
+                  {{ t("container.wizard.templateApply") }}
+                </WbButton>
+                <WbButton
+                  size="sm"
+                  data-wizard-template-delete
+                  :disabled="templateLocked || chosenValues === null"
+                  @click="deleteTemplate()"
+                >
+                  {{ t("container.wizard.templateDelete") }}
+                </WbButton>
+              </div>
+              <div class="mt-2 flex items-center gap-1.5">
+                <input
+                  v-model="templateName"
+                  type="text"
+                  spellcheck="false"
+                  data-wizard-template-name
+                  class="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none"
+                  :class="savingTemplate && templateNameProblem ? 'border-destructive' : ''"
+                  :placeholder="t('container.wizard.templateName')"
+                  :aria-label="t('container.wizard.templateName')"
+                />
+                <WbButton size="sm" data-wizard-template-save @click="saveTemplate()">
+                  {{ t("container.wizard.templateSave") }}
+                </WbButton>
+              </div>
+              <p v-if="savingTemplate && templateNameProblem" class="mt-1 text-[10px] text-destructive">
+                {{ templateNameProblem }}
+              </p>
+              <p class="mt-1 text-[10px] text-muted-foreground">{{ t("container.wizard.templatePlainHint") }}</p>
+            </section>
+
             <label class="flex flex-col gap-1">
               <span class="text-[11px] text-muted-foreground">{{ t("container.create.image") }}</span>
               <input

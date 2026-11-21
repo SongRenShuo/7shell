@@ -1446,6 +1446,11 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let image: String = from_args(&args, "image")?;
             to_value(state.core.container_image_history(&connection_id, &image).await?)
         }
+        "container_image_tags" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let repository: String = from_args(&args, "repository")?;
+            to_value(state.core.container_image_tags(&connection_id, &repository).await?)
+        }
         "container_image_pull" | "container_image_push" => {
             let connection_id: String = from_args(&args, "connectionId")?;
             let request: ContainerImageTransfer = from_args(&args, "request")?;
