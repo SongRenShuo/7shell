@@ -554,10 +554,7 @@ export function minimizeAll(list: readonly WorkbenchWindowState[]): WorkbenchWin
  * put away are untouched: "restore the desk" means bringing back what was hidden, not rearranging
  * what was never hidden.
  */
-export function restoreAll(
-  list: readonly WorkbenchWindowState[],
-  bounds: WorkbenchBounds,
-): WorkbenchWindowState[] {
+export function restoreAll(list: readonly WorkbenchWindowState[], bounds: WorkbenchBounds): WorkbenchWindowState[] {
   const hidden = list.some((window) => window.mode === "min");
   if (!hidden) {
     return copyList(list);
