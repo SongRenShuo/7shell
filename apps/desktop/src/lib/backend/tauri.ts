@@ -1554,6 +1554,10 @@ export function containerImageHistory(connectionId: string, image: string): Prom
   return invoke<ImageLayer[]>("container_image_history", { connectionId, image });
 }
 
+export function containerImageTags(connectionId: string, repository: string): Promise<ContainerImage[]> {
+  return invoke<ContainerImage[]>("container_image_tags", { connectionId, repository });
+}
+
 export function containerImagePull(connectionId: string, request: ContainerImageTransfer): Promise<string> {
   return invoke<string>("container_image_pull", { connectionId, request });
 }
