@@ -19,7 +19,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerImages: vi.fn(async () => []),
   containerRuntimeInfo: vi.fn(async () => null),
   containerNamespaces: vi.fn(async () => []),
-  containerAction: vi.fn(async () => {}),
+  containerAction: vi.fn(async () => "done"),
   containerCreate: vi.fn(async () => {}),
   onContainerStreamLine: vi.fn(async () => () => {}),
   onContainerStreamEnd: vi.fn(async () => () => {}),
@@ -184,7 +184,7 @@ beforeEach(() => {
   createMock.mockReset();
   createMock.mockResolvedValue(undefined);
   actionMock.mockReset();
-  actionMock.mockResolvedValue(undefined);
+  actionMock.mockResolvedValue("done");
 });
 
 afterEach(() => {

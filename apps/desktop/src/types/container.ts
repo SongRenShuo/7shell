@@ -26,7 +26,31 @@ export interface ContainerSummary {
   readonly status: string;
   readonly ports: string;
   readonly createdAt: string;
+  /**
+   * The healthcheck verdict (`healthy`, `unhealthy`, `starting`), absent when the container has no
+   * healthcheck at all — which is how the row knows to draw no badge. A runtime that does not
+   * report health leaves it absent the same way.
+   */
+  readonly health?: string;
 }
+
+/** One event the engine's own `events` stream reported, mirroring `ContainerEvent` in Rust. */
+export interface ContainerEvent {
+  /** The engine's own kind word (`container`, `image`, …). Absent on the runtimes that say none. */
+  readonly eventType?: string;
+  /** The engine's own action word (`start`, `die`, `destroy`, …). */
+  readonly action?: string;
+  /** The id of the object the event is about; for container events, the container's id. */
+  readonly id: string;
+  /** The container's name when the event carried one. */
+  readonly name?: string;
+}
+
+/**
+ * What one container action came back as, mirroring `ContainerActionOutcome` in Rust. A race the
+ * engine settled before we acted is `alreadySatisfied` — a success with a name, never an error.
+ */
+export type ContainerActionOutcome = "done" | "alreadySatisfied";
 
 export interface ContainerPort {
   readonly hostIp?: string;
@@ -129,6 +153,13 @@ export interface ContainerRuntimeInfo {
    * probed, which reads as "may have it".
    */
   readonly manifestInspectAvailable?: boolean;
+  /**
+   * Whether the engine's `events` stream can be followed — the bit behind the container list's
+   * automatic state updates. Probed once when a desktop engine opened; absent on connections that
+   * were never probed. An engine without it is followed by hand, which is not an error and never
+   * becomes a poll.
+   */
+  readonly eventsAvailable?: boolean;
 }
 
 /**

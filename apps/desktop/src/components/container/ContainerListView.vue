@@ -45,7 +45,7 @@ import {
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
 import WbEmpty from "@/components/ui/WbEmpty.vue";
-import WbTag from "@/components/ui/WbTag.vue";
+import WbTag, { type WbTagTone } from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
@@ -152,6 +152,33 @@ function stateDotClass(state: string): string {
     default:
       return "bg-muted-foreground/50";
   }
+}
+
+/**
+ * The healthcheck verdict's tone, in the same family the state tags use. A word nobody named is
+ * drawn neutral rather than guessed at a colour — the same fallback the state table keeps.
+ */
+function healthTone(health: string): WbTagTone {
+  switch (health) {
+    case "healthy":
+      return "success";
+    case "unhealthy":
+      return "danger";
+    case "starting":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * The healthcheck verdict's word. The three the engine reports are named; anything else stays the
+ * engine's own word, untranslated rather than mistranslated.
+ */
+function healthLabel(health: string): string {
+  const key = `container.healthCheck.${health}`;
+  const translated = t(key);
+  return translated === key ? health : translated;
 }
 
 // -- drawers and dialogs -----------------------------------------------------
@@ -639,10 +666,16 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             </td>
             <td :class="TABLE.page.cell">
               <!-- The desktop draws the state as the light-wash tag its colour names; the flat
-                   table keeps the dot and the engine's own word. -->
-              <WbTag v-if="desktop" :tone="containerStateStyle(container.state).tone">
-                {{ containerStateLabel(container.state, (key) => t(key)) }}
-              </WbTag>
+                   table keeps the dot and the engine's own word. A container with a healthcheck
+                   carries the verdict beside the state — only when the engine said one. -->
+              <span v-if="desktop" class="flex items-center gap-1">
+                <WbTag :tone="containerStateStyle(container.state).tone">
+                  {{ containerStateLabel(container.state, (key) => t(key)) }}
+                </WbTag>
+                <WbTag v-if="container.health" :tone="healthTone(container.health)" data-container-health-badge>
+                  {{ healthLabel(container.health) }}
+                </WbTag>
+              </span>
               <span v-else class="flex items-center gap-1.5">
                 <span class="size-1.5 shrink-0 rounded-full" :class="stateDotClass(container.state)"></span>
                 <span class="truncate">{{ container.state }}</span>

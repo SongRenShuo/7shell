@@ -18,7 +18,12 @@ import {
   netRate,
   sparklinePoints,
 } from "@/components/container/dockerMetrics";
-import type { ContainerStats } from "@/types/container";
+import type { ContainerStats, ContainerSummary } from "@/types/container";
+
+/** A container row reduced to what the health lamp reads. */
+function row(state: string, health?: string): Pick<ContainerSummary, "state" | "health"> {
+  return { state, health };
+}
 
 function stat(partial: Partial<ContainerStats>): ContainerStats {
   return {
@@ -110,12 +115,20 @@ describe("the sparkline", () => {
 
 describe("the health lamp", () => {
   it("is healthy while nothing is dead", () => {
-    expect(engineHealthy(["running", "exited", "paused"])).toBe(true);
+    expect(engineHealthy([row("running"), row("exited"), row("paused")])).toBe(true);
     expect(engineHealthy([])).toBe(true);
   });
 
   it("goes unhealthy on a dead or errored container", () => {
-    expect(engineHealthy(["running", "dead"])).toBe(false);
-    expect(engineHealthy(["error"])).toBe(false);
+    expect(engineHealthy([row("running"), row("dead")])).toBe(false);
+    expect(engineHealthy([row("error")])).toBe(false);
+  });
+
+  it("a failing healthcheck inside a running container is an unhealthy engine too", () => {
+    expect(engineHealthy([row("running", "healthy")])).toBe(true);
+    expect(engineHealthy([row("running", "starting")])).toBe(true);
+    expect(engineHealthy([row("running", "unhealthy")])).toBe(false);
+    // The verdict means nothing on a container that is not running to begin with.
+    expect(engineHealthy([row("exited", "unhealthy")])).toBe(true);
   });
 });

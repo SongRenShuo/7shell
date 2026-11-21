@@ -40,10 +40,13 @@ const containersTotal = computed(() => props.session.info?.containersTotal ?? pr
 const runningCount = computed(() => props.session.containers.filter((c) => c.state === "running").length);
 const imagesTotal = computed(() => props.session.info?.imagesTotal ?? props.session.images.length);
 const abnormalCount = computed(
-  () => props.session.containers.filter((c) => c.state === "dead" || c.state === "error").length,
+  () =>
+    props.session.containers.filter(
+      (c) => c.state === "dead" || c.state === "error" || (c.state === "running" && c.health === "unhealthy"),
+    ).length,
 );
 
-const healthy = computed(() => engineHealthy(props.session.containers.map((c) => c.state)));
+const healthy = computed(() => engineHealthy(props.session.containers));
 
 // -- the three series ---------------------------------------------------------
 

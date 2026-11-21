@@ -30,6 +30,7 @@ import type {
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
+  ContainerEvent,
   ContainerImage,
   ContainerImageTransfer,
   ContainerRegistryLogin,
@@ -54,6 +55,55 @@ export type ContainerActionName = (typeof CONTAINER_ACTIONS)[keyof typeof CONTAI
 export const TASK_LOG_LIMIT = 500;
 /** How many lines a log view keeps; older ones fall off the top. */
 export const LOG_LINE_LIMIT = 5000;
+
+/**
+ * How long the list waits for the engine to stop talking before it follows what it said.
+ *
+ * A restart of a Compose project arrives as a burst of start/die events, one per container; one
+ * read after the burst is both cheaper and more truthful than a read per event.
+ */
+export const EVENT_REFRESH_DEBOUNCE_MS = 300;
+/** The first wait before an events stream that ended connects again. Doubles with every failure. */
+export const EVENT_RECONNECT_BASE_MS = 1_000;
+/** The last wait before an events stream that ended connects again. */
+export const EVENT_RECONNECT_MAX_MS = 30_000;
+
+/**
+ * Whether one engine event should move the container list.
+ *
+ * The runtimes that name a kind word use `container` for everything a list follows; a runtime that
+ * says no kind at all (older daemons put only the action on the line) is speaking its container
+ * stream by construction. Everything else — `image`, `network`, a kind this build never met —
+ * names nothing a container row shows.
+ */
+export function eventMovesList(event: ContainerEvent): boolean {
+  const kind = (event.eventType ?? "").trim().toLowerCase();
+  return kind === "" || kind === "container";
+}
+
+/** The engine event a line carries, read once for every stream line. */
+export function parseEngineEvent(line: string): ContainerEvent | null {
+  try {
+    const parsed = JSON.parse(line) as ContainerEvent;
+    if (typeof parsed?.id !== "string" || parsed.id === "") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The next wait before a stream that ended connects again.
+ *
+ * One second after the first end, then two, four, and so on up to the ceiling — long enough that a
+ * stopped daemon stops costing anything, short enough that it starts again the moment it can.
+ */
+export function eventsReconnectDelay(attempts: number): number {
+  const doubled = EVENT_RECONNECT_BASE_MS * 2 ** Math.max(0, attempts - 1);
+  return Math.min(doubled, EVENT_RECONNECT_MAX_MS);
+}
 
 /** One runtime line of a pull or push, reduced to what a progress bar can be drawn from. */
 export interface LayerProgress {
@@ -101,6 +151,8 @@ export interface ContainerSession {
   error: ShellError | null;
   info: ContainerRuntimeInfo | null;
   tasks: ImageTask[];
+  /** The engine's event stream, when the engine has one and it is being followed. */
+  eventsStreamId: string | null;
 }
 
 /** Where a stream's lines go. Registered before the backend starts writing, removed on stop. */
@@ -419,11 +471,25 @@ export const useContainerStore = defineStore("container", () => {
   /** Routing for the two stream events; empty means no stream is being read. */
   const sinks = new Map<string, StreamSink>();
   const sequences = new WeakMap<ContainerSession, SessionSequences>();
+  /** Per-session events-stream bookkeeping: reconnect attempts and the two quiet timers. */
+  const eventStates = new WeakMap<
+    ContainerSession,
+    {
+      attempts: number;
+      reconnectTimer: ReturnType<typeof setTimeout> | null;
+      refreshTimer: ReturnType<typeof setTimeout> | null;
+      /** An event arrived while the window was hidden; the return read is its answer. */
+      pendingWhileHidden: boolean;
+    }
+  >();
   let listening = false;
   let unlisten: (() => void)[] = [];
   let subscription: Promise<void> | null = null;
   let subscriptionToken = 0;
   let transferSequence = 0;
+  /** Write actions that are still on their way, keyed so a double click meets the first call. */
+  const inflightActions = new Map<string, Promise<void>>();
+  let visibilityWatcherInstalled = false;
 
   function sessionFor(tabId: string): ContainerSession | undefined {
     return sessions.value[tabId];
@@ -436,6 +502,38 @@ export const useContainerStore = defineStore("container", () => {
       sequences.set(session, counts);
     }
     return counts;
+  }
+
+  function eventsStateOf(session: ContainerSession): {
+    attempts: number;
+    reconnectTimer: ReturnType<typeof setTimeout> | null;
+    refreshTimer: ReturnType<typeof setTimeout> | null;
+    pendingWhileHidden: boolean;
+  } {
+    let state = eventStates.get(session);
+    if (!state) {
+      state = { attempts: 0, reconnectTimer: null, refreshTimer: null, pendingWhileHidden: false };
+      eventStates.set(session, state);
+    }
+    return state;
+  }
+
+  /** Stops an events stream's timers. The stream itself goes by way of its sink, like every other. */
+  function cancelEventsTimers(session: ContainerSession): void {
+    const state = eventStates.get(session);
+    if (!state) {
+      return;
+    }
+    if (state.reconnectTimer !== null) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
+    if (state.refreshTimer !== null) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+    }
+    state.attempts = 0;
+    state.pendingWhileHidden = false;
   }
 
   function runtimeOf(tab: ContainerTab): ContainerRuntime {
@@ -560,10 +658,118 @@ export const useContainerStore = defineStore("container", () => {
         // Same reasoning as stopStream: the stream is already unreachable from here.
       });
     }
+    session.eventsStreamId = null;
+    cancelEventsTimers(session);
+  }
+
+  // -- the engine's event stream ----------------------------------------------
+  //
+  // The list follows the engine instead of being refreshed by hand: the engine says what happened,
+  // the list reads itself once the engine stops talking. An engine without the capability bit is
+  // followed exactly as before — no subscription, no poll, no error.
+
+  function scheduleEventsReconnect(tabId: string, session: ContainerSession): void {
+    session.eventsStreamId = null;
+    if (sessions.value[tabId] !== session || session.connectionId === null) {
+      return;
+    }
+    const state = eventsStateOf(session);
+    state.attempts += 1;
+    if (state.reconnectTimer !== null) {
+      clearTimeout(state.reconnectTimer);
+    }
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null;
+      void openEventsStream(tabId, session);
+    }, eventsReconnectDelay(state.attempts));
+  }
+
+  async function openEventsStream(tabId: string, session: ContainerSession): Promise<void> {
+    if (sessions.value[tabId] !== session || session.connectionId === null) {
+      return;
+    }
+    if (session.info?.eventsAvailable !== true) {
+      return;
+    }
+    const connectionId = session.connectionId;
+    try {
+      const streamId = await openStream(
+        tabId,
+        session,
+        () => backend.containers.eventsStart(connectionId),
+        {
+          onLine: (line) => handleEngineEvent(tabId, session, line),
+          onEnd: () => scheduleEventsReconnect(tabId, session),
+        },
+      );
+      if (streamId !== null) {
+        session.eventsStreamId = streamId;
+        const state = eventsStateOf(session);
+        state.attempts = 0;
+        // A stream that just came back — or came up at all — may have missed states while it was
+        // gone: the full read is the only answer that converges, and no amount of replaying what
+        // the stream never carried can promise the same thing.
+        void refresh(tabId, true);
+      }
+    } catch {
+      // The ask itself was refused: the same backoff answers it as answers a stream that ended.
+      scheduleEventsReconnect(tabId, session);
+    }
+  }
+
+  function handleEngineEvent(tabId: string, session: ContainerSession, line: string): void {
+    const event = parseEngineEvent(line);
+    if (event === null || !eventMovesList(event)) {
+      return;
+    }
+    const state = eventsStateOf(session);
+    // A hidden window neither reads nor queues: one read on return covers everything that happened
+    // while nobody was looking, which is the same discipline the overview's sampling keeps.
+    if (typeof document !== "undefined" && document.hidden) {
+      state.pendingWhileHidden = true;
+      return;
+    }
+    if (state.refreshTimer !== null) {
+      return;
+    }
+    state.refreshTimer = setTimeout(() => {
+      state.refreshTimer = null;
+      void refresh(tabId);
+    }, EVENT_REFRESH_DEBOUNCE_MS);
+  }
+
+  /** Re-reads what a hidden window missed, for the session that owns the tab. */
+  function handleVisibilityReturn(tabId: string, session: ContainerSession): void {
+    const state = eventStates.get(session);
+    if (state?.pendingWhileHidden !== true) {
+      return;
+    }
+    state.pendingWhileHidden = false;
+    void refresh(tabId);
   }
 
   /**
-   * Opens the engine for a tab.
+   * Installs the one visibility watcher the store ever needs.
+   *
+   * Nothing polls while the window is hidden; what an engine said in that time is answered by the
+   * read this runs on the way back — one read per session, not a backlog per event.
+   */
+  function ensureVisibilityWatcher(): void {
+    if (visibilityWatcherInstalled || typeof document === "undefined") {
+      return;
+    }
+    visibilityWatcherInstalled = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        return;
+      }
+      for (const [tabId, session] of Object.entries(sessions.value)) {
+        handleVisibilityReturn(tabId, session);
+      }
+    });
+  }
+
+  /** Opens the engine for a tab.
    *
    * Safe to call twice — a second call while the first is running does nothing, and a call after a
    * refusal starts over — because the pane mounts and retries through the same entry.
@@ -587,6 +793,7 @@ export const useContainerStore = defineStore("container", () => {
       error: null,
       info: null,
       tasks: [],
+      eventsStreamId: null,
     };
     sessions.value[tab.id] = fresh;
     const session = sessions.value[tab.id];
@@ -626,6 +833,10 @@ export const useContainerStore = defineStore("container", () => {
       loadInfo(tab.id),
       supportsNamespace(session.runtime) ? loadNamespaces(tab.id) : Promise.resolve(),
     ]);
+    // The bit loadInfo answered decides whether there is a stream to follow at all; an engine
+    // without it keeps the manual refresh and is never asked.
+    ensureVisibilityWatcher();
+    void openEventsStream(tab.id, session);
   }
 
   /**
@@ -642,6 +853,7 @@ export const useContainerStore = defineStore("container", () => {
       return;
     }
     stopSessionStreams(session);
+    cancelEventsTimers(session);
     delete sessions.value[tabId];
     maybeRelease();
   }
@@ -782,15 +994,34 @@ export const useContainerStore = defineStore("container", () => {
     }
     session.namespace = namespace;
     await Promise.all([refresh(tabId, true), loadImages(tabId)]);
+    // The event stream runs on the old namespace's argv — a process, not a setting — so the only
+    // way to follow the new one is to open the stream again in it.
+    stopSessionEventsStream(session);
+    void openEventsStream(tabId, session);
+  }
+
+  /** Stops a session's event stream only, leaving the timers that would open it again alone. */
+  function stopSessionEventsStream(session: ContainerSession): void {
+    const streamId = session.eventsStreamId;
+    session.eventsStreamId = null;
+    if (streamId !== null) {
+      sinks.delete(streamId);
+      void backend.containers.streamStop(streamId).catch(() => {
+        // A stream that is already gone has nothing to report.
+      });
+    }
   }
 
   /**
    * Runs one container action.
    *
-   * The refusal is thrown as well as kept: the view that asked is where the person is looking, so it
-   * can say so in a toast without the pane's banner having to be read first.
+   * A second ask for the same write while the first is still on its way meets the first call and
+   * shares its answer — a double click is one stop, not two, and a stop racing itself is a stop
+   * that can answer 304 to itself. The refusal is thrown as well as kept: the view that asked is
+   * where the person is looking, so it can say so in a toast without the pane's banner having to
+   * be read first.
    */
-  async function action(
+  function action(
     tabId: string,
     containerId: string,
     name: ContainerActionName,
@@ -798,10 +1029,34 @@ export const useContainerStore = defineStore("container", () => {
   ): Promise<void> {
     const session = sessions.value[tabId];
     if (!session?.connectionId) {
+      return Promise.resolve();
+    }
+    const key = `${tabId}\u0000${containerId}\u0000${name}`;
+    const running = inflightActions.get(key);
+    if (running) {
+      return running;
+    }
+    const call = runAction(tabId, session, containerId, name, acknowledged).finally(() => {
+      inflightActions.delete(key);
+    });
+    inflightActions.set(key, call);
+    return call;
+  }
+
+  async function runAction(
+    tabId: string,
+    session: ContainerSession,
+    containerId: string,
+    name: ContainerActionName,
+    acknowledged: boolean,
+  ): Promise<void> {
+    const connectionId = session.connectionId;
+    if (!connectionId) {
       return;
     }
-    const connectionId = session.connectionId;
     try {
+      // A race the engine settled first answers `alreadySatisfied` — a success with a name. It is
+      // not shown as anything: the state the person asked for is on its way to the list already.
       await backend.containers.action(connectionId, containerId, name, acknowledged);
     } catch (error) {
       const failure = asShellError(error, "container_action");

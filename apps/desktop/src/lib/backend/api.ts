@@ -14,6 +14,7 @@ import type { CompletionExecuteRequest, CompletionExecuteResult } from "@/types/
 import type {
   ComposeProject,
   ComposeServiceRow,
+  ContainerActionOutcome,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -874,7 +875,7 @@ export const backend = {
       forward("container_list", () => desktop.containerList(connectionId)),
     inspect: (connectionId: string, containerId: string): Promise<ContainerDetail> =>
       forward("container_inspect", () => desktop.containerInspect(connectionId, containerId)),
-    action: (connectionId: string, containerId: string, action: string, acknowledged: boolean): Promise<void> =>
+    action: (connectionId: string, containerId: string, action: string, acknowledged: boolean): Promise<ContainerActionOutcome> =>
       forward("container_action", () => desktop.containerAction(connectionId, containerId, action, acknowledged)),
     rename: (connectionId: string, containerId: string, name: string): Promise<void> =>
       forward("container_rename", () => desktop.containerRename(connectionId, containerId, name)),
@@ -890,6 +891,12 @@ export const backend = {
       forward("container_runtime_info", () => desktop.containerRuntimeInfo(connectionId)),
     logsStart: (connectionId: string, containerId: string, tail: number, timestamps: boolean): Promise<string> =>
       forward("container_logs_start", () => desktop.containerLogsStart(connectionId, containerId, tail, timestamps)),
+    /**
+     * Follows the engine's own event stream, one wire-shaped event per line, on the same channel
+     * the other container streams use. The capability bit decides whether anyone asks at all.
+     */
+    eventsStart: (connectionId: string): Promise<string> =>
+      forward("container_events_start", () => desktop.containerEventsStart(connectionId)),
     streamStop: (streamId: string): Promise<void> =>
       forward("container_stream_stop", () => desktop.containerStreamStop(streamId)),
     execOpen: (connectionId: string, containerId: string, shell: string): Promise<string> =>
