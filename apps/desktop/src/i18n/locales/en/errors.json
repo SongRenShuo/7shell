@@ -5,17 +5,25 @@
       "locked": "The vault is locked.",
       "kdfFailed": "The vault key could not be derived.",
       "corrupt": "The vault file could not be read.",
-      "unlockFailed": "Unlock failed: the password is wrong, or the vault file failed verification."
+      "unlockFailed": "Unlock failed: the password is wrong, or the vault file failed verification.",
+      "keychainUnavailable": "This machine has no system keychain this build can use, so the vault still asks for its password.",
+      "keychainFailed": "The system keychain could not store the vault's unlock key."
     },
     "ssh": {
       "hostKeyUnknown": "The server at {host}:{port} presented a host key that has not been seen before.",
       "hostKeyMismatch": "The host key from {host}:{port} does not match the trusted one. Nothing was sent to that server.",
+      "hostKeySystemMismatch": "The {keyType} host key from {host}:{port} ({fingerprint}) differs from the one recorded in this machine's ~/.ssh/known_hosts. Nothing was sent. If the server's key really was replaced, remove the local record ({command}) and connect again.",
       "authFailed": "The server at {host}:{port} rejected these credentials.",
       "unreachable": "Could not reach {host}:{port}.",
       "timeout": "{host}:{port} did not respond within {seconds} seconds.",
       "channelFailed": "An SSH channel on {host}:{port} could not be opened or used.",
       "keyInvalid": "The key could not be read. If it has a passphrase, check that too.",
-      "keyUnsupported": "This build cannot use that kind of key."
+      "keyUnsupported": "This build cannot use that kind of key.",
+      "configUnsupported": "This OpenSSH configuration uses {directive}, which this build cannot honour. Nothing was sent.",
+      "configUnknownAlias": "No Host block in ~/.ssh/config matches {alias}.",
+      "configKeyPassphrase": "The key {key} named by ~/.ssh/config needs a passphrase. Add it to ssh-agent or import it into the vault.",
+      "configNoKey": "~/.ssh/config and the default identity files hold no usable private key for {alias}.",
+      "configProxyChain": "The ProxyJump chain in ~/.ssh/config cannot be followed: {chain}. Nothing was sent."
     },
     "rdp": {
       "launchFailed": "The Windows Remote Desktop client could not be started."
@@ -104,12 +112,25 @@
       "checkFailed": "The update channel could not be read, so a newer release may exist without being found.",
       "notAvailable": "There is no checked update waiting to be installed.",
       "installFailed": "The update could not be installed.",
-      "releasePageFailed": "The page this release is published on could not be opened."
+      "releasePageFailed": "The page this release is published on could not be opened.",
+      "portableUnavailable": "This release carries no portable archive, so this copy cannot replace itself. Download the new portable archive from the release page and unpack it over this folder (leave the data folder alone)."
     },
     "container": {
       "unavailable": "The {runtime} command line is not available, or the engine is not running.",
       "commandFailed": "The container runtime rejected {operation}.",
       "notConnected": "That container connection is no longer open."
+    },
+    "vmrest": {
+      "unavailable": "The Workstation REST service is not reachable. Start vmrest, and run `vmrest -C` once if it has never been configured.",
+      "unauthorized": "The Workstation REST service refused the configured credentials."
+    },
+    "hostLocation": {
+      "unknown": "That host location is no longer known. Add it on the desktop again."
+    },
+    "vmware": {
+      "unavailable": "VMware Workstation's command line is not available on this machine.",
+      "commandFailed": "The VMware command for {operation} did not succeed.",
+      "guestCredentials": "This virtual machine's session has no guest password saved, so the operation cannot sign in."
     },
     "k8s": {
       "unavailable": "The Kubernetes API server could not be reached.",

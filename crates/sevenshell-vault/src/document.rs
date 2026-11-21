@@ -18,8 +18,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    AuthMethod, CommandHistoryEntry, CompletionWord, DEFAULT_GROUP_ID, KeyInfo, KnownHostEntry, Session, SessionGroup,
-    Snippet, SnippetGroup,
+    AuthMethod, CommandHistoryEntry, CompletionWord, DEFAULT_GROUP_ID, HostLocationKind, KeyInfo, KnownHostEntry,
+    Session, SessionGroup, Snippet, SnippetGroup,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -45,8 +45,14 @@ use crate::credential::{KeyEntry, SecretEntry, SecretKind, ServicePassword};
 /// Version 12 added the assistant's stored conversations and the table the secrets of an external
 /// MCP server will live in: an older build reading one would parse the document, drop both tables
 /// and write it back — every conversation and every server credential gone in the course of
-/// somebody opening the window.
-pub const VAULT_SCHEMA_VERSION: u32 = 12;
+/// somebody opening the window. Version 13 added the host locations an agent may name and the
+/// Workstation REST service's credentials, with the same failure if an older build wrote the
+/// document back. Version 14 added whether a session's host comes from this machine's OpenSSH
+/// configuration: an older build would drop the flag and dial the alias as a host name, which is a
+/// different machine's problem only until DNS answers. Version 15 added the encoding and backspace
+/// byte a terminal session speaks, which an older build would drop on its next write and leave the
+/// switch printing replacement marks. The bump makes that build refuse the file instead.
+pub const VAULT_SCHEMA_VERSION: u32 = 15;
 
 /// How many sent commands are remembered. Enough to cover a working session's worth of "what was
 /// that line", and bounded so the vault does not grow with every command ever typed.
@@ -130,6 +136,32 @@ pub struct Document {
     /// read the configuration directory. One opaque value per server, like a conversation above.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     mcp_server_secrets: BTreeMap<String, SecretString>,
+    /// The places on this machine an agent may name, by the token the interface holds.
+    ///
+    /// The path is here and nowhere else: the interface and an agent see the token and a display
+    /// name, and a log line would be the last place a host path should appear.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    host_locations: BTreeMap<String, StoredHostLocation>,
+    /// The Workstation REST service's credentials. One account, kept only when somebody asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vmrest: Option<StoredVmrest>,
+}
+
+/// One host location as the vault keeps it: the token is the key, the path stays here.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredHostLocation {
+    pub(crate) name: String,
+    pub(crate) kind: HostLocationKind,
+    pub(crate) path: String,
+}
+
+/// The Workstation REST service's account. One per installation.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredVmrest {
+    pub(crate) user: String,
+    password: SecretString,
 }
 
 impl Document {
@@ -151,16 +183,24 @@ impl Document {
             ai_tokens: BTreeMap::new(),
             ai_sessions: BTreeMap::new(),
             mcp_server_secrets: BTreeMap::new(),
+            host_locations: BTreeMap::new(),
+            vmrest: None,
         }
     }
 
     /// The sessions, with `has_secret` set from the secrets table rather than from whatever
     /// the caller last wrote. The table is the authority; the flag is a report about it.
+    ///
+    /// The list is in the arrangement somebody dragged the sidebar into: lowest `order` first,
+    /// sessions nobody placed level with zero, ties in the order they were created. The sort is
+    /// stable, which is what keeps a vault written before sessions carried an order drawing the
+    /// way it always did.
     pub(crate) fn sessions(&self) -> Vec<Session> {
         let mut sessions = self.sessions.clone();
         for session in &mut sessions {
             session.auth.has_secret = self.stores_secret_for(&session.id);
         }
+        sessions.sort_by_key(|session| session.order.unwrap_or(0));
         sessions
     }
 
@@ -183,11 +223,51 @@ impl Document {
         }
 
         session.auth.has_secret = self.stores_secret_for(&session.id);
-        match self.sessions.iter_mut().find(|existing| existing.id == session.id) {
-            Some(existing) => *existing = session.clone(),
-            None => self.sessions.push(session.clone()),
+        let at = self.sessions.iter().position(|existing| existing.id == session.id);
+        match at {
+            Some(index) => {
+                // No order on the way in is an unanswered question, not a position: an editor that
+                // saved a name carries none, and reading it as "first" would undo the arrangement.
+                // The one exception is a move to another group — there the old number measured a
+                // list this session is no longer in, so it goes to the end of the new one.
+                if session.order.is_none() {
+                    let stored = &self.sessions[index];
+                    session.order = if stored.group_id == session.group_id {
+                        stored.order
+                    } else {
+                        Some(self.next_child_order(session.group_id.as_deref()))
+                    };
+                }
+                self.sessions[index] = session.clone();
+            }
+            None => {
+                if session.order.is_none() {
+                    session.order = Some(self.next_child_order(session.group_id.as_deref()));
+                }
+                self.sessions.push(session.clone());
+            }
         }
         session
+    }
+
+    /// The order a child made now goes to: after everything already under the same parent.
+    ///
+    /// Groups share the number space with sessions, so the last child of a parent may be either.
+    fn next_child_order(&self, group_id: Option<&str>) -> u32 {
+        let mut highest: Option<u32> = None;
+        for group in &self.groups {
+            if effective_parent(&self.groups, &group.id).as_deref() == group_id {
+                highest = Some(highest.map_or(group.order, |value| value.max(group.order)));
+            }
+        }
+        for session in &self.sessions {
+            if session_parent(&self.groups, session).as_deref() == group_id
+                && let Some(order) = session.order
+            {
+                highest = Some(highest.map_or(order, |value| value.max(order)));
+            }
+        }
+        highest.map_or(0, |value| value.saturating_add(1))
     }
 
     /// Removes a session and the secret that belonged to it. Removing something already absent
@@ -770,6 +850,53 @@ impl Document {
             }
         }
     }
+
+    /// Every host location, in display-name order.
+    pub(crate) fn host_locations(&self) -> Vec<(String, StoredHostLocation)> {
+        let mut locations: Vec<(String, StoredHostLocation)> = self
+            .host_locations
+            .iter()
+            .map(|(token, entry)| (token.clone(), entry.clone()))
+            .collect();
+        locations.sort_by_key(|(_, entry)| entry.name.to_lowercase());
+        locations
+    }
+
+    pub(crate) fn host_location(&self, token: &str) -> Option<&StoredHostLocation> {
+        self.host_locations.get(token)
+    }
+
+    pub(crate) fn set_host_location(&mut self, token: &str, name: &str, kind: HostLocationKind, path: &str) {
+        self.host_locations.insert(
+            token.to_owned(),
+            StoredHostLocation {
+                name: name.to_owned(),
+                kind,
+                path: path.to_owned(),
+            },
+        );
+    }
+
+    pub(crate) fn remove_host_location(&mut self, token: &str) -> bool {
+        self.host_locations.remove(token).is_some()
+    }
+
+    pub(crate) fn vmrest_credentials(&self) -> Option<(String, String)> {
+        self.vmrest
+            .as_ref()
+            .map(|stored| (stored.user.clone(), stored.password.expose().to_owned()))
+    }
+
+    pub(crate) fn set_vmrest_credentials(&mut self, user: &str, password: &str) {
+        self.vmrest = if user.trim().is_empty() {
+            None
+        } else {
+            Some(StoredVmrest {
+                user: user.trim().to_owned(),
+                password: SecretString::new(password.to_owned()),
+            })
+        };
+    }
 }
 
 impl fmt::Debug for Document {
@@ -798,6 +925,8 @@ impl fmt::Debug for Document {
                 "mcp_server_secrets",
                 &self.mcp_server_secrets.keys().collect::<Vec<_>>(),
             )
+            .field("host_locations", &self.host_locations.len())
+            .field("vmrest", &self.vmrest.is_some())
             .finish()
     }
 }
@@ -945,6 +1074,104 @@ impl<'de> Deserialize<'de> for SecretString {
     }
 }
 
+/// The parent a group really sits under, mirroring the interface's rule: a missing parent, or a
+/// chain of parents that loops back on itself, means the root.
+fn effective_parent(groups: &[SessionGroup], id: &str) -> Option<String> {
+    let start = groups.iter().find(|group| group.id == id)?;
+    let mut seen = std::collections::HashSet::from([id.to_owned()]);
+    let mut parent = start.parent_id.clone();
+    while let Some(current) = &parent {
+        let next = groups.iter().find(|group| &group.id == current)?;
+        if !seen.insert(next.id.clone()) {
+            return None;
+        }
+        parent = next.parent_id.clone();
+    }
+    start.parent_id.clone()
+}
+
+/// The group a session is really in: its own answer, unless that group is gone.
+fn session_parent(groups: &[SessionGroup], session: &Session) -> Option<String> {
+    session
+        .group_id
+        .clone()
+        .filter(|id| groups.iter().any(|group| &group.id == id))
+}
+
+/// Puts every parent's children — groups and sessions together — on one number line.
+///
+/// A vault written before sessions carried an order keeps the drawing it always had: every group
+/// first, then the sessions of that parent. One that already carries numbers keeps them, because a
+/// drag writes the whole list it lands in; this runs on every load and is idempotent, and what it
+/// numbers is exactly what it read.
+fn normalize_child_orders(document: &mut Document) {
+    let groups = document.groups.clone();
+    let sessions = document.sessions.clone();
+
+    let mut parents: Vec<Option<String>> = vec![None];
+    parents.extend(groups.iter().map(|group| Some(group.id.clone())));
+
+    let mut group_orders: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut session_orders: std::collections::HashMap<String, Option<u32>> = std::collections::HashMap::new();
+
+    for parent in parents {
+        // A parent holding a session nobody placed is one nobody has dragged in since sessions
+        // carried a place, so its old drawing — groups before sessions — is what has to survive.
+        let legacy = sessions
+            .iter()
+            .filter(|session| session_parent(&groups, session) == parent)
+            .any(|session| session.order.is_none());
+
+        // (band, first, second, position, is-group, id): the middle pair is (kind, order) for a
+        // legacy parent and (order, kind) once every session carries a place.
+        let mut children: Vec<(u8, u32, u32, usize, bool, String)> = Vec::new();
+        for (position, group) in groups.iter().enumerate() {
+            if effective_parent(&groups, &group.id) != parent {
+                continue;
+            }
+            let band = u8::from(!group.pinned);
+            let key = if legacy {
+                (band, 0u32, group.order, position)
+            } else {
+                (band, group.order, 0u32, position)
+            };
+            children.push((key.0, key.1, key.2, key.3, true, group.id.clone()));
+        }
+        for (position, session) in sessions.iter().enumerate() {
+            if session_parent(&groups, session) != parent {
+                continue;
+            }
+            let order = session.order.unwrap_or(0);
+            let key = if legacy {
+                (1u8, 1u32, order, position)
+            } else {
+                (1u8, order, 1u32, position)
+            };
+            children.push((key.0, key.1, key.2, key.3, false, session.id.clone()));
+        }
+        children.sort();
+        for (index, (_, _, _, _, is_group, id)) in children.into_iter().enumerate() {
+            let order = index as u32;
+            if is_group {
+                group_orders.insert(id, order);
+            } else {
+                session_orders.insert(id, Some(order));
+            }
+        }
+    }
+
+    for group in &mut document.groups {
+        if let Some(order) = group_orders.get(&group.id) {
+            group.order = *order;
+        }
+    }
+    for session in &mut document.sessions {
+        if let Some(order) = session_orders.get(&session.id) {
+            session.order = *order;
+        }
+    }
+}
+
 /// Brings a document written by an older build up to [`VAULT_SCHEMA_VERSION`].
 ///
 /// Brings a stored document up to the shape this build reads.
@@ -971,10 +1198,15 @@ pub(crate) fn migrate(mut document: Document) -> Result<Document, ShellError> {
     // meant — so the steps are the version number alone. 9 → 10: a session secret may now be a
     // kubeconfig document. 10 → 11: the document may now carry an assistant provider's key. 11 → 12:
     // it may now carry the assistant's conversations and an MCP server's credentials, and an older
-    // document simply has neither table. The number moves so an older build refuses the whole file as
-    // too new instead of failing to read one unknown secret variant and calling the vault corrupt, and
-    // so a build that predates the keys cannot drop them by writing the document back.
+    // document simply has neither table. 12 → 13: it may now carry the host locations an agent may
+    // name and the Workstation REST service's credentials, which an older document also lacks; the
+    // number moves so an older build refuses the whole file as too new instead of dropping them on
+    // its next write. 13 → 14: a session may now say its host is an OpenSSH alias, which an older
+    // build would drop and then dial as a literal host name.
     document.schema_version = VAULT_SCHEMA_VERSION;
+
+    // Groups and sessions share one order per parent, so a session can sit between two groups.
+    normalize_child_orders(&mut document);
 
     Ok(document)
 }
@@ -991,10 +1223,31 @@ fn default_group() -> SnippetGroup {
     }
 }
 
+/// The one field a payload is read for before the rest of it is judged.
+///
+/// A document from a newer build can use a protocol or another value this build has never heard
+/// of, and the full parse fails on it. Read first, the version turns that failure into the answer
+/// the reader can act on — "written by a newer version" — instead of a wrong-password message.
+/// The payload already decrypted with the right key, so the version is not something its reader
+/// did not already know.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SchemaProbe {
+    schema_version: u32,
+}
+
 /// Parses a decrypted payload. A payload that decrypted correctly but does not parse was
 /// written by something that is not this format, and is reported as an unlock failure so the
 /// two cannot be told apart from outside.
 pub(crate) fn from_slice(payload: &[u8]) -> Result<Document, ShellError> {
+    let probe: SchemaProbe = serde_json::from_slice(payload).map_err(|_| ShellError::vault_unlock_failed())?;
+    if probe.schema_version > VAULT_SCHEMA_VERSION {
+        return Err(ShellError::store_schema_newer(
+            probe.schema_version,
+            VAULT_SCHEMA_VERSION,
+        ));
+    }
+
     let document = serde_json::from_slice::<Document>(payload).map_err(|_| ShellError::vault_unlock_failed())?;
     migrate(document)
 }
@@ -1009,6 +1262,7 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             group_id: None,
+            order: None,
             protocol: sevenshell_types::Protocol::Ssh,
             host: "host.example".to_owned(),
             port: 22,
@@ -1024,6 +1278,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 1,
@@ -1072,6 +1327,173 @@ mod tests {
 
         assert!(document.sessions.is_empty());
         assert!(document.secrets.is_empty());
+    }
+
+    #[test]
+    fn a_new_session_lands_after_the_sessions_already_in_its_group() {
+        let mut document = Document::empty();
+        document.save_group(SessionGroup {
+            id: "g1".to_owned(),
+            name: "group".to_owned(),
+            parent_id: None,
+            order: 0,
+            pinned: false,
+        });
+        let mut web = session("a", "web");
+        web.group_id = Some("g1".to_owned());
+        let mut db = session("b", "db");
+        db.group_id = Some("g1".to_owned());
+
+        document.save_session(web, None);
+        document.save_session(db, None);
+
+        let orders: Vec<Option<u32>> = document
+            .sessions()
+            .iter()
+            .filter(|stored| stored.group_id.as_deref() == Some("g1"))
+            .map(|stored| stored.order)
+            .collect();
+        assert_eq!(orders, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn an_edit_that_carries_no_order_keeps_the_one_already_stored() {
+        // The editor builds a session field by field and knows nothing about the arrangement; a
+        // rename must not send the row back to the top of its group.
+        let mut document = Document::empty();
+        let mut placed = session("a", "web");
+        placed.order = Some(4);
+        document.save_session(placed, None);
+
+        document.save_session(session("a", "web renamed"), None);
+
+        assert_eq!(document.sessions()[0].order, Some(4));
+    }
+
+    #[test]
+    fn a_session_moved_to_another_group_lands_at_the_end_of_it_without_being_told_where() {
+        // The old number measured a list this session is no longer in, so it cannot be kept.
+        let mut document = Document::empty();
+        document.save_group(SessionGroup {
+            id: "g1".to_owned(),
+            name: "group".to_owned(),
+            parent_id: None,
+            order: 0,
+            pinned: false,
+        });
+        let mut in_group = session("a", "web");
+        in_group.group_id = Some("g1".to_owned());
+        in_group.order = Some(0);
+        document.save_session(in_group, None);
+        document.save_session(session("c", "cache"), None);
+
+        document.save_session(
+            Session {
+                group_id: Some("g1".to_owned()),
+                ..session("c", "cache")
+            },
+            None,
+        );
+
+        let stored = document
+            .sessions()
+            .into_iter()
+            .find(|entry| entry.id == "c")
+            .expect("the moved session");
+        assert_eq!(stored.order, Some(1));
+    }
+
+    #[test]
+    fn the_list_is_drawn_in_the_arrangement_it_was_dragged_into() {
+        let mut document = Document::empty();
+        for (id, name, order) in [("a", "web", 2), ("b", "db", 0), ("c", "cache", 1)] {
+            let mut stored = session(id, name);
+            stored.order = Some(order);
+            document.save_session(stored, None);
+        }
+
+        let names: Vec<String> = document.sessions().into_iter().map(|stored| stored.name).collect();
+        assert_eq!(names, vec!["db", "cache", "web"]);
+    }
+
+    #[test]
+    fn a_vault_written_before_sessions_had_places_draws_groups_before_sessions() {
+        // What an older build wrote: groups carry an order, sessions carry none. The nesting is
+        // what draws it, and the normalization must keep that drawing rather than interleave by
+        // numbers the sessions never had.
+        let mut document = Document::empty();
+        for (id, name, order) in [("work", "Work", 0), ("lab", "Lab", 1)] {
+            document.save_group(SessionGroup {
+                id: id.to_owned(),
+                name: name.to_owned(),
+                parent_id: None,
+                order,
+                pinned: false,
+            });
+        }
+        document.sessions.push(session("web", "web"));
+        let mut db = session("db", "db");
+        db.group_id = Some("work".to_owned());
+        document.sessions.push(db);
+
+        let migrated = migrate(document).expect("migrate");
+
+        let session_order = |id: &str| {
+            migrated
+                .sessions
+                .iter()
+                .find(|stored| stored.id == id)
+                .and_then(|stored| stored.order)
+        };
+        let group_order = |id: &str| {
+            migrated
+                .groups
+                .iter()
+                .find(|group| group.id == id)
+                .map(|group| group.order)
+        };
+        assert_eq!(group_order("work"), Some(0));
+        assert_eq!(group_order("lab"), Some(1));
+        assert_eq!(session_order("web"), Some(2));
+        assert_eq!(session_order("db"), Some(0));
+    }
+
+    #[test]
+    fn an_arrangement_with_sessions_between_groups_survives_a_reload() {
+        let mut document = Document::empty();
+        document.save_group(SessionGroup {
+            id: "work".to_owned(),
+            name: "Work".to_owned(),
+            parent_id: None,
+            order: 1,
+            pinned: false,
+        });
+        let mut early = session("web", "web");
+        early.order = Some(0);
+        document.save_session(early, None);
+
+        let migrated = migrate(document).expect("migrate");
+
+        assert_eq!(migrated.sessions[0].order, Some(0));
+        assert_eq!(migrated.groups[0].order, 1);
+    }
+
+    #[test]
+    fn a_new_session_lands_after_the_groups_of_its_parent() {
+        let mut document = Document::empty();
+        for (id, order) in [("work", 0), ("lab", 1)] {
+            document.save_group(SessionGroup {
+                id: id.to_owned(),
+                name: id.to_owned(),
+                parent_id: None,
+                order,
+                pinned: false,
+            });
+        }
+
+        document.save_session(session("web", "web"), None);
+
+        assert_eq!(document.sessions[0].order, Some(2));
     }
 
     #[test]
@@ -1157,6 +1579,34 @@ mod tests {
     #[test]
     fn a_document_without_a_schema_version_does_not_parse() {
         let error = from_slice(br#"{"sessions":[]}"#).expect_err("schemaVersion is required");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::VaultUnlockFailed);
+    }
+
+    #[test]
+    fn a_newer_document_is_refused_as_newer_even_when_its_content_would_not_parse() {
+        // What an older build saw: the document decrypted, but a value in it (a protocol this
+        // build never learned) failed the full parse, and the reader was told the password was
+        // wrong. The version is readable on its own, so the refusal must name the real reason.
+        let found = VAULT_SCHEMA_VERSION + 1;
+        let raw = format!(
+            r#"{{"schemaVersion":{found},"sessions":[{{"id":"one","name":"one","protocol":"aProtocolThisBuildDoesNotKnow"}}]}}"#
+        );
+
+        let error = from_slice(raw.as_bytes()).expect_err("a document from the future is not this build's shape");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::StoreSchemaNewer);
+        assert_eq!(
+            error.message_params().get("found").map(String::as_str),
+            Some(found.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn a_payload_that_is_not_a_document_is_still_an_unlock_failure() {
+        // Reading the version first must not turn a file that is not this format into a version
+        // report: the two failures stay indistinguishable until the payload parses as a document.
+        let error = from_slice(b"not a document at all").expect_err("this is not a payload");
 
         assert_eq!(error.code(), sevenshell_error::ErrorCode::VaultUnlockFailed);
     }

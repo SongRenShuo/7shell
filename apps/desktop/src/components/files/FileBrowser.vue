@@ -18,16 +18,17 @@
 import {
   ArrowUp,
   ChevronRight,
+  Columns3,
   Download,
-  File,
+  Ellipsis,
   FilePlus,
-  FileSymlink,
-  Folder,
   ClipboardPaste,
   FolderPlus,
-  HardDrive,
+  ListTree,
   LoaderCircle,
   RefreshCw,
+  Search,
+  Terminal,
   Upload,
   X,
 } from "@lucide/vue";
@@ -39,8 +40,12 @@ import {
   DialogPortal,
   DialogRoot,
   DialogTitle,
+  PopoverContent,
+  PopoverPortal,
+  PopoverRoot,
+  PopoverTrigger,
 } from "reka-ui";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { type Component, computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DirectoryTree from "@/components/files/DirectoryTree.vue";
@@ -48,20 +53,24 @@ import FileBookmarksMenu from "@/components/files/FileBookmarksMenu.vue";
 import FileEditor from "@/components/files/FileEditor.vue";
 import FilePermissionsDialog from "@/components/files/FilePermissionsDialog.vue";
 import FilePropertiesDialog from "@/components/files/FilePropertiesDialog.vue";
+import FileTypeIcon from "@/components/files/FileTypeIcon.vue";
 import ColumnResizeHandle from "@/components/ui/ColumnResizeHandle.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import SideDivider from "@/components/ui/SideDivider.vue";
 import SortHeader from "@/components/ui/SortHeader.vue";
+import PanelPlacementButton from "@/components/workspace/PanelPlacementButton.vue";
 import { useColumnWidths } from "@/composables/useColumnWidths";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
 import { describeShellError } from "@/i18n/errors";
 import { type ColumnLine, type ColumnWidth } from "@/lib/columns";
+import { firstVisibleCrumb } from "@/lib/files/crumbs";
+import { filterByName } from "@/lib/files/filter";
 import {
   extensionOf,
   familyOf,
+  formatListModified,
   formatMode,
-  formatModified,
   formatSize,
   hasBinaryFamily,
   joinPath,
@@ -90,15 +99,32 @@ import { formatShortcutDisplay } from "@/lib/shortcuts/display";
 import { bindingFor } from "@/lib/shortcuts/registry";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app";
+import { useCommandsStore } from "@/stores/commands";
 import { useFilesStore } from "@/stores/files";
 import { usePreferencesStore } from "@/stores/preferences";
+import { type TerminalTab, useTerminalsStore } from "@/stores/terminals";
 import type { Protocol } from "@/types/generated/protocols";
+import type { TerminalPanelPlacement } from "@/types/app";
 import type { SftpEntry } from "@/types/session";
 
-const props = withDefaults(defineProps<{ handle: string; protocol?: Protocol; packedTransfers?: boolean }>(), {
-  protocol: "ssh",
-  packedTransfers: true,
-});
+const props = withDefaults(
+  defineProps<{
+    handle: string;
+    protocol?: Protocol;
+    packedTransfers?: boolean;
+    compact?: boolean;
+    panelPlacement?: TerminalPanelPlacement;
+  }>(),
+  {
+    protocol: "ssh",
+    packedTransfers: true,
+    compact: false,
+  },
+);
+
+const emit = defineEmits<{
+  choosePanelPlacement: [placement: TerminalPanelPlacement];
+}>();
 
 /**
  * The features that belong to one backend rather than to every browser.
@@ -129,36 +155,245 @@ const supportsCopy = computed(() => props.protocol !== "ftp");
  * spare divides it between the columns nobody has moved, which is what `lib/columns.ts` is about.
  */
 const LISTING_COLUMNS: readonly ColumnWidth[] = [
-  { key: "name", defaultPx: 320, minPx: 160 },
-  { key: "size", defaultPx: 80, minPx: 56 },
+  { key: "name", defaultPx: 120, minPx: 120 },
+  { key: "size", defaultPx: 54, minPx: 54 },
+  { key: "modified", defaultPx: 82, minPx: 76 },
   { key: "kind", defaultPx: 80, minPx: 64 },
-  { key: "modified", defaultPx: 160, minPx: 112 },
   { key: "mode", defaultPx: 96, minPx: 64 },
   { key: "owner", defaultPx: 112, minPx: 80 },
 ];
 
+type FileColumnKey = "size" | "kind" | "modified" | "mode" | "owner";
+
+/** What the column chooser offers, in the order the reference toolbar lists them. Name is fixed. */
+const COLUMN_OPTIONS: readonly { key: FileColumnKey; labelKey: string }[] = [
+  { key: "modified", labelKey: "files.modified" },
+  { key: "size", labelKey: "files.size" },
+  { key: "kind", labelKey: "files.type" },
+  { key: "owner", labelKey: "files.owner" },
+  { key: "mode", labelKey: "files.permissions" },
+];
+
+const visibleColumns = computed<ReadonlySet<FileColumnKey>>(() => {
+  const hidden = new Set(preferences.filesHiddenColumns);
+  const shown = new Set<FileColumnKey>();
+  for (const option of COLUMN_OPTIONS) {
+    if (!hidden.has(option.key)) {
+      shown.add(option.key);
+    }
+  }
+  return shown;
+});
+const activeColumns = computed(() =>
+  LISTING_COLUMNS.filter((column) => column.key === "name" || visibleColumns.value.has(column.key as FileColumnKey)),
+);
+
+function toggleColumn(key: FileColumnKey): void {
+  const hidden = new Set(preferences.filesHiddenColumns);
+  if (!hidden.delete(key)) {
+    hidden.add(key);
+  }
+  void preferences.setFilesHiddenColumns([...hidden]);
+}
+
 /**
- * What the listing's line spends around its columns: `px-3` on each side of the heading strip, and
- * `gap-2` between the cells.
+ * What the listing's line spends around its columns: `px-1.5` on each side of the heading strip, and
+ * `gap-1.5` between the cells.
  *
- * The rows spend the same — `p-1.5` on the list plus `px-1.5` on a row is the same twelve pixels,
- * and the same gaps — which is what keeps a heading over its own column. These numbers are written
- * here rather than read out of the stylesheet because they *are* the stylesheet: a class changed
- * without this line is a heading that no longer sits over its column, and the e2e run is where that
- * shows up.
+ * The rows spend the same — `p-1.5` on the list with no horizontal padding on a row is the same six
+ * pixels, and the same gaps — which is what keeps a heading over its own column. These numbers are
+ * written here rather than read out of the stylesheet because they *are* the stylesheet: a class
+ * changed without this line is a heading that no longer sits over its column, and the e2e run is
+ * where that shows up.
+ *
+ * Six rather than twelve is what puts the name, size and modified columns inside a panel at its
+ * narrowest: 6 + 120 + 6 + 54 + 6 + 82 + 6 is exactly the 280px floor, so the date is not pushed
+ * under the scrollbar. The reference file list uses the same arithmetic.
  */
-const LISTING_LINE: ColumnLine = { paddingPx: 12, gapPx: 8 };
+const LISTING_LINE: ColumnLine = { paddingPx: 6, gapPx: 6 };
 
 const preferences = usePreferencesStore();
+const commands = useCommandsStore();
+const terminals = useTerminalsStore();
 
 /**
- * Whether the tree is shown beside the listing.
+ * Whether the tree is available beside the listing.
  *
  * The default is the tree, because a remote file system is easiest to move around in when you can
- * see where you are; the single list is there for a narrow window. The choice is a preference, so
- * it applies to every browser that is open and survives a restart.
+ * see where you are; the single list is there for a narrow window. The choice is a global
+ * preference, written by the toolbar's tree button and applied to every browser that is open.
+ *
+ * A panel docked beside the terminal is the narrow case regardless of that preference: at the
+ * docked panel's own widths a 204px tree leaves less than one column of listing. The reference
+ * docked panel draws the single list for the same reason, so the tree is offered in the bottom
+ * panel and the standalone browser and not there.
  */
 const twoPanes = computed(() => preferences.filesLayout === "tree");
+const treeAvailable = computed(() => twoPanes.value && !props.compact);
+const showTree = computed(() => treeAvailable.value && preferences.filesTreeVisible);
+
+/** The terminal of this browser's session, preferring the one on screen when several are open. */
+const locateHandle = computed<string | null>(() => {
+  const sessionId = files.browser(props.handle)?.sessionId;
+  if (!sessionId) {
+    return null;
+  }
+  const open = terminals.tabs.filter(
+    (tab): tab is TerminalTab =>
+      tab.kind === "terminal" && tab.session.id === sessionId && tab.handle !== null && tab.status === "open",
+  );
+  if (open.length === 0) {
+    return null;
+  }
+  const chosen = open.find((tab) => tab.id === terminals.activeTabId) ?? open[open.length - 1];
+  if (!chosen) {
+    return null;
+  }
+  // The file manager can be reached over SFTP to a Windows shell, where a POSIX `cd` is not the
+  // way to change directory. There is no terminal answer that is better than leaving it disabled.
+  return terminals.systemOf(chosen.session)?.kernel === "Windows" ? null : chosen.handle;
+});
+
+/** Quotes a remote path for the POSIX shell the terminal is running. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+async function locateTerminal(): Promise<void> {
+  const handle = locateHandle.value;
+  const path = files.browser(props.handle)?.path;
+  if (handle === null || !path) {
+    return;
+  }
+  await commands.sendLineTo(handle, `cd -- ${shellQuote(path)}`);
+}
+
+/**
+ * The action row, folded by measured room.
+ *
+ * Every action is one 24px button with a 2px gap. The row asks how wide it is, keeps as many as
+ * fit, and gives the rest a `...` button; when that button opens, the hidden actions are rows of
+ * their own. Nothing here decides by the window's width: the panel beside a terminal can be any
+ * width, and the row is measured where it is actually drawn.
+ */
+type FileActionKey =
+  | "refresh"
+  | "newFile"
+  | "newFolder"
+  | "upload"
+  | "download"
+  | "paste"
+  | "locate"
+  | "tree"
+  | "columns";
+
+const ACTION_ORDER = computed<FileActionKey[]>(() =>
+  ["refresh", "newFile", "newFolder", "upload", "download", "paste", "locate", "tree", "columns"].filter(
+    (key): key is FileActionKey => key !== "tree" || treeAvailable.value,
+  ),
+);
+
+const ACTION_ICONS: Record<FileActionKey, Component> = {
+  refresh: RefreshCw,
+  newFile: FilePlus,
+  newFolder: FolderPlus,
+  upload: Upload,
+  download: Download,
+  paste: ClipboardPaste,
+  locate: Terminal,
+  tree: ListTree,
+  columns: Columns3,
+};
+
+const actionRow = ref<HTMLElement | null>(null);
+const actionWidth = ref(0);
+const moreOpen = ref(false);
+let actionResize: ResizeObserver | null = null;
+
+const visibleActionCount = computed(() => {
+  const total = ACTION_ORDER.value.length;
+  if (actionWidth.value <= 0) {
+    return total;
+  }
+  // The position control keeps the far right of the row whether or not the actions fit.
+  const slots = Math.floor((actionWidth.value + 2) / 26) - (props.panelPlacement ? 1 : 0);
+  return slots >= total ? total : Math.max(0, slots - 1);
+});
+const hiddenActions = computed(() => ACTION_ORDER.value.slice(visibleActionCount.value));
+const hiddenActionRows = computed(() => hiddenActions.value.filter((key) => key !== "columns"));
+
+function actionVisible(key: FileActionKey): boolean {
+  const index = ACTION_ORDER.value.indexOf(key);
+  return index >= 0 && index < visibleActionCount.value;
+}
+
+function actionLabel(key: FileActionKey): string {
+  switch (key) {
+    case "refresh":
+      return t("files.refresh");
+    case "newFile":
+      return t("files.newFile");
+    case "newFolder":
+      return t("files.newFolder");
+    case "upload":
+      return t("files.upload");
+    case "download":
+      return t("files.action.download");
+    case "paste":
+      return t("files.paste.label");
+    case "locate":
+      return t("files.locateTerminal");
+    case "tree":
+      return t(preferences.filesTreeVisible ? "files.tree.hide" : "files.tree.show");
+    case "columns":
+      return t("files.columns.title");
+  }
+}
+
+function actionDisabled(key: FileActionKey): boolean {
+  switch (key) {
+    case "refresh":
+      return files.browser(props.handle)?.loading ?? false;
+    case "download":
+      return chosen.value.length === 0;
+    case "locate":
+      return locateHandle.value === null;
+    default:
+      return false;
+  }
+}
+
+function runAction(key: FileActionKey): void {
+  moreOpen.value = false;
+  switch (key) {
+    case "refresh":
+      refreshListing();
+      return;
+    case "newFile":
+      startNew("file");
+      return;
+    case "newFolder":
+      startNew("folder");
+      return;
+    case "upload":
+      upload();
+      return;
+    case "download":
+      download(chosen.value, supportsPacked.value && preferences.packedTransfer);
+      return;
+    case "paste":
+      pasteFiles();
+      return;
+    case "locate":
+      void locateTerminal();
+      return;
+    case "tree":
+      void preferences.setFilesTreeVisible(!preferences.filesTreeVisible);
+      return;
+    case "columns":
+      return;
+  }
+}
 
 /**
  * The paste route, as a button.
@@ -262,6 +497,10 @@ const app = useAppStore();
 const pasteShortcut = computed(() =>
   formatShortcutDisplay(bindingFor("global.uploadClipboard", preferences.keybindings), app.platform),
 );
+/** The filter's key, spelled the same way. */
+const filterShortcut = computed(() =>
+  formatShortcutDisplay(bindingFor("files.filter", preferences.keybindings), app.platform),
+);
 
 const browser = computed(() => files.browser(props.handle));
 /** What this browser can paste: the clipboard is only meaningful on the connection it came from. */ const pasteable =
@@ -308,8 +547,52 @@ const typedPath = ref("");
 const editingPath = ref(false);
 const pathField = ref<HTMLInputElement | null>(null);
 
+/** What is typed into the filter, and whether its field is showing instead of the breadcrumbs. */
+const filterText = ref("");
+const filtering = ref(false);
+const filterField = ref<HTMLInputElement | null>(null);
+/** The query as the rows compare it: trimmed, so a stray space does not hide everything. */
+const filterQuery = computed(() => filterText.value.trim());
+
+/**
+ * The breadcrumb run that fits, with leading folders folded into an ellipsis.
+ *
+ * Widths come from the hidden copy below rather than from character counts: the interface's font
+ * and scaling decide how much a name takes. The last crumb is always kept, even when it has to be
+ * truncated itself, because it says where the panel is.
+ */
+const pathNav = ref<HTMLElement | null>(null);
+const pathMeasure = ref<HTMLElement | null>(null);
+const firstCrumb = ref(0);
+const visibleCrumbs = computed(() => crumbs.value.slice(firstCrumb.value));
+let pathResize: ResizeObserver | null = null;
+
+function measureCrumbs(): void {
+  const nav = pathNav.value;
+  const measure = pathMeasure.value;
+  if (!nav || !measure) {
+    return;
+  }
+  const widths = [...measure.querySelectorAll<HTMLElement>("[data-measure-crumb]")].map((crumb) => crumb.offsetWidth);
+  // The row's own horizontal padding is not room a crumb can use.
+  firstCrumb.value = firstVisibleCrumb(widths, nav.clientWidth - 12);
+}
+
+watch(crumbs, () => void nextTick(measureCrumbs));
+
+watch(pathNav, (nav, previous) => {
+  if (previous) {
+    pathResize?.unobserve(previous);
+  }
+  if (nav) {
+    pathResize?.observe(nav);
+  }
+  void nextTick(measureCrumbs);
+});
+
 /** Turns the address bar into a field holding the path the panel is showing, selected for replacing. */
 function startPathEdit(): void {
+  stopFilter();
   typedPath.value = browser.value?.path ?? "";
   editingPath.value = true;
   void nextTick(() => {
@@ -332,6 +615,56 @@ function onPathFocusOut(event: FocusEvent): void {
   cancelPathEdit();
 }
 
+/** Opens the filter field in place of the breadcrumbs, with whatever is already there selected. */
+function startFilter(): void {
+  cancelPathEdit();
+  filtering.value = true;
+  void nextTick(() => {
+    filterField.value?.focus();
+    filterField.value?.select();
+  });
+}
+
+/** Closes the field and drops what was typed: the listing goes back to the whole directory. */
+function stopFilter(): void {
+  filtering.value = false;
+  filterText.value = "";
+}
+
+/** The toolbar's button: opens the field, or puts the keyboard back in it while it is already open. */
+function toggleFilter(): void {
+  if (filtering.value) {
+    filterField.value?.focus();
+    filterField.value?.select();
+    return;
+  }
+  startFilter();
+}
+
+/** Enter hands the keyboard to the rows, so the arrows can walk what the filter found. */
+function focusListing(): void {
+  listing.value?.focus();
+}
+
+/** Enter ends the search field unless an input method is still composing the name being typed. */
+function onFilterEnter(event: KeyboardEvent): void {
+  if (event.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  focusListing();
+}
+
+/** Escape closes the filter for the same reason: composing Chinese or Japanese is not a dismissal. */
+function onFilterEscape(event: KeyboardEvent): void {
+  if (event.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  stopFilter();
+}
+
 /** Reads the directory again, which is what brings in what somebody else has changed meanwhile. */
 function refreshListing(): void {
   const path = browser.value?.path;
@@ -347,6 +680,11 @@ function refreshListing(): void {
  * in the registry so the settings page lists it and a conflict is visible there.
  */
 function onBrowserKey(event: KeyboardEvent): void {
+  if (matchesShortcut(event, bindingFor("files.filter", preferences.keybindings), app.platform)) {
+    event.preventDefault();
+    toggleFilter();
+    return;
+  }
   if (!matchesShortcut(event, bindingFor("files.focusPath", preferences.keybindings), app.platform)) {
     return;
   }
@@ -381,21 +719,23 @@ const listing = ref<HTMLDivElement | null>(null);
 let drag: { from: Point; rows: RowBand[]; moved: boolean } | null = null;
 
 /**
- * The strip the headings are drawn in, and the columns those headings stand for.
+ * The listing's scrollport, and the columns its headings stand for.
  *
  * Its width is the room the columns have, which is why it is measured rather than counted: the
- * sidebar's divider, the file panel's divider and the window itself all change it without touching
- * a single column. What comes back from here is what the template draws with — the widths, the
- * least width the line may be drawn at, and what each heading's edge needs.
+ * sidebar's divider, the file panel's divider, its scrollbar and the window itself all change it
+ * without touching a single column. Measuring the heading strip instead would measure the content
+ * that already overflows it, which is how the date column once ended up under the scrollbar. What
+ * comes back from here is what the template draws with — the widths, the least width the line may be
+ * drawn at, and what each heading's edge needs.
  */
-const columnsLine = ref<HTMLDivElement | null>(null);
 const {
   vars: columnVars,
   minWidth: columnsMinWidth,
+  drawn: columnDrawn,
   edge: columnEdge,
   move: moveColumn,
   reset: resetColumn,
-} = useColumnWidths({ table: "files", columns: LISTING_COLUMNS, line: LISTING_LINE, element: columnsLine });
+} = useColumnWidths({ table: "files", columns: activeColumns, line: LISTING_LINE, element: listing });
 
 /**
  * How much of the listing is drawn, and what the layout says about the rest.
@@ -509,11 +849,29 @@ onMounted(() => {
     resizeObserver = new ResizeObserver(() => measureListing());
     resizeObserver.observe(element);
   }
+  if (typeof ResizeObserver !== "undefined") {
+    pathResize = new ResizeObserver(() => measureCrumbs());
+    if (pathNav.value) {
+      pathResize.observe(pathNav.value);
+    }
+    actionResize = new ResizeObserver(() => {
+      actionWidth.value = actionRow.value?.clientWidth ?? 0;
+    });
+    if (actionRow.value) {
+      actionResize.observe(actionRow.value);
+    }
+    actionWidth.value = actionRow.value?.clientWidth ?? 0;
+  }
+  void nextTick(measureCrumbs);
 });
 
 onUnmounted(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
+  pathResize?.disconnect();
+  pathResize = null;
+  actionResize?.disconnect();
+  actionResize = null;
 });
 
 /**
@@ -522,8 +880,10 @@ onUnmounted(() => {
  * a directory and back out of it.
  */
 const order = ref<Order>(INITIAL_ORDER);
-/** What the server sent, in the order the headings say to draw it. */
-const ordered = computed(() => orderEntries(browser.value?.entries ?? [], order.value, typeOf));
+/** What the server sent, narrowed by the filter, in the order the headings say to draw it. */
+const ordered = computed(() =>
+  orderEntries(filterByName(browser.value?.entries ?? [], filterText.value), order.value, typeOf),
+);
 
 /** The paths the listing is showing, in the order it draws them: what the selection is made of. */
 const rows = computed(() => ordered.value.map((entry) => entry.path));
@@ -556,26 +916,13 @@ function crumbsOf(path: string): { name: string; path: string }[] {
   return built;
 }
 
-function entryIcon(entry: SftpEntry) {
-  switch (entry.kind) {
-    case "directory":
-      return Folder;
-    case "file":
-      return File;
-    case "symlink":
-      return FileSymlink;
-    case "other":
-      return HardDrive;
-  }
-}
-
 /** A directory's size is the server's business, not something a listing can say. */
 function sizeOf(entry: SftpEntry): string {
   return entry.kind === "directory" ? "" : formatSize(entry.size);
 }
 
 function modifiedOf(entry: SftpEntry): string {
-  return entry.modifiedAt === undefined ? "—" : formatModified(entry.modifiedAt);
+  return entry.modifiedAt === undefined ? "—" : formatListModified(entry.modifiedAt, columnDrawn.value.modified ?? 0);
 }
 
 /**
@@ -686,9 +1033,13 @@ watch(rows, (current) => {
 watch(
   () => browser.value?.path,
   () => {
+    // A filter belongs to the directory somebody was looking at; carrying it into the next one
+    // would hide files they never chose to hide.
+    stopFilter();
     void nextTick(() => {
       if (listing.value) {
         listing.value.scrollTop = 0;
+        listing.value.scrollLeft = 0;
       }
       scrolled.value = 0;
       measureListing();
@@ -1311,15 +1662,26 @@ function openAreaMenu(event: MouseEvent): void {
 <template>
   <div v-if="browser" class="flex min-h-0 flex-1 flex-col" @keydown="onBrowserKey">
     <header class="shrink-0 border-b border-border px-3 py-[var(--panel-header-y)]">
-      <div class="flex items-center gap-1">
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          data-files-up
+          class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="parent === null"
+          :title="t('files.up')"
+          :aria-label="t('files.up')"
+          @click="parent && go(parent)"
+        >
+          <ArrowUp :size="13" />
+        </button>
         <!--
-          One bar, two states, drawn as one field the way a file manager's address bar is: the
-          breadcrumbs are the path a person reads and clicks, and the empty part of the bar or
-          Ctrl+L turns it into the field that writes one.
+          One bar, three states, drawn as one field the way a file manager's address bar is: the
+          breadcrumbs are the path a person reads and clicks, Ctrl+L turns it into the field that
+          writes one, and the filter key turns it into the field that narrows the listing.
         -->
         <form
           v-if="editingPath"
-          class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-muted/40 px-1.5 py-0.5"
+          class="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-muted/40 px-1.5"
           @submit.prevent="submitTypedPath()"
           @focusout="onPathFocusOut"
         >
@@ -1331,27 +1693,71 @@ function openAreaMenu(event: MouseEvent): void {
             class="min-w-0 flex-1 bg-transparent px-1 py-0.5 font-mono text-[11px] focus:outline-none"
             :aria-label="t('files.path')"
             :placeholder="t('files.path')"
+            @keydown.enter.prevent="submitTypedPath()"
             @keydown.esc.prevent.stop="cancelPathEdit()"
           />
-          <button type="submit" class="shrink-0 rounded px-2 py-0.5 text-[11px] transition-colors hover:bg-accent">
-            {{ t("files.go") }}
+        </form>
+
+        <form
+          v-else-if="filtering"
+          class="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-muted/40 px-1.5"
+          @submit.prevent="focusListing()"
+        >
+          <Search :size="11" class="shrink-0 text-muted-foreground" />
+          <input
+            ref="filterField"
+            v-model="filterText"
+            data-files-filter-field
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            class="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-[11px] select-text focus:outline-none"
+            :placeholder="t('files.filter.placeholder')"
+            :aria-label="t('files.filter.label')"
+            @keydown.enter="onFilterEnter"
+            @keydown.esc="onFilterEscape"
+          />
+          <span v-if="filterQuery !== ''" class="shrink-0 font-mono text-[10px] text-muted-foreground">
+            {{ ordered.length }}/{{ browser.entries.length }}
+          </span>
+          <button
+            type="button"
+            class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            :title="t('files.filter.clear')"
+            :aria-label="t('files.filter.clear')"
+            @click="stopFilter()"
+          >
+            <X :size="11" />
           </button>
         </form>
 
         <nav
           v-else
-          class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-md bg-muted/40 px-1.5 py-1"
+          ref="pathNav"
+          class="flex h-7 min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-md bg-muted/40 px-1.5"
           :aria-label="t('files.path')"
           @click.self="startPathEdit()"
         >
-          <template v-for="(crumb, index) in crumbs" :key="crumb.path">
-            <ChevronRight v-if="index > 0" :size="11" class="shrink-0 text-muted-foreground" />
+          <button
+            v-if="firstCrumb > 0"
+            type="button"
+            data-path-more
+            class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            :title="t('files.path')"
+            :aria-label="t('files.path')"
+            @click.stop="startPathEdit()"
+          >
+            <Ellipsis :size="13" />
+          </button>
+          <template v-for="(crumb, index) in visibleCrumbs" :key="crumb.path">
+            <ChevronRight v-if="index > 0 || firstCrumb > 0" :size="11" class="shrink-0 text-muted-foreground" />
             <button
               type="button"
               :class="
                 cn(
-                  'shrink-0 rounded-sm px-1 py-0.5 font-mono text-[11px] transition-colors hover:bg-accent',
-                  index === crumbs.length - 1 ? 'text-foreground' : 'text-muted-foreground',
+                  'rounded-sm px-1 py-0.5 font-mono text-[11px] transition-colors hover:bg-accent',
+                  firstCrumb + index === crumbs.length - 1 ? 'min-w-0 truncate' : 'shrink-0',
+                  firstCrumb + index === crumbs.length - 1 ? 'text-foreground' : 'text-muted-foreground',
                 )
               "
               @click="go(crumb.path)"
@@ -1361,79 +1767,234 @@ function openAreaMenu(event: MouseEvent): void {
           </template>
         </nav>
 
-        <LoaderCircle v-if="browser.loading" :size="12" class="shrink-0 animate-spin text-muted-foreground" />
+        <!--
+          The same crumb names with nothing around them, far outside the window: what the visible
+          row can fit is decided from their measured widths rather than from a guess at characters.
+        -->
+        <div
+          ref="pathMeasure"
+          class="pointer-events-none fixed top-0 flex items-center gap-0.5 whitespace-nowrap"
+          style="left: -10000px"
+          aria-hidden="true"
+        >
+          <span
+            v-for="crumb in crumbs"
+            :key="crumb.path"
+            data-measure-crumb
+            class="rounded-sm px-1 py-0.5 font-mono text-[11px]"
+          >
+            {{ crumb.name }}
+          </span>
+        </div>
 
-        <FileBookmarksMenu :path="browser.path" @jump="go" />
+        <LoaderCircle v-if="browser.loading" :size="12" class="shrink-0 animate-spin text-muted-foreground" />
 
         <button
           type="button"
+          data-files-filter
+          :class="
+            cn(
+              'grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-accent hover:text-foreground',
+              filtering ? 'bg-accent text-foreground' : 'text-muted-foreground',
+            )
+          "
+          :title="t('files.filter.title', { shortcut: filterShortcut })"
+          :aria-label="t('files.filter.label')"
+          @click="toggleFilter()"
+        >
+          <Search :size="12" />
+        </button>
+        <FileBookmarksMenu :path="browser.path" @jump="go" />
+      </div>
+
+      <div ref="actionRow" class="mt-1 flex items-center gap-0.5">
+        <button
+          v-if="actionVisible('refresh')"
+          type="button"
           class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="browser.loading"
-          :title="t('files.refresh')"
-          :aria-label="t('files.refresh')"
-          @click="refreshListing()"
+          :disabled="actionDisabled('refresh')"
+          :title="actionLabel('refresh')"
+          :aria-label="actionLabel('refresh')"
+          @click="runAction('refresh')"
         >
           <RefreshCw :size="12" />
         </button>
-
         <button
-          type="button"
-          class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="parent === null"
-          :title="t('files.up')"
-          :aria-label="t('files.up')"
-          @click="parent && go(parent)"
-        >
-          <ArrowUp :size="13" />
-        </button>
-
-        <button
+          v-if="actionVisible('newFile')"
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          :title="t('files.newFile')"
-          :aria-label="t('files.newFile')"
-          @click="startNew('file')"
+          :title="actionLabel('newFile')"
+          :aria-label="actionLabel('newFile')"
+          @click="runAction('newFile')"
         >
           <FilePlus :size="12" />
         </button>
         <button
+          v-if="actionVisible('newFolder')"
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          :title="t('files.newFolder')"
-          :aria-label="t('files.newFolder')"
-          @click="startNew('folder')"
+          :title="actionLabel('newFolder')"
+          :aria-label="actionLabel('newFolder')"
+          @click="runAction('newFolder')"
         >
           <FolderPlus :size="12" />
         </button>
         <button
+          v-if="actionVisible('upload')"
+          type="button"
+          class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          :title="actionLabel('upload')"
+          :aria-label="actionLabel('upload')"
+          @click="runAction('upload')"
+        >
+          <Upload :size="12" />
+        </button>
+        <button
+          v-if="actionVisible('download')"
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="chosen.length === 0"
-          :title="t('files.action.download')"
-          :aria-label="t('files.action.download')"
-          @click="download(chosen, supportsPacked && preferences.packedTransfer)"
+          :disabled="actionDisabled('download')"
+          :title="actionLabel('download')"
+          :aria-label="actionLabel('download')"
+          @click="runAction('download')"
         >
           <Download :size="12" />
         </button>
         <button
-          type="button"
-          class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          :title="t('files.upload')"
-          :aria-label="t('files.upload')"
-          @click="upload()"
-        >
-          <Upload :size="12" />
-        </button>
-
-        <button
+          v-if="actionVisible('paste')"
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           :title="t('files.paste.title', { shortcut: pasteShortcut })"
-          :aria-label="t('files.paste.label')"
-          @click="pasteFiles()"
+          :aria-label="actionLabel('paste')"
+          @click="runAction('paste')"
         >
           <ClipboardPaste :size="12" />
         </button>
+        <button
+          v-if="actionVisible('locate')"
+          type="button"
+          data-files-locate
+          class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="actionDisabled('locate')"
+          :title="actionLabel('locate')"
+          :aria-label="actionLabel('locate')"
+          @click="runAction('locate')"
+        >
+          <Terminal :size="12" />
+        </button>
+        <button
+          v-if="treeAvailable && actionVisible('tree')"
+          type="button"
+          data-files-tree
+          :class="
+            cn(
+              'grid size-6 shrink-0 place-items-center rounded-md transition-colors',
+              !preferences.filesTreeVisible
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            )
+          "
+          :aria-pressed="!preferences.filesTreeVisible"
+          :title="actionLabel('tree')"
+          :aria-label="actionLabel('tree')"
+          @click="runAction('tree')"
+        >
+          <ListTree :size="12" />
+        </button>
+        <PopoverRoot v-if="actionVisible('columns')">
+          <PopoverTrigger as-child>
+            <button
+              type="button"
+              data-files-columns
+              class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              :title="actionLabel('columns')"
+              :aria-label="actionLabel('columns')"
+            >
+              <Columns3 :size="12" />
+            </button>
+          </PopoverTrigger>
+          <PopoverPortal>
+            <PopoverContent
+              side="bottom"
+              align="start"
+              :side-offset="4"
+              class="z-50 w-44 rounded-md border border-border bg-card p-1 shadow-xl focus:outline-none"
+            >
+              <label
+                v-for="option in COLUMN_OPTIONS"
+                :key="option.key"
+                class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent"
+              >
+                <input
+                  type="checkbox"
+                  class="size-3.5 accent-primary"
+                  :checked="visibleColumns.has(option.key)"
+                  @change="toggleColumn(option.key)"
+                />
+                {{ t(option.labelKey) }}
+              </label>
+            </PopoverContent>
+          </PopoverPortal>
+        </PopoverRoot>
+        <PopoverRoot v-if="hiddenActions.length > 0" :open="moreOpen" @update:open="moreOpen = $event">
+          <PopoverTrigger as-child>
+            <button
+              type="button"
+              data-files-more
+              class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              :title="t('files.moreActions')"
+              :aria-label="t('files.moreActions')"
+            >
+              <Ellipsis :size="12" />
+            </button>
+          </PopoverTrigger>
+          <PopoverPortal>
+            <PopoverContent
+              side="bottom"
+              align="end"
+              :side-offset="4"
+              class="z-50 w-52 rounded-md border border-border bg-card p-1 shadow-xl focus:outline-none"
+            >
+              <button
+                v-for="key in hiddenActionRows"
+                :key="key"
+                type="button"
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="actionDisabled(key)"
+                @click="runAction(key)"
+              >
+                <component :is="ACTION_ICONS[key]" :size="12" class="shrink-0 text-muted-foreground" />
+                {{ actionLabel(key) }}
+              </button>
+              <template v-if="hiddenActions.includes('columns')">
+                <div class="my-1 border-t border-border"></div>
+                <p class="px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  {{ t("files.columns.title") }}
+                </p>
+                <label
+                  v-for="option in COLUMN_OPTIONS"
+                  :key="option.key"
+                  class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent"
+                >
+                  <input
+                    type="checkbox"
+                    class="size-3.5 accent-primary"
+                    :checked="visibleColumns.has(option.key)"
+                    @change="toggleColumn(option.key)"
+                  />
+                  {{ t(option.labelKey) }}
+                </label>
+              </template>
+            </PopoverContent>
+          </PopoverPortal>
+        </PopoverRoot>
+        <PanelPlacementButton
+          v-if="props.panelPlacement"
+          kind="files"
+          :placement="props.panelPlacement"
+          class="ml-auto size-6"
+          @choose-files="emit('choosePanelPlacement', $event)"
+        />
       </div>
 
       <div
@@ -1464,7 +2025,7 @@ function openAreaMenu(event: MouseEvent): void {
         somebody could drag that changes nothing.
       -->
       <DirectoryTree
-        v-if="twoPanes"
+        v-if="showTree"
         :handle="props.handle"
         :current-path="browser.path"
         :width="preferences.resolvedFilesTreeWidth"
@@ -1472,7 +2033,7 @@ function openAreaMenu(event: MouseEvent): void {
       />
 
       <SideDivider
-        v-if="twoPanes"
+        v-if="showTree"
         :width="preferences.resolvedFilesTreeWidth"
         :label="t('files.tree.divider')"
         @move="preferences.setFilesTreeWidth($event)"
@@ -1517,12 +2078,14 @@ function openAreaMenu(event: MouseEvent): void {
             other. The tables on the inspect pages carry the same background for the same reason.
           -->
           <div
-            ref="columnsLine"
             data-listing-header
-            class="sticky top-0 flex gap-2 border-b border-border bg-background px-3 py-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+            class="sticky top-0 flex gap-1.5 border-b border-border bg-background px-1.5 py-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
             :style="{ minWidth: `${columnsMinWidth}px` }"
           >
-            <span class="relative flex w-[var(--col-name)] shrink-0 items-center justify-center">
+            <span
+              data-column-cell="name"
+              class="relative flex w-[var(--col-name)] shrink-0 items-center justify-center"
+            >
               <SortHeader
                 :label="t('files.name')"
                 :sorted="order.column === 'name'"
@@ -1537,7 +2100,10 @@ function openAreaMenu(event: MouseEvent): void {
                 @reset="resetColumn('name')"
               />
             </span>
-            <span class="relative flex w-[var(--col-size)] shrink-0 items-center justify-center">
+            <span
+              v-if="visibleColumns.has('size')"
+              class="relative flex w-[var(--col-size)] shrink-0 items-center justify-center"
+            >
               <SortHeader
                 :label="t('files.size')"
                 :sorted="order.column === 'size'"
@@ -1552,22 +2118,10 @@ function openAreaMenu(event: MouseEvent): void {
                 @reset="resetColumn('size')"
               />
             </span>
-            <span class="relative flex w-[var(--col-kind)] shrink-0 items-center justify-center">
-              <SortHeader
-                :label="t('files.type')"
-                :sorted="order.column === 'kind'"
-                :descending="order.descending"
-                :hint="t('files.sortBy', { column: t('files.type') })"
-                @sort="orderBy('kind')"
-              />
-              <ColumnResizeHandle
-                v-bind="columnEdge('kind', t('files.type'))"
-                data-column="kind"
-                @move="moveColumn('kind', $event)"
-                @reset="resetColumn('kind')"
-              />
-            </span>
-            <span class="relative flex w-[var(--col-modified)] shrink-0 items-center justify-center">
+            <span
+              v-if="visibleColumns.has('modified')"
+              class="relative flex w-[var(--col-modified)] shrink-0 items-center justify-center"
+            >
               <SortHeader
                 :label="t('files.modified')"
                 :sorted="order.column === 'modified'"
@@ -1582,7 +2136,28 @@ function openAreaMenu(event: MouseEvent): void {
                 @reset="resetColumn('modified')"
               />
             </span>
-            <span class="relative flex w-[var(--col-mode)] shrink-0 items-center justify-center">
+            <span
+              v-if="visibleColumns.has('kind')"
+              class="relative flex w-[var(--col-kind)] shrink-0 items-center justify-center"
+            >
+              <SortHeader
+                :label="t('files.type')"
+                :sorted="order.column === 'kind'"
+                :descending="order.descending"
+                :hint="t('files.sortBy', { column: t('files.type') })"
+                @sort="orderBy('kind')"
+              />
+              <ColumnResizeHandle
+                v-bind="columnEdge('kind', t('files.type'))"
+                data-column="kind"
+                @move="moveColumn('kind', $event)"
+                @reset="resetColumn('kind')"
+              />
+            </span>
+            <span
+              v-if="visibleColumns.has('mode')"
+              class="relative flex w-[var(--col-mode)] shrink-0 items-center justify-center"
+            >
               <SortHeader
                 :label="t('files.permissions')"
                 :sorted="order.column === 'mode'"
@@ -1597,7 +2172,10 @@ function openAreaMenu(event: MouseEvent): void {
                 @reset="resetColumn('mode')"
               />
             </span>
-            <span class="relative flex w-[var(--col-owner)] shrink-0 items-center justify-center">
+            <span
+              v-if="visibleColumns.has('owner')"
+              class="relative flex w-[var(--col-owner)] shrink-0 items-center justify-center"
+            >
               <SortHeader
                 :label="t('files.owner')"
                 :sorted="order.column === 'owner'"
@@ -1614,13 +2192,6 @@ function openAreaMenu(event: MouseEvent): void {
             </span>
           </div>
 
-          <p
-            v-if="!browser.loading && browser.entries.length === 0"
-            class="px-3 py-6 text-center text-xs text-muted-foreground"
-          >
-            {{ t("files.empty") }}
-          </p>
-
           <!--
             The rows that are drawn, and two spacers standing in for the ones that are not: the
             listing is as tall as its whole contents, and only a screenful of it exists.
@@ -1629,6 +2200,42 @@ function openAreaMenu(event: MouseEvent): void {
             narrow for the columns scrolls them rather than squeezing the name column to nothing.
           -->
           <ul class="p-1.5" :style="{ minWidth: `${columnsMinWidth}px` }">
+            <!--
+              The parent directory, where file managers that show one put it: above the entries,
+              below the headings, scrolling with the list. It is navigation rather than an entry —
+              it has no path of its own in this directory and takes no part in selection, sorting
+              or the virtual window — so it is drawn here by hand and not through `drawn`.
+            -->
+            <li v-if="parent !== null" class="list-none">
+              <button
+                type="button"
+                data-files-parent
+                class="flex w-full items-center gap-1.5 rounded-md px-0 py-1 text-left transition-colors hover:bg-accent/50"
+                :title="t('files.parentHint')"
+                :aria-label="t('files.up')"
+                @pointerdown.stop
+                @dblclick="go(parent)"
+                @keydown.enter.prevent.stop="go(parent)"
+                @keydown.space.prevent.stop="go(parent)"
+              >
+                <span class="flex w-[var(--col-name)] shrink-0 items-center gap-2 py-0.5 text-left">
+                  <FileTypeIcon name=".." kind="directory" />
+                  <span class="truncate text-xs">..</span>
+                </span>
+              </button>
+            </li>
+            <li
+              v-if="!browser.loading && browser.entries.length === 0"
+              class="list-none px-3 py-6 text-center text-xs text-muted-foreground"
+            >
+              {{ t("files.empty") }}
+            </li>
+            <li
+              v-else-if="!browser.loading && ordered.length === 0"
+              class="list-none px-3 py-6 text-center text-xs text-muted-foreground"
+            >
+              {{ t("files.filter.empty", { query: filterQuery }) }}
+            </li>
             <li v-if="drawnWindow.before > 0" aria-hidden="true" :style="{ height: `${drawnWindow.before}px` }"></li>
             <li v-for="entry in drawn" :key="entry.path" :data-path="entry.path">
               <div
@@ -1637,7 +2244,7 @@ function openAreaMenu(event: MouseEvent): void {
                 :aria-selected="selection.paths.includes(entry.path)"
                 :class="
                   cn(
-                    'flex items-center gap-2 rounded-md px-1.5 py-1',
+                    'flex items-center gap-1.5 rounded-md px-0 py-1',
                     selection.paths.includes(entry.path) ? 'bg-accent' : 'hover:bg-accent/50',
                     // The row the keyboard is on, which is not always an obvious one once shift has
                     // been used: a ring says where the next arrow key starts.
@@ -1653,7 +2260,7 @@ function openAreaMenu(event: MouseEvent): void {
                   class="flex w-[var(--col-name)] shrink-0 items-center gap-2 py-0.5 text-left"
                   :title="entry.name"
                 >
-                  <component :is="entryIcon(entry)" :size="13" class="shrink-0 text-muted-foreground" />
+                  <FileTypeIcon :name="entry.name" :kind="entry.kind" />
                   <input
                     v-if="renaming === entry.path"
                     :ref="takeRenameField"
@@ -1673,19 +2280,28 @@ function openAreaMenu(event: MouseEvent): void {
                   <span v-else class="truncate text-xs">{{ entry.name }}</span>
                 </span>
 
-                <span class="w-[var(--col-size)] shrink-0 text-right font-mono text-[10px] text-muted-foreground">{{
-                  sizeOf(entry)
-                }}</span>
-                <span class="w-[var(--col-kind)] shrink-0 truncate text-[10px] text-muted-foreground">{{
-                  typeOf(entry)
-                }}</span>
-                <span class="w-[var(--col-modified)] shrink-0 text-right text-[10px] text-muted-foreground">{{
-                  modifiedOf(entry)
-                }}</span>
-                <span class="w-[var(--col-mode)] shrink-0 font-mono text-[10px] text-muted-foreground">{{
-                  modeOf(entry)
-                }}</span>
                 <span
+                  v-if="visibleColumns.has('size')"
+                  class="w-[var(--col-size)] shrink-0 text-right font-mono text-[10px] text-muted-foreground"
+                  >{{ sizeOf(entry) }}</span
+                >
+                <span
+                  v-if="visibleColumns.has('modified')"
+                  class="w-[var(--col-modified)] shrink-0 truncate text-right text-[10px] text-muted-foreground"
+                  >{{ modifiedOf(entry) }}</span
+                >
+                <span
+                  v-if="visibleColumns.has('kind')"
+                  class="w-[var(--col-kind)] shrink-0 truncate text-[10px] text-muted-foreground"
+                  >{{ typeOf(entry) }}</span
+                >
+                <span
+                  v-if="visibleColumns.has('mode')"
+                  class="w-[var(--col-mode)] shrink-0 font-mono text-[10px] text-muted-foreground"
+                  >{{ modeOf(entry) }}</span
+                >
+                <span
+                  v-if="visibleColumns.has('owner')"
                   class="w-[var(--col-owner)] shrink-0 truncate font-mono text-[10px] text-muted-foreground"
                   :title="ownershipOf(entry)"
                   >{{ ownershipOf(entry) }}</span

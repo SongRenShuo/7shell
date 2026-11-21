@@ -13,13 +13,17 @@ mod completion;
 mod container;
 mod desktop;
 mod files;
+mod host_locations;
 mod k8s;
 mod keys;
 mod monitor;
+pub mod openssh;
 mod policy;
 mod sessions;
 mod snippets;
 mod system;
+mod vmrest;
+mod vmware;
 
 pub use archive::{ARCHIVE_TIMEOUT, archive_name, shell_quote};
 pub use batch::{BatchEvent, DEFAULT_PARALLEL, MAX_HOST_TIMEOUT, MAX_PARALLEL, MIN_HOST_TIMEOUT, classify_command};

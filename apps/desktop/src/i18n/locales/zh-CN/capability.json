@@ -39,6 +39,9 @@
     "jumpHost": {
       "label": "可作为跳板机"
     },
+    "opensshConfig": {
+      "label": "读取 ~/.ssh/config"
+    },
     "recording": {
       "label": "会话录制"
     },
@@ -86,6 +89,9 @@
     },
     "kubernetesTunnel": {
       "label": "经 SSH 会话访问集群"
+    },
+    "vmLifecycle": {
+      "label": "虚拟机电源与状态"
     }
   }
 }

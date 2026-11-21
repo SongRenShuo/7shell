@@ -16,10 +16,10 @@ use sevenshell_types::{
     AgentOrigin, AiContextSummary, AiProviderConfig, AiProviderKind, AiProviderView, AiSessionDetail, AiSessionSummary,
     AiToolOutcome, AppLayout, AppSettings, AuthMethod, BackgroundDisplayMode, BackgroundImage, BatchHostOutcome,
     BatchHostRef, BatchHostResult, BatchOutcome, BatchRequest, CommandHistoryEntry, CompletionExecuteResult,
-    CompletionWord, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime, ContainerSettings,
-    ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey, CustomColors,
-    DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesLayout, ForwardMode, HomeLayout, HostFailure,
-    HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry,
+    CompletionWord, ConnectionTestOutcome, ContainerDetail, ContainerMount, ContainerPort, ContainerRuntime,
+    ContainerSettings, ContainerSummary, ContainerTransport, CornerStyle, CpuCounters, CpuModel, CpuStates, CreatedKey,
+    CustomColors, DiskUsage, DownloadFolderView, EnvironmentEntry, FileBookmark, FilesLayout, ForwardMode, HomeLayout,
+    HostFailure, HostMetrics, HostSystem, K8sMethod, K8sRequest, K8sResponse, KeyAlgorithm, KeyInfo, KnownHostEntry,
     KubeContextInfo, KubeconfigSource, KubernetesSettings, LoadAverage, LocalForward, McpAccessPolicy, McpPrompt,
     McpPromptArgument, McpPromptMessage, McpPromptRole, McpPromptText, McpResource, McpResourceContent,
     McpResourceRead, McpResourceTemplate, McpScope, McpServerConfig, McpServerContent, McpServerState, McpServerStatus,
@@ -28,12 +28,12 @@ use sevenshell_types::{
     RiskLevel, RiskReason, SendFailure, SendOutcome, SendReport, SendTarget, Session, SessionAuth,
     SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SessionLayout, SessionReopen,
     SftpPasteItem, SftpPasteOutcome, Snippet, SnippetGroup, SnippetProvider, SnippetStatus, SnippetUploadReceipt,
-    SocketRow, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome, SyncInspectOutcome, SyncReceipt,
-    SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement,
-    TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
-    TerminalHighlightRule, TerminalSchemeBackground, TerminalSchemeProfile, TerminalSchemeSource, TerminalSettings,
-    ThemeMode, ThemePalette, TunnelFailure, UpdateCheck, UpdateProgress, UploadAnswer, UploadOutcome, VaultArchive,
-    VaultState,
+    SocketRow, SshConfigHost, SyncApplySummary, SyncCatalog, SyncContents, SyncDownloadOutcome, SyncInspectOutcome,
+    SyncReceipt, SyncSelection, SyncServiceStatus, SyncUploadReceipt, TabGroupMode, TabLayout, TabMaxWidth,
+    TabPlacement, TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme,
+    TerminalEncoding, TerminalHighlightMode, TerminalHighlightRule, TerminalPanelPlacement, TerminalSchemeBackground,
+    TerminalSchemeProfile, TerminalSchemeSource, TerminalSettings, ThemeMode, ThemePalette, TunnelFailure, UpdateCheck,
+    UpdateProgress, UploadAnswer, UploadOutcome, VaultArchive, VaultKeychainStatus, VaultState,
 };
 
 /// Fails on any key that is not camelCase, however deep it sits.
@@ -130,6 +130,40 @@ fn every_outcome_serializes_with_camel_case_fields() {
     assert_eq!(opened["sessionId"], serde_json::json!("session-1"));
     assert_eq!(opened["tunnels"][0]["bindPort"], serde_json::json!(18080));
     assert_eq!(opened["tunnelFailures"][0]["forwardId"], serde_json::json!("f2"));
+}
+
+#[test]
+fn a_connection_test_serializes_with_camel_case_fields() {
+    let connected = check(
+        &ConnectionTestOutcome::Connected {
+            latency_ms: 42,
+            authenticated: true,
+            fingerprint: Some("SHA256:AAAA".to_owned()),
+        },
+        "Connected",
+    );
+    assert_eq!(connected["kind"], serde_json::json!("connected"));
+    assert_eq!(connected["latencyMs"], serde_json::json!(42));
+    assert_eq!(connected["authenticated"], serde_json::json!(true));
+
+    // The two decisions keep the names the open already uses, so the editor can reuse the same
+    // prompt vocabulary rather than inventing a second one.
+    let unknown = check(
+        &ConnectionTestOutcome::HostKeyUnknown { key: presented() },
+        "TestHostKeyUnknown",
+    );
+    assert_eq!(unknown["kind"], serde_json::json!("hostKeyUnknown"));
+    assert_eq!(unknown["key"]["fingerprint"], serde_json::json!("SHA256:AAAA"));
+
+    let mismatch = check(
+        &ConnectionTestOutcome::HostKeyMismatch {
+            key: presented(),
+            trusted: trusted(),
+        },
+        "TestHostKeyMismatch",
+    );
+    assert_eq!(mismatch["kind"], serde_json::json!("hostKeyMismatch"));
+    assert_eq!(mismatch["trusted"]["addedAt"], serde_json::json!(1));
 }
 
 #[test]
@@ -462,6 +496,7 @@ fn a_session_with_a_route_and_forwards_serializes_with_camel_case_fields() {
         id: "session-1".to_owned(),
         name: "through the hop".to_owned(),
         group_id: Some("group-1".to_owned()),
+        order: Some(3),
         protocol: Protocol::Ssh,
         host: "host.example".to_owned(),
         port: 22,
@@ -476,6 +511,7 @@ fn a_session_with_a_route_and_forwards_serializes_with_camel_case_fields() {
                 has_passphrase: true,
             }),
             has_secret: true,
+            ssh_config: false,
         },
         terminal: TerminalSettings::default(),
         desktop: sevenshell_types::DesktopSettings::default(),
@@ -487,6 +523,15 @@ fn a_session_with_a_route_and_forwards_serializes_with_camel_case_fields() {
         kubernetes: sevenshell_types::KubernetesSettings::default(),
         webdav: sevenshell_types::WebDavSettings {
             url: "https://dav.example/folder/".to_owned(),
+        },
+        vmware: sevenshell_types::VmwareSettings {
+            vm_id: "564db5f23515de032cd9338ba8d831b7".to_owned(),
+            ssh_user: Some("z".to_owned()),
+            ssh_port: 22,
+            rdp_user: None,
+            rdp_port: 3389,
+            ssh_session: Some("session-2".to_owned()),
+            rdp_session: None,
         },
         ftp: sevenshell_types::FtpSettings { secure: true },
         jump: vec!["hop-1".to_owned()],
@@ -503,6 +548,7 @@ fn a_session_with_a_route_and_forwards_serializes_with_camel_case_fields() {
 
     let json = check(&session, "Session");
     assert_eq!(json["jump"], serde_json::json!(["hop-1"]));
+    assert_eq!(json["order"], serde_json::json!(3));
     assert_eq!(json["forwards"][0]["targetPort"], serde_json::json!(5432));
     assert_eq!(json["auth"]["key"]["hasPassphrase"], serde_json::json!(true));
     assert_eq!(json["desktop"]["width"], serde_json::json!(1280));
@@ -578,8 +624,13 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
             theme_mode: ThemeMode::Dark,
             terminal_theme: ThemeMode::System,
             files_layout: FilesLayout::List,
+            files_tree_visible: false,
+            files_hidden_columns: vec!["owner".to_owned(), "mode".to_owned()],
             session_layout: SessionLayout::Terminal,
             session_reopen: SessionReopen::NewTab,
+            terminal_panel_placement: TerminalPanelPlacement::Right,
+            terminal_command_panel_placement: TerminalPanelPlacement::Left,
+            terminal_panel_width: Some(420),
             terminal_panel_height: Some(320),
             sidebar_width: Some(300),
             files_tree_width: Some(224),
@@ -609,7 +660,7 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
             home_layout: HomeLayout::Intro,
             app_layout: AppLayout::Classic,
             tab_layout: TabLayout::Scroll,
-            tab_placement: TabPlacement::Left,
+            tab_placement: TabPlacement::TitleBar,
             tab_group_mode: TabGroupMode::Session,
             tab_sort_mode: TabSortMode::TitleAsc,
             tab_max_width: TabMaxWidth::Compact,
@@ -631,6 +682,8 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
             terminal_scheme_source: TerminalSchemeSource::Custom,
             terminal_scheme_dark: Some("dracula".to_owned()),
             terminal_scheme_light: Some("solarized-light".to_owned()),
+            terminal_foreground_dark: Some("#c8c8c8".to_owned()),
+            terminal_foreground_light: Some("#2b2b2b".to_owned()),
             terminal_scheme_background: TerminalSchemeBackground::Host,
             terminal_custom_schemes: vec![TerminalCustomScheme {
                 id: "imported".to_owned(),
@@ -649,6 +702,8 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
                 scheme_dark: Some("dracula".to_owned()),
                 scheme_light: Some("solarized-light".to_owned()),
                 scheme_background: TerminalSchemeBackground::Scheme,
+                foreground_dark: Some("#d0d0d0".to_owned()),
+                foreground_light: None,
             }],
             terminal_highlight_rules: vec![TerminalHighlightRule {
                 id: "timeout".to_owned(),
@@ -726,6 +781,24 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
         "the retention is a page field like the two above it, and the window reads this name"
     );
     assert_eq!(
+        settings["terminalPanelPlacement"],
+        serde_json::json!("right"),
+        "the panel position travels as the word the menu matches"
+    );
+    assert_eq!(
+        settings["terminalCommandPanelPlacement"],
+        serde_json::json!("left"),
+        "the commands half keeps a position of its own"
+    );
+    assert_eq!(settings["filesTreeVisible"], serde_json::json!(false));
+    assert_eq!(settings["filesHiddenColumns"], serde_json::json!(["owner", "mode"]));
+    assert_eq!(settings["terminalPanelWidth"], serde_json::json!(420));
+    assert_eq!(
+        settings["tabPlacement"],
+        serde_json::json!("titleBar"),
+        "the title-bar position travels as the camelCase word the settings page matches"
+    );
+    assert_eq!(
         settings["fileBookmarks"][0]["label"],
         serde_json::json!("nginx logs"),
         "the bookmark list travels under the name the popover reads"
@@ -743,6 +816,14 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
     assert_eq!(settings["terminalSchemeSource"], serde_json::json!("custom"));
     assert_eq!(settings["terminalSchemeDark"], serde_json::json!("dracula"));
     assert_eq!(settings["terminalSchemeBackground"], serde_json::json!("host"));
+    // The terminal's own text colour travels beside the two slots, under the names the page reads.
+    assert_eq!(settings["terminalForegroundDark"], serde_json::json!("#c8c8c8"));
+    assert_eq!(settings["terminalForegroundLight"], serde_json::json!("#2b2b2b"));
+    assert_eq!(
+        settings["terminalSchemeProfiles"][0]["foregroundDark"],
+        serde_json::json!("#d0d0d0"),
+        "a saved scheme carries the text colour it was saved with"
+    );
     assert_eq!(
         settings["terminalCustomSchemes"][0]["selectionBackground"],
         serde_json::json!("#654321"),
@@ -837,6 +918,24 @@ fn the_remaining_wire_types_serialize_with_camel_case_fields() {
     check(&ThemePalette::Claude, "ThemePalette");
     check(&ThemePalette::Default, "ThemePalette");
     check(&VaultState::Unlocked, "VaultState");
+    check(
+        &SshConfigHost {
+            alias: "web".to_owned(),
+            host: "10.0.0.5".to_owned(),
+            user: Some("deploy".to_owned()),
+            port: Some(2222),
+            unsupported: Vec::new(),
+            proxy_jump: Some("bastion".to_owned()),
+        },
+        "SshConfigHost",
+    );
+    check(
+        &VaultKeychainStatus {
+            available: true,
+            enrolled: true,
+        },
+        "VaultKeychainStatus",
+    );
     let archived = check(
         &VaultArchive {
             name: "vault.json.old".to_owned(),
@@ -1473,11 +1572,13 @@ fn telnet_and_local_settings_serialize_as_short_stable_words() {
         &sevenshell_types::TelnetSettings {
             enter: sevenshell_types::EnterMode::Lf,
             backspace: sevenshell_types::BackspaceMode::CtrlH,
+            encoding: TerminalEncoding::Gbk,
         },
         "TelnetSettings",
     );
     assert_eq!(telnet["enter"], serde_json::json!("lf"));
     assert_eq!(telnet["backspace"], serde_json::json!("ctrlH"));
+    assert_eq!(telnet["encoding"], serde_json::json!("gbk"));
 
     let local = check(
         &sevenshell_types::LocalSettings {
@@ -1497,6 +1598,26 @@ fn telnet_and_local_settings_serialize_as_short_stable_words() {
         "WslSettings",
     );
     assert_eq!(wsl["distro"], serde_json::json!("Ubuntu"));
+}
+
+/// The two per-session terminal choices the interface reads back: a misspelled value here would
+/// silently fall back to the default and leave a switch printing replacement marks.
+#[test]
+fn a_terminal_session_names_its_encoding_and_backspace_on_the_wire() {
+    let settings = check(
+        &TerminalSettings {
+            encoding: TerminalEncoding::Gb18030,
+            backspace: sevenshell_types::BackspaceMode::CtrlH,
+            ..TerminalSettings::default()
+        },
+        "TerminalSettings",
+    );
+    assert_eq!(settings["encoding"], serde_json::json!("gb18030"));
+    assert_eq!(settings["backspace"], serde_json::json!("ctrlH"));
+    assert_eq!(
+        serde_json::to_value(TerminalEncoding::Utf8).expect("encoding"),
+        serde_json::json!("utf-8")
+    );
 }
 
 #[test]
@@ -1584,6 +1705,9 @@ fn a_session_saved_before_local_terminals_existed_still_reads() {
     assert_eq!(session.telnet.enter, sevenshell_types::EnterMode::Crlf);
     assert!(session.local.shell.is_empty());
     assert!(session.wsl.distro.is_empty());
+    assert_eq!(session.terminal.encoding, TerminalEncoding::Utf8);
+    assert_eq!(session.terminal.backspace, sevenshell_types::BackspaceMode::Del);
+    assert_eq!(session.telnet.encoding, TerminalEncoding::Utf8);
 }
 
 #[test]

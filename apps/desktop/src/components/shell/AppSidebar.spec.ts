@@ -11,7 +11,7 @@
  * geometry is the test's.
  */
 import { createPinia, setActivePinia } from "pinia";
-import { type App, createApp, h, nextTick } from "vue";
+import { type App, Fragment, createApp, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/runtime", () => ({ isDesktopRuntime: vi.fn(() => true) }));
@@ -24,6 +24,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   sessionOpenCancel: vi.fn(async () => false),
   // The menu's own open is a real open when the question about a second tab is answered yes.
   sessionOpen: vi.fn(async () => undefined),
+  sessionTest: vi.fn(async () => ({ kind: "connected", latencyMs: 9, authenticated: true })),
   groupsList: vi.fn(async () => []),
   groupSave: vi.fn(async (group: SessionGroup) => group),
   groupDelete: vi.fn(async () => {}),
@@ -36,6 +37,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 }));
 
 import AppSidebar from "@/components/shell/AppSidebar.vue";
+import ReopenDialog from "@/components/sessions/ReopenDialog.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
 import { i18n } from "@/i18n";
@@ -50,6 +52,7 @@ import {
   sessionsExport,
   sessionsImport,
   sessionsList,
+  sessionTest,
   settingsSet,
   terminalClose,
 } from "@/lib/backend/tauri";
@@ -73,7 +76,14 @@ const web: Session = {
   port: 22,
   user: "root",
   auth: { method: "password", hasSecret: true },
-  terminal: { terminalType: "xterm-256color", keepaliveSeconds: 30, forwardAgent: false, record: false },
+  terminal: {
+    terminalType: "xterm-256color",
+    keepaliveSeconds: 30,
+    encoding: "utf-8",
+    backspace: "del",
+    forwardAgent: false,
+    record: false,
+  },
   updatedAt: 1_700_000_000,
 };
 const db: Session = { ...web, id: "session-2", name: "db", groupId: work.id };
@@ -94,7 +104,9 @@ async function render(groups: readonly SessionGroup[], sessions: readonly Sessio
   library.groups = [...groups];
   library.sessions = [...sessions];
 
-  app = createApp({ render: () => h(AppSidebar, { onCollapse: collapseRequested }) }).use(i18n);
+  app = createApp({
+    render: () => h(Fragment, [h(AppSidebar, { onCollapse: collapseRequested }), h(ReopenDialog)]),
+  }).use(i18n);
   app.mount(host);
   await nextTick();
 }
@@ -206,11 +218,6 @@ function rowElement(key: string): HTMLElement {
     throw new Error(`there is no row for ${key}`);
   }
   return row;
-}
-
-/** The same lookup without the throw, for asking whether a row is there at all. */
-function rowOrNull(key: string): HTMLElement | null {
-  return host.querySelector<HTMLElement>(`[data-row="${key}"]`);
 }
 
 /** How far a row is indented, which is how far inside the tree it is drawn. */
@@ -485,6 +492,7 @@ function resetBackend(): void {
   vi.mocked(sessionsExport).mockReset().mockResolvedValue(undefined);
   vi.mocked(sessionsImport).mockReset().mockResolvedValue(undefined);
   vi.mocked(sessionOpenCancel).mockReset().mockResolvedValue(false);
+  vi.mocked(sessionTest).mockReset().mockResolvedValue({ kind: "connected", latencyMs: 9, authenticated: true });
   vi.mocked(sessionOpen)
     .mockReset()
     .mockImplementation(async (sessionId: string) => ({
@@ -639,7 +647,7 @@ describe("the rows", () => {
     expect(start?.querySelector("svg")?.getAttribute("width")).toBe("14");
 
     const glyphs = [...host.querySelectorAll<SVGElement>("header > span.shrink-0 button svg")];
-    expect(glyphs.length, "the header carries its five buttons").toBe(5);
+    expect(glyphs.length, "the header carries its six buttons").toBe(6);
     for (const glyph of glyphs) {
       expect(glyph.getAttribute("width"), `${glyph.classList.value} is drawn at the list's size`).toBe("14");
     }
@@ -652,22 +660,6 @@ describe("the rows", () => {
     // The field stands where the name stood: a rename that changes the size of the row under the
     // pointer is one somebody notices in the wrong place.
     expect(groupNameField()?.classList.contains("text-sm")).toBe(true);
-  });
-
-  it("draws no row for leaving every group until something is being dragged", async () => {
-    await render([work], [db]);
-
-    // What that row is for exists only while a drag is: the rest of the time the list is the
-    // sessions and the folders, and nothing that is only a place to put something.
-    expect(rowOrNull("drop-out")).toBeNull();
-
-    await startDrag("session:session-2");
-    layOutRows();
-
-    expect(rowOrNull("drop-out")).not.toBeNull();
-
-    await drop();
-    expect(rowOrNull("drop-out")).toBeNull();
   });
 });
 
@@ -682,9 +674,10 @@ describe("making a group", () => {
     await vi.waitFor(() => expect(groupNameField()).not.toBeNull());
     expect(groupNameField()?.value).toBe("New group");
 
-    // One write, with the name it is drawn under until somebody says otherwise.
+    // One write, with the name it is drawn under until somebody says otherwise. The order follows
+    // every child of the root, which now includes the session already there.
     const written = vi.mocked(groupSave).mock.calls[0]?.[0];
-    expect(written).toMatchObject({ name: "New group", order: 0 });
+    expect(written).toMatchObject({ name: "New group", order: 1 });
     expect(written?.parentId).toBeUndefined();
     expect(written?.id).toBeTruthy();
     expect(drawnRows()[0]?.startsWith("group:"), "and it is drawn where it landed").toBe(true);
@@ -1162,19 +1155,22 @@ describe("dragging", () => {
     expect(indentOf("session:session-1")).toBeGreaterThan(atRoot);
   });
 
-  it("takes a session out of every group when it is dropped on the row drawn for it", async () => {
+  it("takes a session out of every group when it is dropped beside a row at the root", async () => {
     await render([work], [web, db]);
     const inside = indentOf("session:session-2");
 
     await startDrag("session:session-2");
-    // The row appears with the drag, so it has to be given a place on screen before the pointer can
-    // be over it — jsdom lays nothing out.
-    layOutRows();
-    await dragOver("drop-out");
-    expect(marked("drop-out"), "the row says it is where the session would go").toBe(true);
+    await dragOver("session:session-1", "bottom");
+    expect(
+      rowElement("session:session-1").querySelector("span.absolute.bottom-0"),
+      "the line says where the session would land",
+    ).not.toBeNull();
     await drop();
 
-    expect(vi.mocked(sessionSave).mock.calls[0]?.[0]).toMatchObject({ id: "session-2", groupId: undefined });
+    // The reorder renumbers the list the session lands in, so the write for the row that moved is
+    // found among the calls rather than assumed to be the first one.
+    const written = vi.mocked(sessionSave).mock.calls.map(([session]) => session);
+    expect(written).toContainEqual(expect.objectContaining({ id: "session-2", groupId: undefined, order: 2 }));
     await vi.waitFor(() => expect(indentOf("session:session-2")).toBeLessThan(inside));
   });
 
@@ -1569,15 +1565,16 @@ describe("an attempt that is still going, and one that failed", () => {
     expect(host.querySelector("[data-session-details]")).toBeNull();
   });
 
-  it("carries nothing else on the row: the rest is a right-click away", async () => {
+  it("carries only the test and the tick on the row: the rest is a right-click away", async () => {
     // Editing, deleting and the file browser were three buttons on every row, which is three
-    // buttons per row saying what the menu already says.
+    // buttons per row saying what the menu already says. The test is the one action that belongs
+    // beside the row it is about, and the tick is how a row is picked out.
     await render([work], [db]);
 
     const labels = [...rowElement("session:session-2").querySelectorAll("button")].map(
       (button) => button.getAttribute("aria-label") ?? button.getAttribute("title"),
     );
-    expect(labels).toEqual(["Open a terminal for db", "Select db"]);
+    expect(labels).toEqual(["Open a terminal for db", "Test the connection to db", "Select db"]);
   });
 });
 
@@ -1923,5 +1920,21 @@ describe("importing and exporting the library", () => {
 
     await vi.waitFor(() => expect(host.textContent).toContain("is not a session export"));
     expect(host.textContent).toContain("SESSION-BUNDLE-INVALID");
+  });
+});
+
+describe("the row's test", () => {
+  it("tests a session from the row, in the slot left of the selection tick", async () => {
+    await render([], [web]);
+
+    const row = host.querySelector<HTMLElement>('[data-row="session:session-1"]');
+    const order = [...(row?.querySelectorAll("[data-session-test],[data-session-select]") ?? [])].map((element) =>
+      element.hasAttribute("data-session-test") ? "test" : "select",
+    );
+    expect(order).toEqual(["test", "select"]);
+
+    row?.querySelector<HTMLElement>("[data-session-test]")?.click();
+
+    await vi.waitFor(() => expect(vi.mocked(sessionTest)).toHaveBeenCalledWith(web, undefined));
   });
 });

@@ -2,6 +2,7 @@
   "terminal": {
     "tab": {
       "close": "Close terminal",
+      "newTab": "New tab",
       "reconnect": "Reconnect",
       "ended": "This terminal has ended.",
       "disconnected": "Disconnected.",
@@ -20,10 +21,19 @@
     "panel": {
       "label": "Files",
       "open": "Open the file panel under this terminal",
+      "openTab": "Open the file manager in a tab",
       "close": "Close the file panel",
       "divider": "Resize the file panel",
       "opening": "Opening the file panel…",
-      "retry": "Try again"
+      "retry": "Try again",
+      "position": "Move the file panel",
+      "commandPosition": "Move the commands panel",
+      "placeBottom": "Bottom",
+      "placeLeft": "Left",
+      "placeRight": "Right",
+      "placeTab": "New file manager tab",
+      "tabKeptUnsaved": "The file tab stays open because it has unsaved changes.",
+      "panelKeptUnsaved": "The file panel stays open because it has unsaved changes. Close the editor, then move it."
     },
     "scheme": {
       "title": "Terminal colour scheme",

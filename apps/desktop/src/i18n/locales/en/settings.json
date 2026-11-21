@@ -93,6 +93,12 @@
       "split": "Terminal and files",
       "terminal": "Terminal only"
     },
+    "panelPlacement": {
+      "bottom": "Bottom",
+      "left": "Left",
+      "right": "Right",
+      "tab": "File manager tab"
+    },
     "sessionReopen": {
       "ask": "Ask every time",
       "newTab": "Open in a new tab",
@@ -140,6 +146,15 @@
       "backgroundScheme": "The whole look",
       "backgroundHost": "Only the ANSI colours",
       "backgroundHint": "The whole look replaces the background and text as well. Only the ANSI colours keeps the pane matching the window and changes what ls, git and editors print.",
+      "foreground": {
+        "title": "Terminal text colour",
+        "hint": "Changes the text colour only; the background and the sixteen ANSI colours stay with the interface palette.",
+        "dark": "Dark terminal",
+        "light": "Light terminal",
+        "follow": "Following the interface palette",
+        "code": "Colour code",
+        "reset": "Follow the interface palette again"
+      },
       "close": "Close",
       "saved": "Saved schemes",
       "savePlaceholder": "Name this scheme…",
@@ -267,7 +282,8 @@
       "top": "Top",
       "bottom": "Bottom",
       "left": "Left side",
-      "right": "Right side"
+      "right": "Right side",
+      "titleBar": "In the title bar"
     },
     "tabGroupMode": {
       "none": "No grouping",
@@ -364,8 +380,8 @@
       },
       "tabPlacement": {
         "title": "Tab bar position",
-        "summary": "Where the tab bar sits: top, bottom, left or right.",
-        "help": "Where the tab bar sits. Horizontal uses vertical space; vertical uses width and shows more names."
+        "summary": "Where the tab bar sits: top, bottom, left, right, or merged into the title bar.",
+        "help": "Where the tab bar sits. Horizontal uses vertical space; vertical uses width and shows more names. In the title bar the tabs share the window's own row, many tabs scroll, and wrapping is off there."
       },
       "tabGroupMode": {
         "title": "Group by",
@@ -497,10 +513,20 @@
         "summary": "A terminal on its own, or with the files under it.",
         "help": "Shows the file browser under the terminal and follows directory changes. Can be toggled per tab."
       },
+      "panelPlacement": {
+        "title": "File panel position",
+        "summary": "Where a terminal's files open: under it, beside it, or in the file manager tab.",
+        "help": "The default for terminals opened from now on. Each terminal's own strip menu can move that terminal without changing this; changing this moves the terminals that are already open."
+      },
+      "commandPanelPlacement": {
+        "title": "Command panel position",
+        "summary": "Where a terminal's commands open, independent of the file panel.",
+        "help": "The default for terminals opened from now on. The menu beside Commands moves one terminal without changing this; changing this moves the terminals that are already open."
+      },
       "sessionReopen": {
         "title": "A session that is already open",
-        "summary": "What Open terminal in the session list does when the session is already open: ask, open another tab, or go to it.",
-        "help": "Applies to Open terminal in the menu only. Remember my choice saves the answer here; clicking a session row is unchanged."
+        "summary": "What “Open terminal” and the new-tab picker do when the session is already open: ask, open another tab, or go to it.",
+        "help": "Applies to the menu's “Open terminal” and the new-tab picker. Remember my choice saves the answer here; clicking a session row is unchanged."
       },
       "monitor": {
         "title": "Host monitor",
@@ -564,6 +590,14 @@
         "submit": "Change the master password",
         "submitting": "Changing…",
         "changed": "The vault now opens with the new password."
+      },
+      "keychain": {
+        "title": "Automatic unlock on this device",
+        "help": "Keeps the vault's unlock key in the system's own store, so the application opens without asking for the master password. The vault stays encrypted, and the master password still opens it anywhere.",
+        "on": "On",
+        "off": "Off",
+        "busy": "Working…",
+        "unavailable": "This machine has no system keychain this build can use, so the vault asks for its password at every start."
       },
       "lock": {
         "title": "Lock the vault",
@@ -681,6 +715,7 @@
         "toggleAssistant": "Show the assistant",
         "terminalFind": "Find in the terminal",
         "focusPath": "Edit the file path",
+        "filterFiles": "Filter files by name",
         "completionAccept": "Take the row the arrows are on",
         "completionTrigger": "Open the completion list"
       }

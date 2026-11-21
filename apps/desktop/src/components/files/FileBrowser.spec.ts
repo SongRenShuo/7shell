@@ -191,6 +191,29 @@ async function clickName(index: number, detail = 1): Promise<void> {
   await nextTick();
 }
 
+/** Opens the filter the way the keyboard does, and hands back its field. */
+async function startFiltering(): Promise<HTMLInputElement> {
+  const root = host.firstElementChild;
+  if (root === null) {
+    throw new Error("the panel drew nothing");
+  }
+  root.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true, cancelable: true }));
+  await nextTick();
+
+  const field = host.querySelector<HTMLInputElement>("[data-files-filter-field]");
+  if (field === null) {
+    throw new Error("the filter did not become a field");
+  }
+  return field;
+}
+
+/** Types into the filter, which is what narrows the listing. */
+async function typeInto(field: HTMLInputElement, text: string): Promise<void> {
+  field.value = text;
+  field.dispatchEvent(new Event("input"));
+  await nextTick();
+}
+
 /** Presses a key on the listing, which is where the keyboard for the rows lives. */
 async function press(key: string, ...modifiers: ("ctrl" | "shift" | "meta")[]): Promise<void> {
   listing()?.dispatchEvent(
@@ -665,6 +688,7 @@ describe("selecting rows", () => {
   });
 
   it("reads a row in the columns a file manager lists it in", async () => {
+    void usePreferencesStore().setFilesHiddenColumns([]);
     const owned: SftpEntry = {
       name: "notes.txt",
       path: "/home/user/notes.txt",
@@ -717,6 +741,7 @@ describe("selecting rows", () => {
   });
 
   it("orders the rows by the type it shows, and puts the folders last when it is turned over", async () => {
+    void usePreferencesStore().setFilesHiddenColumns([]);
     await render([
       { name: "b.rpm", path: "/home/user/b.rpm", kind: "file", size: 2 },
       { name: "logs", path: "/home/user/logs", kind: "directory", size: 0 },
@@ -899,6 +924,18 @@ describe("the address bar", () => {
     await vi.waitFor(() => expect(vi.mocked(filesList)).toHaveBeenCalledWith(HANDLE, "/etc"));
   });
 
+  it("navigates to what the field says when Enter is pressed", async () => {
+    const field = await startTypingPath();
+    field.value = "/etc";
+    field.dispatchEvent(new Event("input"));
+    await nextTick();
+
+    expect(field.closest("form")?.querySelector('button[type="submit"]'), "there is no Go button").toBeNull();
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(vi.mocked(filesList)).toHaveBeenCalledWith(HANDLE, "/etc"));
+  });
+
   it("opens the field from anywhere in the panel with the address-bar key", async () => {
     const field = await startTypingPath();
 
@@ -936,6 +973,30 @@ describe("the buttons above the listing", () => {
 
     expect(downloadButton()?.disabled).toBe(false);
   });
+
+  it("folds the directory tree away and back without changing the layout setting", async () => {
+    const tree = (): Element | null => host.querySelector('nav[aria-label="Directories"]');
+    expect(tree(), "the tree is drawn by default").not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>("[data-files-tree]")?.click();
+    await nextTick();
+
+    expect(tree()).toBeNull();
+    expect(usePreferencesStore().filesLayout, "hiding one browser does not change the default").toBe("tree");
+
+    host.querySelector<HTMLButtonElement>("[data-files-tree]")?.click();
+    await nextTick();
+
+    expect(tree()).not.toBeNull();
+  });
+
+  it("draws the single list in a panel docked beside the terminal, whatever the tree preference says", async () => {
+    await render(unsorted, { compact: true });
+
+    expect(host.querySelector('nav[aria-label="Directories"]'), "the side dock has no tree").toBeNull();
+    expect(host.querySelector("[data-files-tree]"), "the side dock cannot turn a tree on").toBeNull();
+    expect(usePreferencesStore().filesTreeVisible, "the tree preference is left as it was").toBe(true);
+  });
 });
 
 /**
@@ -956,6 +1017,9 @@ describe("the columns of the listing", () => {
 
   beforeEach(() => {
     watching = [];
+    // These cases are about where the edges go once all six columns are on the line; the panel
+    // opens with the reference's three, which the chooser adds the rest to.
+    void usePreferencesStore().setFilesHiddenColumns([]);
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -981,9 +1045,13 @@ describe("the columns of the listing", () => {
     return strip;
   }
 
-  /** Says how wide the strip is, and lets whatever is watching it hear about it. */
+  /** Says how wide the scroller is, and lets whatever is watching it hear about it. */
   async function room(width: number): Promise<void> {
-    Object.defineProperty(header(), "clientWidth", { value: width });
+    const scroller = listing();
+    if (!scroller) {
+      throw new Error("the listing drew no scroller");
+    }
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: width });
     for (const notify of watching) {
       notify();
     }
@@ -1034,8 +1102,8 @@ describe("the columns of the listing", () => {
     expect(edges.map((mark) => widthOfCell(mark.parentElement ?? undefined))).toEqual([
       "--col-name",
       "--col-size",
-      "--col-kind",
       "--col-modified",
+      "--col-kind",
       "--col-mode",
       "--col-owner",
     ]);
@@ -1048,22 +1116,22 @@ describe("the columns of the listing", () => {
   it("tells the line how narrow it may be drawn, so a narrow panel scrolls instead of squeezing", async () => {
     await render(unsorted);
 
-    // Twelve pixels of padding on each side, eight between six cells, and the six columns at
-    // 320 + 80 + 80 + 160 + 96 + 112.
-    expect(header().style.minWidth).toBe("912px");
-    expect(listing()?.querySelector<HTMLElement>("ul.p-1\\.5")?.style.minWidth).toBe("912px");
+    // Six pixels of padding on each side, six between six cells, and the six columns at
+    // 120 + 54 + 82 + 80 + 96 + 112.
+    expect(header().style.minWidth).toBe("586px");
+    expect(listing()?.querySelector<HTMLElement>("ul.p-1\\.5")?.style.minWidth).toBe("586px");
   });
 
   it("divides the room a panel has to spare between the columns nobody has moved", async () => {
     await render(unsorted);
 
-    // 1200 wide, 64 spent on chrome: the columns have 1136 and ask for 848, so each of the six takes
-    // 48 of the 288 left over.
+    // 1200 wide, 42 spent on chrome: the columns have 1158 and ask for 544, so each of the six takes
+    // 102 of the 614 left over, and the first two take one of the two remaining pixels.
     await room(1200);
 
-    expect(columnWidth("name")).toBe("368px");
-    expect(columnWidth("size")).toBe("128px");
-    expect(columnWidth("owner")).toBe("160px");
+    expect(columnWidth("name")).toBe("223px");
+    expect(columnWidth("size")).toBe("157px");
+    expect(columnWidth("owner")).toBe("214px");
   });
 
   it("leaves a column that has been moved out of that division", async () => {
@@ -1071,20 +1139,20 @@ describe("the columns of the listing", () => {
     await room(1200);
     await dragEdge("size", 40);
 
-    // The size column is the one somebody put at 168, and the other five divide what is left — 200 of
-    // it, 40 each, so the name column is drawn at 360 rather than at the 368 it was drawn at before.
-    expect(columnWidth("size")).toBe("168px");
-    expect(columnWidth("name")).toBe("360px");
+    // The size column is the one somebody put at 197, and the other five divide what is left — 471
+    // of it, 94 each with one one-pixel share — so the name column is drawn at 215.
+    expect(columnWidth("size")).toBe("197px");
+    expect(columnWidth("name")).toBe("215px");
   });
 
   it("widens a column when its edge is dragged, and the rows follow it", async () => {
     await render(unsorted);
     await room(900);
 
-    expect(columnWidth("size")).toBe("80px");
+    expect(columnWidth("size")).toBe("107px");
     await dragEdge("size", 40);
 
-    expect(columnWidth("size")).toBe("120px");
+    expect(columnWidth("size")).toBe("147px");
   });
 
   it("lets a drag go as wide as the pointer asks, however wide the panel is", async () => {
@@ -1095,8 +1163,8 @@ describe("the columns of the listing", () => {
     // line's least width grows with it so that there is something to scroll.
     await dragEdge("size", 2000);
 
-    expect(columnWidth("size")).toBe("2080px");
-    expect(header().style.minWidth).toBe("2912px");
+    expect(columnWidth("size")).toBe("2107px");
+    expect(header().style.minWidth).toBe("2639px");
   });
 
   it("keeps every column off its own floor", async () => {
@@ -1105,7 +1173,7 @@ describe("the columns of the listing", () => {
 
     await dragEdge("name", -2000);
 
-    expect(columnWidth("name"), "a name column narrower than this says nothing").toBe("160px");
+    expect(columnWidth("name"), "a name column narrower than this says nothing").toBe("120px");
   });
 
   it("hands a column back to the width the panel draws it at when its edge is double-clicked", async () => {
@@ -1116,7 +1184,7 @@ describe("the columns of the listing", () => {
     edge("size").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     await nextTick();
 
-    expect(columnWidth("size")).toBe("80px");
+    expect(columnWidth("size")).toBe("107px");
   });
 });
 
@@ -1221,5 +1289,134 @@ describe("a failure in the panel", () => {
 
     expect(browser.failure).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+describe("filtering the listing by name", () => {
+  it("narrows the rows to the names that contain what was typed", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+
+    await typeInto(field, "TXT");
+
+    expect(drawn()).toEqual(["a.txt", "b.txt", "c.txt"]);
+  });
+
+  it("matches folders as well as files, without caring about case", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+
+    await typeInto(field, "LOG");
+
+    expect(drawn()).toEqual(["logs"]);
+  });
+
+  it("puts the whole directory back when Escape is pressed", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+    await typeInto(field, "a.txt");
+    expect(drawn()).toEqual(["a.txt"]);
+
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await nextTick();
+
+    expect(drawn()).toHaveLength(4);
+    expect(host.querySelector("[data-files-filter-field]")).toBeNull();
+  });
+
+  it("says that no name matches rather than calling the directory empty", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+
+    await typeInto(field, "missing");
+
+    expect(drawn()).toEqual([]);
+    expect(host.textContent).toContain("No file or folder matches");
+  });
+
+  it("takes the keyboard to the rows on Enter, so the arrows walk what was found", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+    await typeInto(field, "txt");
+
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await nextTick();
+
+    expect(document.activeElement).toBe(listing());
+  });
+
+  it("leaves Enter and Escape to an input method that is still composing", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+    await typeInto(field, "年");
+
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+    expect(document.activeElement).not.toBe(listing());
+
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+    expect(host.querySelector("[data-files-filter-field]")).toBe(field);
+  });
+});
+
+describe("the parent-directory row", () => {
+  it("sits above the entries and walks up on a double click", async () => {
+    await render(unsorted);
+
+    const parentRow = host.querySelector<HTMLElement>("[data-files-parent]");
+    expect(parentRow, "the listing drew no way up").not.toBeNull();
+
+    parentRow?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    await vi.waitFor(() => expect(vi.mocked(filesList)).toHaveBeenCalledWith(HANDLE, "/home"));
+  });
+
+  it("keeps the toolbar's way up beside the path", async () => {
+    await render(unsorted);
+
+    const up = host.querySelector<HTMLButtonElement>("[data-files-up]");
+    expect(up, "the toolbar drew no way up").not.toBeNull();
+    expect(up?.disabled).toBe(false);
+
+    up?.click();
+
+    await vi.waitFor(() => expect(vi.mocked(filesList)).toHaveBeenCalledWith(HANDLE, "/home"));
+  });
+
+  it("is left out when the directory is the root", async () => {
+    await render(unsorted);
+    const browser = useFilesStore().browsers[HANDLE];
+    if (!browser) {
+      throw new Error("the browser was not opened");
+    }
+    browser.path = "/";
+    await nextTick();
+
+    expect(host.querySelector("[data-files-parent]")).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>("[data-files-up]")?.disabled).toBe(true);
+  });
+
+  it("stays while the listing is filtered", async () => {
+    await render(unsorted);
+    const field = await startFiltering();
+
+    await typeInto(field, "txt");
+
+    expect(host.querySelector("[data-files-parent]")).not.toBeNull();
+  });
+
+  it("is followed by the empty message rather than covered by it", async () => {
+    await render([]);
+
+    const parentRow = host.querySelector("[data-files-parent]")?.closest("li");
+    expect(parentRow, "the listing drew no way up").not.toBeNull();
+    expect(parentRow?.nextElementSibling?.textContent, "the message belongs under the way up").toContain(
+      "This directory is empty",
+    );
   });
 });

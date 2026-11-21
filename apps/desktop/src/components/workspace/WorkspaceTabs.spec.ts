@@ -40,7 +40,14 @@ const session: Session = {
   port: 22,
   user: "root",
   auth: { method: "password", hasSecret: true },
-  terminal: { terminalType: "xterm-256color", keepaliveSeconds: 30, forwardAgent: false, record: false },
+  terminal: {
+    terminalType: "xterm-256color",
+    keepaliveSeconds: 30,
+    encoding: "utf-8",
+    backspace: "del",
+    forwardAgent: false,
+    record: false,
+  },
   updatedAt: 1_700_000_000,
 };
 
@@ -53,7 +60,14 @@ let app: App | undefined;
 
 /** Mounts the workspace over the tabs a case needs, with the first of them on screen. */
 async function renderTabs(
-  tabs: { kind: "terminal"; id: string; session: Session; panel?: TerminalPanel | null }[],
+  tabs: {
+    kind: "terminal";
+    id: string;
+    session: Session;
+    panel?: TerminalPanel | null;
+    panelPlacement?: "bottom" | "left" | "right" | "tab";
+    commandPlacement?: "bottom" | "left" | "right";
+  }[],
 ): Promise<void> {
   const terminals = useTerminalsStore();
   terminals.tabs = tabs.map((tab) => ({
@@ -64,6 +78,8 @@ async function renderTabs(
     status: "open" as const,
     failure: null,
     panel: tab.panel ?? null,
+    panelPlacement: tab.panelPlacement,
+    commandPlacement: tab.commandPlacement,
   }));
   // The order these tabs were opened in, which the store keeps beside the tabs themselves: it is
   // what says which copy of a session a tab is, so a case here writes the pair the way the store
@@ -71,6 +87,8 @@ async function renderTabs(
   terminals.openedOrder = tabs.map((tab) => tab.id);
   terminals.activeTabId = tabs[0]?.id ?? null;
 
+  app?.unmount();
+  host.innerHTML = "";
   app = createApp({ render: () => h(WorkspaceTabs) }).use(i18n);
   app.mount(host);
   await nextTick();
@@ -108,6 +126,20 @@ function strip(): HTMLElement {
   }
   return found;
 }
+
+describe("the strip's plus", () => {
+  it("opens the connection picker without opening or copying a terminal", async () => {
+    await render(null);
+    const store = useTerminalsStore();
+
+    const button = host.querySelector<HTMLElement>("[data-new-tab]");
+    expect(button).not.toBeNull();
+    button?.click();
+
+    expect(store.newTabPickerOpen).toBe(true);
+    expect(store.tabs.filter((tab) => tab.kind === "terminal")).toHaveLength(1);
+  });
+});
 
 /** What the tab with this id says on screen. */
 function tabName(id: string): string {
@@ -231,6 +263,13 @@ describe("the bar's own choices", () => {
     await render(openPanel);
     expect(strip().classList.contains("order-2"), "at the bottom it is drawn after the pane").toBe(true);
     expect(strip().classList.contains("border-t"), "and the line between them is its own top edge").toBe(true);
+  });
+
+  it("leaves the strip to the title bar when that is the chosen position", async () => {
+    usePreferencesStore().setTabPlacement("titleBar");
+    await render(openPanel);
+
+    expect(host.querySelector("[data-workspace-tabs]")).toBeNull();
   });
 
   it("names each session once when the tabs are grouped by one", async () => {
@@ -374,5 +413,95 @@ describe("the workspace's own strips", () => {
       expect(drawn.classList.contains("select-none"), `${what} is not selectable`).toBe(true);
       expect(drawn.classList.contains("cursor-default"), `${what} shows no I-beam`).toBe(true);
     }
+  });
+});
+
+describe("where the file panel sits", () => {
+  it("draws under the terminal by default", async () => {
+    await render(openPanel);
+
+    expect(host.querySelector("[data-terminal-panel]")?.getAttribute("data-side")).toBe("bottom");
+    expect(host.querySelector('[role="separator"]')?.getAttribute("aria-orientation")).toBe("horizontal");
+  });
+
+  it("draws on the right, with a vertical line and the remembered width", async () => {
+    usePreferencesStore().terminalPanelPlacement = "right";
+    await render(openPanel);
+
+    const panel = host.querySelector<HTMLElement>("[data-terminal-panel]");
+    expect(panel?.getAttribute("data-side")).toBe("right");
+    expect(host.querySelector('[role="separator"]')?.getAttribute("aria-orientation")).toBe("vertical");
+    expect(panel?.style.width).toBe("340px");
+  });
+
+  it("draws on the left, with the terminal taking the free side", async () => {
+    usePreferencesStore().terminalPanelPlacement = "left";
+    await render(openPanel);
+
+    const panel = host.querySelector<HTMLElement>("[data-terminal-panel]");
+    expect(panel?.getAttribute("data-side")).toBe("left");
+    expect(panel?.classList.contains("order-1")).toBe(true);
+    expect(host.querySelector('[role="separator"]')?.getAttribute("aria-orientation")).toBe("vertical");
+  });
+
+  it("opens the standalone file tab when that is the remembered position", async () => {
+    usePreferencesStore().terminalPanelPlacement = "tab";
+    vi.mocked(filesOpen).mockResolvedValue({
+      kind: "opened",
+      handle: "f1",
+      sessionId: session.id,
+      listing: { path: "/home/user", entries: [] },
+      packed: true,
+    });
+    await render(null);
+
+    stripButton("Files").click();
+
+    await vi.waitFor(() => expect(useTerminalsStore().tabs.some((tab) => tab.kind === "files")).toBe(true));
+    expect(host.querySelector("[data-terminal-panel]")).toBeNull();
+  });
+
+  it("draws and marks each terminal by its own position, not the remembered default", async () => {
+    usePreferencesStore().terminalPanelPlacement = "bottom";
+    await renderTabs([
+      { kind: "terminal", id: "tab-1", session, panelPlacement: "tab" },
+      { kind: "terminal", id: "tab-2", session, panel: openPanel, panelPlacement: "bottom" },
+    ]);
+
+    const activePane = (): HTMLElement | null => host.querySelector('[data-tab-pane][data-active="true"]');
+    expect(activePane()?.querySelector("[data-terminal-panel]")).toBeNull();
+
+    useTerminalsStore().activeTabId = "tab-2";
+    await nextTick();
+
+    expect(activePane()?.querySelector("[data-terminal-panel]")?.getAttribute("data-side")).toBe("bottom");
+  });
+
+  it("draws the commands at their own side while the files stay where they are", async () => {
+    usePreferencesStore().terminalPanelPlacement = "left";
+    usePreferencesStore().terminalCommandPanelPlacement = "bottom";
+    await render(openPanel);
+
+    const side = (): string | null | undefined =>
+      host.querySelector("[data-terminal-panel]")?.getAttribute("data-side");
+    expect(side()).toBe("left");
+
+    await click(stripButton("Commands"));
+    expect(side(), "the commands are not dragged to the files' side").toBe("bottom");
+    expect(host.querySelector("[data-panel-placement]"), "the files' control is in the files' half").toBeNull();
+    expect(host.querySelector<HTMLElement>("[data-command-placement]")?.dataset.placement).toBe("bottom");
+
+    await click(stripButton("Files"));
+    expect(side(), "the files return to their own side").toBe("left");
+  });
+
+  it("moves the commands without changing the files' remembered side", async () => {
+    usePreferencesStore().terminalPanelPlacement = "right";
+    await renderTabs([{ kind: "terminal", id: "tab-1", session, panel: openPanel, commandPlacement: "left" }]);
+
+    await click(stripButton("Commands"));
+
+    expect(host.querySelector("[data-terminal-panel]")?.getAttribute("data-side")).toBe("left");
+    expect(host.querySelector<HTMLElement>("[data-command-placement]")?.dataset.placement).toBe("left");
   });
 });

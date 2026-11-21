@@ -39,6 +39,9 @@
     "jumpHost": {
       "label": "Use as a jump host"
     },
+    "opensshConfig": {
+      "label": "Uses ~/.ssh/config"
+    },
     "recording": {
       "label": "Session recording"
     },
@@ -86,6 +89,9 @@
     },
     "kubernetesTunnel": {
       "label": "Cluster through an SSH session"
+    },
+    "vmLifecycle": {
+      "label": "Virtual machine power and status"
     }
   }
 }

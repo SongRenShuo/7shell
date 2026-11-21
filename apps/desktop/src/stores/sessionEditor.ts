@@ -15,6 +15,7 @@ import { computed, ref } from "vue";
 
 import { backend } from "@/lib/backend/api";
 import { type ShellError, asShellError } from "@/lib/backend/errors";
+import { runConnectionTest } from "@/lib/sessions/testConnection";
 import { useSessionsStore } from "@/stores/sessions";
 import type { ContainerRuntime, ContainerSettings, ContainerTransport } from "@/types/container";
 import { PROTOCOLS, protocolById, type AuthMethodId, type Protocol } from "@/types/generated/protocols";
@@ -34,7 +35,9 @@ import type {
   SerialSettings,
   SerialStopBits,
   Session,
+  SshConfigHost,
   TelnetSettings,
+  TerminalEncoding,
   TerminalSettings,
   WslSettings,
 } from "@/types/session";
@@ -43,6 +46,8 @@ import type {
 const DEFAULT_TERMINAL: TerminalSettings = {
   terminalType: "xterm-256color",
   keepaliveSeconds: 30,
+  encoding: "utf-8",
+  backspace: "del",
   forwardAgent: false,
   record: false,
 };
@@ -56,7 +61,7 @@ const DEFAULT_DESKTOP: DesktopSettings = {
 };
 
 /** What the Rust defaults use for the transports that are not SSH. */
-const DEFAULT_TELNET: TelnetSettings = { enter: "crlf", backspace: "del" };
+const DEFAULT_TELNET: TelnetSettings = { enter: "crlf", backspace: "del", encoding: "utf-8" };
 const DEFAULT_SERIAL: SerialSettings = {
   port: "",
   baudRate: 115200,
@@ -105,7 +110,8 @@ export type SessionFieldProblem =
   | "serialPort"
   | "serialBaud"
   | "containerSshSession"
-  | "kubeconfig";
+  | "kubeconfig"
+  | "vmwareId";
 
 /** One hop as the list draws it. No session means the saved one it named has been deleted. */
 export interface HopEntry {
@@ -226,8 +232,12 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
   const protocol = ref<Protocol>(PROTOCOLS[0]?.id ?? "ssh");
   const method = ref<AuthMethodId>("password");
   const attachedKey = ref<KeyInfo | null>(null);
+  /** Whether the saved host is an OpenSSH alias rather than a literal address. */
+  const sshConfig = ref(false);
   const secret = ref("");
   const passphrase = ref("");
+  /** Whether a test is in flight, which is what keeps the button from asking twice. */
+  const testing = ref(false);
   const keyHasPassphrase = ref(false);
   const jumps = ref<string[]>([]);
   const forwards = ref<ForwardDraft[]>([]);
@@ -237,6 +247,15 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
    * machine's key agent while the session lasts. The other two are the defaults Rust uses.
    */
   const terminal = ref<TerminalSettings>({ ...DEFAULT_TERMINAL });
+
+  /** The wire type is read-only; a chosen value replaces the settings rather than writing into them. */
+  function chooseTerminalEncoding(encoding: TerminalEncoding): void {
+    terminal.value = { ...terminal.value, encoding };
+  }
+
+  function chooseTerminalBackspace(backspace: BackspaceMode): void {
+    terminal.value = { ...terminal.value, backspace };
+  }
 
   /**
    * The remote desktop's display and mapping settings.
@@ -252,6 +271,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
   /** The Telnet keyboard translation, which is the whole of what a console can be configured with. */
   const telnetEnter = ref<EnterMode>(DEFAULT_TELNET.enter);
   const telnetBackspace = ref<BackspaceMode>(DEFAULT_TELNET.backspace);
+  const telnetEncoding = ref<TerminalEncoding>(DEFAULT_TELNET.encoding);
 
   /**
    * The serial line. The baud rate is text while it is typed, like a port: an empty field is not
@@ -285,6 +305,16 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
   const containerTransport = ref<ContainerTransport>(DEFAULT_CONTAINER.transport);
   const containerSshSession = ref("");
   const containerNamespace = ref("");
+
+  /**
+   * Which virtual machine this session stands for, and the two ways the workspace reaches the
+   * guest. The id is a scan's token, never a path.
+   */
+  const vmwareId = ref("");
+  const vmwareSshUser = ref("");
+  const vmwareSshPort = ref("22");
+  const vmwareRdpUser = ref("");
+  const vmwareRdpPort = ref("3389");
 
   /**
    * Where a cluster session's kubeconfig comes from, and what it should be read as.
@@ -338,6 +368,9 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
   /** Whether this session talks to a Kubernetes API server. */
   const isKubernetes = computed(() => protocol.value === "kubernetes");
 
+  /** Whether this session stands for a virtual machine. */
+  const isVmware = computed(() => protocol.value === "vmware");
+
   /**
    * The saved sessions either new protocol may reach its target through.
    *
@@ -375,7 +408,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     // has to be answered, and even that can be left for an anonymous server.
     user: needsUser.value && !isWebDav.value && user.value.trim() === "",
     port: needsEndpoint.value && !isWebDav.value && !validPort(port.value, 1),
-    key: isSsh.value && method.value === "publicKey" && !attachedKey.value?.keyRef,
+    key: isSsh.value && method.value === "publicKey" && !attachedKey.value?.keyRef && !sshConfig.value,
     serialPort: protocol.value === "serial" && serialPort.value.trim() === "",
     serialBaud: protocol.value === "serial" && !validBaud(serialBaud.value),
     // An engine on another machine is reached through a saved session; an empty id has no route.
@@ -387,6 +420,8 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
       kubeSource.value === "imported" &&
       importedKubeconfig.value.trim() === "" &&
       !kubeconfigStored.value,
+    // A virtual machine is identified by what a scan answered; an empty one names nothing.
+    vmwareId: isVmware.value && vmwareId.value.trim() === "",
   }));
 
   const forwardProblems = computed<Record<string, readonly ForwardProblem[]>>(() => {
@@ -438,6 +473,30 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     open.value = value;
   }
 
+  /**
+   * Fills the draft from one host the machine's OpenSSH configuration names.
+   *
+   * The alias becomes the saved host, and the authentication starts at `publicKey` with no key
+   * attached: the connection resolves the configuration's `IdentityFile` — or the default
+   * `~/.ssh/id_*` files — at connect time. Choosing the agent instead is one dropdown away.
+   */
+  function applySshConfigHost(entry: SshConfigHost): void {
+    protocol.value = "ssh";
+    host.value = entry.alias;
+    if (entry.user) {
+      user.value = entry.user;
+    }
+    if (entry.port) {
+      port.value = String(entry.port);
+    }
+    method.value = "publicKey";
+    attachedKey.value = null;
+    sshConfig.value = true;
+    if (name.value.trim() === "") {
+      name.value = entry.alias;
+    }
+  }
+
   /** Starts a draft from a saved session, or from nothing when a new one is being made. */
   function fill(session: Session | null): void {
     editing.value = session;
@@ -449,6 +508,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     groupId.value = session?.groupId ?? "";
     method.value = session?.auth.method ?? "password";
     attachedKey.value = session?.auth.key ?? null;
+    sshConfig.value = session?.auth.sshConfig ?? false;
     secret.value = "";
     passphrase.value = "";
     keyHasPassphrase.value = false;
@@ -463,6 +523,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     const telnet = session?.telnet ?? DEFAULT_TELNET;
     telnetEnter.value = telnet.enter;
     telnetBackspace.value = telnet.backspace;
+    telnetEncoding.value = telnet.encoding;
     const serial = session?.serial ?? DEFAULT_SERIAL;
     serialPort.value = serial.port;
     serialBaud.value = String(serial.baudRate);
@@ -495,6 +556,12 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     kubeContexts.value = [];
     kubeContextsBusy.value = false;
     kubeContextsFailure.value = null;
+    const vmware = session?.vmware;
+    vmwareId.value = vmware?.vmId ?? "";
+    vmwareSshUser.value = vmware?.sshUser ?? "";
+    vmwareSshPort.value = String(vmware?.sshPort ?? 22);
+    vmwareRdpUser.value = vmware?.rdpUser ?? "";
+    vmwareRdpPort.value = String(vmware?.rdpPort ?? 3389);
   }
 
   /**
@@ -539,6 +606,26 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     }
   }
 
+  /**
+   * Tests the draft as it stands: the route, the host key and the credential, with no shell.
+   *
+   * The draft rather than a saved id is what makes this useful while editing: the password in the
+   * field, the alias just chosen and the key just attached are all testable before any of it is
+   * written down. The answer is a toast — it leaves on its own, and nothing about the draft changes
+   * because a test was run.
+   */
+  async function testConnection(): Promise<void> {
+    if (testing.value) {
+      return;
+    }
+    testing.value = true;
+    try {
+      await runConnectionTest(draft(), secretInput());
+    } finally {
+      testing.value = false;
+    }
+  }
+
   /** What would be saved. Routes and forwards are part of the session, like every other field. */
   function draft(): Session {
     const existing = editing.value;
@@ -555,6 +642,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
         method: method.value,
         key: attachedKey.value ?? undefined,
         hasSecret: existing?.auth.hasSecret ?? false,
+        sshConfig: sshConfig.value,
       },
       terminal: { ...terminal.value },
       desktop: {
@@ -563,7 +651,7 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
         fullscreen: desktopFullscreen.value,
         redirectDrives: desktopDrives.value,
       },
-      telnet: { enter: telnetEnter.value, backspace: telnetBackspace.value },
+      telnet: { enter: telnetEnter.value, backspace: telnetBackspace.value, encoding: telnetEncoding.value },
       serial: {
         port: serialPort.value.trim(),
         baudRate: Number.isInteger(Number(serialBaud.value)) ? Number(serialBaud.value) : DEFAULT_SERIAL.baudRate,
@@ -601,6 +689,19 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
             context: kubeContext.value.trim() === "" ? undefined : kubeContext.value.trim(),
             namespace: kubeNamespace.value.trim() === "" ? undefined : kubeNamespace.value.trim(),
             viaSsh: kubeViaSsh.value === "" ? undefined : kubeViaSsh.value,
+          }
+        : undefined,
+      vmware: isVmware.value
+        ? {
+            vmId: vmwareId.value.trim(),
+            sshUser: vmwareSshUser.value.trim() === "" ? undefined : vmwareSshUser.value.trim(),
+            sshPort: portNumber(vmwareSshPort.value) || 22,
+            rdpUser: vmwareRdpUser.value.trim() === "" ? undefined : vmwareRdpUser.value.trim(),
+            rdpPort: portNumber(vmwareRdpPort.value) || 3389,
+            // The sessions the workspace made keep their references across an edit: this dialog
+            // never manages them, and dropping them here would silently unlink both buttons.
+            sshSession: existing?.vmware?.sshSession,
+            rdpSession: existing?.vmware?.rdpSession,
           }
         : undefined,
       jump: jumps.value.length > 0 ? [...jumps.value] : undefined,
@@ -676,18 +777,23 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     protocol,
     method,
     attachedKey,
+    sshConfig,
+    applySshConfigHost,
     secret,
     passphrase,
     keyHasPassphrase,
     jumps,
     forwards,
     terminal,
+    chooseTerminalEncoding,
+    chooseTerminalBackspace,
     desktopWidth,
     desktopHeight,
     desktopFullscreen,
     desktopDrives,
     telnetEnter,
     telnetBackspace,
+    telnetEncoding,
     serialPort,
     serialBaud,
     serialDataBits,
@@ -707,6 +813,12 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     isFtp,
     isContainer,
     isKubernetes,
+    isVmware,
+    vmwareId,
+    vmwareSshUser,
+    vmwareSshPort,
+    vmwareRdpUser,
+    vmwareRdpPort,
     ftpSecure,
     containerRuntime,
     containerTransport,
@@ -734,6 +846,8 @@ export const useSessionEditorStore = defineStore("sessionEditor", () => {
     fill,
     secretInput,
     draft,
+    testing,
+    testConnection,
     setProtocol,
     addHop,
     removeHopAt,

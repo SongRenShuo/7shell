@@ -12,11 +12,10 @@
  * sentence the confirmation says out loud.
  *
  * A session that is in no group is drawn at the root with no heading over it — the rows say what
- * they are. What the heading was also for is drawn only while a session is being dragged: a row at
- * the end of the list that means "out of every group", there when somebody needs it and not part of
- * the list the rest of the time. Dragging is off while the list is filtered, because a drop lands
- * in the list as it is *drawn*, and when that order is not the saved order the drop would be a
- * guess.
+ * they are. Groups and sessions share one order inside a parent, so a session may sit between two
+ * groups and a group between two sessions. Dragging is off while the list is filtered, because a
+ * drop lands in the list as it is *drawn*, and when that order is not the saved order the drop
+ * would be a guess.
  *
  * Opening a terminal hangs off the row itself, with the file browser beside it; whether a terminal
  * comes up with its file panel is the settings' answer, not this row's. Editing and deleting are
@@ -29,6 +28,7 @@
  * that are, because "the tunnel is not there" is the answer somebody staring at a port needs.
  */
 import {
+  Activity,
   ArrowDownUp,
   ArrowRight,
   Check,
@@ -44,6 +44,7 @@ import {
   ListFilter,
   LoaderCircle,
   LocateFixed,
+  MonitorCog,
   Network,
   Pin,
   Plus,
@@ -64,6 +65,7 @@ import { useI18n } from "vue-i18n";
 
 import ExportSessionsDialog from "@/components/sessions/ExportSessionsDialog.vue";
 import SessionDetails from "@/components/sessions/SessionDetails.vue";
+import VmwareScanDialog from "@/components/vmware/VmwareScanDialog.vue";
 import SessionFailure from "@/components/sessions/SessionFailure.vue";
 import SidebarResizeHandle from "@/components/shell/SidebarResizeHandle.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
@@ -80,11 +82,13 @@ import { systemLabel, systemMark } from "@/lib/system/icons";
 import { groupMenu, sessionEndpoint, sessionMenu, tunnelMenu } from "@/lib/menu/sessions";
 import { MENU_TITLES } from "@/lib/menu/titles";
 import type { MenuEntry } from "@/lib/menu/types";
-import { groupDropFor, sessionDropFor } from "@/lib/sessions/drag";
+import { dropAt } from "@/lib/sessions/drag";
 import { rememberExportPassphrase } from "@/lib/sessions/exportPassphrase";
 import { regexIsInvalid } from "@/lib/sessions/filter";
 import { drawOrder, groupPath, hasSibling } from "@/lib/sessions/groups";
 import { importReceipt } from "@/lib/sessions/receipt";
+import { canTestConnection } from "@/lib/sessions/testable";
+import { runConnectionTest } from "@/lib/sessions/testConnection";
 import { rowTarget } from "@/lib/sessions/tree";
 import { useAppStore } from "@/stores/app";
 import { usePreferencesStore } from "@/stores/preferences";
@@ -120,11 +124,10 @@ const authMethods = computed(() => AUTH_METHODS);
  */
 const SESSION_FILE_NAME = "7shell-sessions.json";
 
-/** The row that exists only while a session is being dragged: where "out of every group" is. */
-const DROP_OUT_ROW = "drop-out";
-
 const exportOpen = ref(false);
 const exportBusy = ref(false);
+/** The VMware import dialog: the machines Workstation knows about, offered as sessions. */
+const vmwareScanOpen = ref(false);
 
 /** The filter panel, and whether the panel the button opens is up. */
 const filterOpen = ref(false);
@@ -142,15 +145,6 @@ type PendingRemoval =
   | { readonly kind: "session"; readonly session: Session }
   | { readonly kind: "group"; readonly group: SessionGroup };
 const pendingRemoval = ref<PendingRemoval | null>(null);
-
-/**
- * The question about a session that is already open, and whether the answer should be remembered.
- *
- * One value rather than a boolean beside a session, so that closing the dialog and remembering
- * something about it cannot get out of step: the choice travels with the question it is about, and
- * an abandoned dialog takes its unticked checkbox with it.
- */
-const pendingReopen = ref<{ readonly session: Session; remember: boolean } | null>(null);
 
 /**
  * The name being typed over a group's own, and which group that is.
@@ -171,46 +165,28 @@ const groupBusy = ref(false);
 const listBox = ref<HTMLElement | null>(null);
 const rowByKey = computed(() => new Map(library.rows.map((row) => [row.key, row])));
 const {
-  active: dragActive,
-  grabbed: dragGrabbed,
   ghost: dragGhost,
   mark: dropMark,
   press: pressRow,
 } = useTreeDrag({
   container: listBox,
   targetOf: (element) => {
-    const key = element.dataset.row ?? "";
-    // The row that is there only while a drag is: it stands for the root of the list, which is
-    // where a session goes when it leaves every group. It is not in the tree, so it is answered for
-    // here rather than looked up.
-    if (key === DROP_OUT_ROW) {
-      return { kind: "session", parentId: null };
-    }
-    const row = rowByKey.value.get(key);
+    const row = rowByKey.value.get(element.dataset.row ?? "");
     return row ? rowTarget(row) : null;
   },
-  aim: (grabbed, target, box, pointerY) =>
-    grabbed.kind === "group" ? groupDropFor(target, box, pointerY) : sessionDropFor(target),
+  aim: (_grabbed, target, box, pointerY) => dropAt(target, box, pointerY),
   accepts: (grabbed, aimed) =>
     grabbed.kind === "group"
       ? library.canPlaceGroup(grabbed.id, aimed.drop, aimed.zone)
-      : library.canPlaceSession(grabbed.id, aimed.drop),
+      : library.canPlaceSession(grabbed.id, aimed.drop, aimed.zone),
   onDrop: (grabbed, aimed) => {
     if (grabbed.kind === "group") {
       void library.placeGroup(grabbed.id, aimed.drop, aimed.zone);
     } else {
-      void library.placeSession(grabbed.id, aimed.drop);
+      void library.placeSession(grabbed.id, aimed.drop, aimed.zone);
     }
   },
 });
-
-/**
- * Whether the row for "out of every group" belongs on screen: a session is in the air, and there is
- * a group for it to be outside of — with no groups at all, everything is already at the root.
- */
-const dropOutRow = computed(
-  () => dragActive.value && dragGrabbed.value?.kind === "session" && library.groups.length > 0,
-);
 
 /**
  * Starts a drag, unless the list is narrowed.
@@ -579,6 +555,11 @@ function failureOf(session: Session): ShellError | undefined {
   return terminals.failures[session.id];
 }
 
+/** Tests one saved session; the answer arrives as the window's toast and leaves on its own. */
+function testSession(session: Session): void {
+  void runConnectionTest(session);
+}
+
 /**
  * Whether this session's host said something this build has a mark for.
  *
@@ -789,6 +770,8 @@ function openSessionMenu(event: MouseEvent, session: Session): void {
     { key: MENU_TITLES.session },
     sessionMenu(session, library.groups, {
       open: (target) => void openFromMenu(target),
+      // The entry that says "one more" outright: no question, because the choice was the entry.
+      openTerminal: (target) => void terminals.open(target),
       openFiles: (target) => void terminals.openFiles(target),
       edit: startEdit,
       remove: (target) => {
@@ -804,54 +787,14 @@ function openSessionMenu(event: MouseEvent, session: Session): void {
 /**
  * The menu's open, and the question a session that is already open puts in front of it.
  *
- * The store decides whether there is a question at all — see `terminals.reopen`, which is also where
- * the remembered answer is read — and hands it back here, where a dialog can be drawn over the row
- * the menu was opened on. Nothing about the row's own click comes through here: that open stays the
- * plain one, question-free, which is the reason the decision was put in the menu's path and not in
- * the store's `open`.
+ * The store decides whether there is a question at all — see `terminals.requestReopen` — and keeps
+ * it for the frame's shared prompt, so this menu and the tab strip's picker ask the same one.
+ * Nothing about the row's own click comes through here: that open stays the plain one,
+ * question-free, which is the reason the decision was put in the menu's path and not in the store's
+ * `open`.
  */
-async function openFromMenu(session: Session): Promise<void> {
-  const action = await terminals.reopen(session);
-  if (action === "ask") {
-    pendingReopen.value = { session, remember: false };
-  }
-}
-
-/**
- * The answer was yes: another tab, and the choice remembered when it was asked to be.
- *
- * Remembering is written immediately rather than with a page's Apply, because the dialog can be
- * answered at any moment and the next open is where the answer matters.
- */
-async function confirmReopen(): Promise<void> {
-  const asked = pendingReopen.value;
-  pendingReopen.value = null;
-  if (!asked) {
-    return;
-  }
-  if (asked.remember) {
-    await preferences.setSessionReopen("new-tab");
-  }
-  await terminals.open(asked.session);
-}
-
-/**
- * The answer was no, or the dialog was left some other way — Escape, a click outside, the cancel
- * button. All of them are the same answer: not a second tab.
- *
- * Somebody who asked to open a session ends up at the tab that is already open for it, which is what
- * makes "no" an answer rather than a dead end. The checkbox still remembers it if it was ticked.
- */
-async function declineReopen(): Promise<void> {
-  const asked = pendingReopen.value;
-  pendingReopen.value = null;
-  if (!asked) {
-    return;
-  }
-  terminals.focusSession(asked.session.id);
-  if (asked.remember) {
-    await preferences.setSessionReopen("focus");
-  }
+function openFromMenu(session: Session): void {
+  void terminals.requestReopen(session);
 }
 
 /**
@@ -884,8 +827,8 @@ function openHeadingMenu(event: MouseEvent, group: SessionGroup): void {
         close: (target) => void terminals.closeSessions(openInside(target)),
       },
       {
-        up: hasSibling(library.groups, group.id, -1),
-        down: hasSibling(library.groups, group.id, 1),
+        up: hasSibling(library.groups, library.sessions, group.id, -1),
+        down: hasSibling(library.groups, library.sessions, group.id, 1),
         open: openInside(group).length,
       },
     ),
@@ -1028,6 +971,16 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
             </button>
             <button
               type="button"
+              data-vmware-scan
+              class="grid size-5 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              :title="t('sessions.list.importVmware')"
+              :aria-label="t('sessions.list.importVmware')"
+              @click="vmwareScanOpen = true"
+            >
+              <MonitorCog :size="14" />
+            </button>
+            <button
+              type="button"
               class="grid size-5 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
               :title="t('sessions.list.refresh')"
               :aria-label="t('sessions.list.refresh')"
@@ -1055,7 +1008,7 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
         and anything else that asks "what is drawn" get the same answer.
       -->
       <div class="relative mb-2 flex shrink-0 items-center gap-1">
-        <div class="relative min-w-0 flex-1">
+        <div class="relative flex min-w-0 flex-1 items-center">
           <Search
             :size="12"
             class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
@@ -1383,6 +1336,18 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
                     @contextmenu="openSessionMenu($event, row.session)"
                     @mousedown="startDrag($event, { kind: 'session', id: row.session.id }, row.session.name)"
                   >
+                    <!-- Where a dragged session would land among its neighbours: the line sits on
+                         the half of the row the release would put it on. -->
+                    <span
+                      v-if="markOf(row.key) === 'line-before'"
+                      class="absolute inset-x-1 top-0 h-0.5 rounded bg-primary"
+                      aria-hidden="true"
+                    ></span>
+                    <span
+                      v-if="markOf(row.key) === 'line-after'"
+                      class="absolute inset-x-1 bottom-0 h-0.5 rounded bg-primary"
+                      aria-hidden="true"
+                    ></span>
                     <!--
                       The row says a name and an address; hovering it says the rest. Pressing it goes
                       to the session: it opens one that is closed and brings one that is already open
@@ -1400,7 +1365,9 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
                               ? 'sessions.list.openWebdavHint'
                               : row.session.protocol === 'ftp'
                                 ? 'sessions.list.openFtpHint'
-                                : 'sessions.list.openHint',
+                                : row.session.protocol === 'vmware'
+                                  ? 'sessions.list.openVmHint'
+                                  : 'sessions.list.openHint',
                           { name: row.session.name },
                         )
                       "
@@ -1422,6 +1389,11 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
                         v-else-if="hasMark(row.session)"
                         :system="terminals.systemOf(row.session)"
                         :label="markTitle(row.session)"
+                      />
+                      <MonitorCog
+                        v-else-if="row.session.protocol === 'vmware'"
+                        :size="13"
+                        class="shrink-0 text-muted-foreground"
                       />
                       <Terminal v-else :size="13" class="shrink-0 text-muted-foreground" />
                       <span class="min-w-0 flex-1">
@@ -1461,6 +1433,24 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
                       <X :size="12" />
                     </button>
 
+                    <!--
+                      The row's own test, beside the tick that picks it out: a saved session can be
+                      checked without opening the editor, and the answer is a toast rather than a
+                      strip that stays in the row.
+                    -->
+                    <button
+                      v-if="!library.selecting && !isConnecting(row.session) && canTestConnection(row.session.protocol)"
+                      type="button"
+                      data-session-test
+                      class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground/55 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none"
+                      :title="t('sessions.list.testConnection', { name: row.session.name })"
+                      :aria-label="t('sessions.list.testConnection', { name: row.session.name })"
+                      @mousedown.stop
+                      @click.stop="testSession(row.session)"
+                    >
+                      <Activity :size="12" />
+                    </button>
+
                     <!-- The tick that picks one out: there when the pointer is, and always there while
                      anything else is picked. -->
                     <button
@@ -1496,26 +1486,6 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
               </HoverCardRoot>
             </template>
           </template>
-
-          <!--
-            Where a dragged session goes to leave every group. It is drawn only while one is in the
-            air, at the end of the list rather than at its top so that nothing already drawn moves
-            under the pointer: what it replaces is the ungrouped heading, which was there the rest of
-            the time to say something the rows say themselves.
-          -->
-          <div
-            v-if="dropOutRow"
-            :data-row="DROP_OUT_ROW"
-            class="mt-1 flex items-center gap-2 rounded-md border border-dashed px-2 py-1.5 text-[11px] transition-colors"
-            :class="
-              markOf(DROP_OUT_ROW) === 'ring'
-                ? 'border-primary bg-primary/10 text-foreground'
-                : 'border-border text-muted-foreground'
-            "
-          >
-            <FolderInput :size="13" class="shrink-0" />
-            {{ t("sessions.list.dropOutOfGroups") }}
-          </div>
         </template>
       </div>
 
@@ -1645,6 +1615,9 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
       @update:open="exportOpen = $event"
     />
 
+    <!-- The machines Workstation holds, added to the list as sessions that open a workspace. -->
+    <VmwareScanDialog :open="vmwareScanOpen" @update:open="vmwareScanOpen = $event" />
+
     <!--
       One question for both kinds of removal, drawn over everything rather than inside the list: a
       row that opens a strip of its own puts the question under an indentation and a scroll position
@@ -1660,32 +1633,6 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
       @confirm="confirmRemoval()"
       @update:open="pendingRemoval = null"
     />
-    <!--
-      The question about a session that is already open, asked by the menu's own open rather than by
-      the row's click. It is drawn over everything like the removal's question, and for the same
-      reason: it is about the row but not *in* it. The checkbox inside is the whole difference from
-      the other dialogs — an answer that is the same every time is an answer worth keeping — and the
-      entries beside it say what each gives up, so nobody ticks it without knowing what they chose.
-    -->
-    <ConfirmDialog
-      v-if="pendingReopen"
-      :open="true"
-      :title="t('sessions.reopen.title')"
-      :message="t('sessions.reopen.message', { name: pendingReopen.session.name })"
-      :confirm-label="t('sessions.reopen.confirm')"
-      @confirm="confirmReopen()"
-      @update:open="declineReopen()"
-    >
-      <label class="mt-3 flex items-start gap-2 text-xs">
-        <input v-model="pendingReopen.remember" type="checkbox" class="mt-0.5 size-3.5 accent-primary" />
-        <span>
-          <span>{{ t("sessions.reopen.remember") }}</span>
-          <span class="mt-0.5 block text-[11px] text-muted-foreground">
-            {{ t("sessions.reopen.rememberNote") }}
-          </span>
-        </span>
-      </label>
-    </ConfirmDialog>
     <!--
       The edge, and the drag that moves it. Drawn inside the panel and hanging over its edge so the
       target is easy to hit; the width it reports goes to the settings, because a sidebar somebody

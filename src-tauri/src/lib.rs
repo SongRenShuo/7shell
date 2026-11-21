@@ -16,7 +16,9 @@ mod policy;
 mod reveal;
 mod state;
 mod tray;
+mod update_portable;
 mod uploads;
+mod vault_keychain;
 mod window_chrome;
 
 use std::sync::Arc;
@@ -57,6 +59,11 @@ pub fn run() {
         // ours — a permission the interface does not have is a path nobody can forget to audit.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // A portable copy that updated itself left the copy it replaced beside it: the old
+            // process still had that file open while the new one was written, and only a later
+            // start can remove it. Nothing to do in any other copy.
+            crate::update_portable::clean_leftovers();
+
             window_chrome::prepare_main_window(app.handle());
             window_chrome::silence_browser_keys(app.handle());
             apply_startup_window_theme(app.handle());
@@ -168,6 +175,9 @@ pub fn run() {
             commands::vault::vault_create,
             commands::vault::vault_unlock,
             commands::vault::vault_lock,
+            commands::vault::vault_keychain_status,
+            commands::vault::vault_keychain_enroll,
+            commands::vault::vault_keychain_forget,
             commands::vault::vault_change_password,
             commands::vault::vault_set_aside,
             commands::vault::vault_archives,
@@ -176,6 +186,7 @@ pub fn run() {
             commands::vault::vault_archive_import,
             commands::vault::vault_reveal_folder,
             commands::sessions::sessions_list,
+            commands::sessions::ssh_config_hosts,
             commands::sessions::session_save,
             commands::sessions::session_delete,
             commands::sessions::groups_list,
@@ -226,8 +237,10 @@ pub fn run() {
             commands::snippets::command_send,
             commands::terminal::session_open,
             commands::terminal::session_open_cancel,
+            commands::terminal::session_test,
             commands::terminal::session_system,
             commands::terminal::terminal_write,
+            commands::terminal::terminal_write_text,
             commands::terminal::terminal_resize,
             commands::terminal::terminal_close,
             commands::terminal::terminals_open,
@@ -301,6 +314,16 @@ pub fn run() {
             commands::container::container_image_commit,
             commands::container::container_registry_login,
             commands::k8s::k8s_contexts,
+            commands::host_locations::host_location_choose,
+            commands::host_locations::host_locations_list,
+            commands::host_locations::host_location_forget,
+            commands::vmrest::vmrest_config_set,
+            commands::vmrest::vmrest_status,
+            commands::vmrest::vmrest_start,
+            commands::vmware::vmware_scan,
+            commands::vmware::vmware_status,
+            commands::vmware::vmware_power,
+            commands::vmware::vmware_take_ownership,
             commands::k8s::k8s_connect,
             commands::k8s::k8s_disconnect,
             commands::k8s::k8s_request,
@@ -430,6 +453,13 @@ fn apply_startup_shell_settings(app: &tauri::AppHandle) {
                 // rather than awaited: opening a socket is not a reason for the window to wait, and
                 // the interface's first `mcp_status` reports what actually came up.
                 crate::mcp::start_if_enabled(app, state.mcp_arc(), &settings);
+
+                // The system keychain, when the person asked for it. Done here rather than in
+                // `vault_state`, so the tray's lock is not undone by the next screen asking whether
+                // the vault is open: only a start may open it without a password.
+                if crate::vault_keychain::unlock_at_startup(&state, &settings) {
+                    log::info!("the vault was opened with the system keychain");
+                }
             }
         }
         Err(error) => {

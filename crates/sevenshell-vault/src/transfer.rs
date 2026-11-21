@@ -546,6 +546,7 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             group_id: None,
+            order: None,
             protocol: sevenshell_types::Protocol::Ssh,
             host: "example.test".to_owned(),
             port: 22,
@@ -561,6 +562,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 1_700_000_000,
@@ -754,6 +756,7 @@ mod tests {
                 has_passphrase: false,
             }),
             has_secret: false,
+            ssh_config: false,
         };
 
         let plan = plan_import(bundle(vec![keyed], Vec::new()), &Document::empty());

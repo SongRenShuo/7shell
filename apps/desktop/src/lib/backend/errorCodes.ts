@@ -12,9 +12,17 @@ export const ERROR_CATALOG = {
   "VAULT-KDF-FAILED": "errors.vault.kdfFailed",
   "VAULT-CORRUPT": "errors.vault.corrupt",
   "VAULT-UNLOCK-FAILED": "errors.vault.unlockFailed",
+  "VAULT-KEYCHAIN-UNAVAILABLE": "errors.vault.keychainUnavailable",
+  "VAULT-KEYCHAIN-FAILED": "errors.vault.keychainFailed",
   // SSH
   "SSH-HOSTKEY-UNKNOWN": "errors.ssh.hostKeyUnknown",
   "SSH-HOSTKEY-MISMATCH": "errors.ssh.hostKeyMismatch",
+  "SSH-HOSTKEY-SYSTEM-MISMATCH": "errors.ssh.hostKeySystemMismatch",
+  "SSH-CONFIG-UNSUPPORTED": "errors.ssh.configUnsupported",
+  "SSH-CONFIG-UNKNOWN-ALIAS": "errors.ssh.configUnknownAlias",
+  "SSH-CONFIG-KEY-PASSPHRASE": "errors.ssh.configKeyPassphrase",
+  "SSH-CONFIG-NO-KEY": "errors.ssh.configNoKey",
+  "SSH-CONFIG-PROXY-CHAIN": "errors.ssh.configProxyChain",
   "SSH-AUTH-FAILED": "errors.ssh.authFailed",
   "SSH-UNREACHABLE": "errors.ssh.unreachable",
   "SSH-TIMEOUT": "errors.ssh.timeout",
@@ -84,6 +92,15 @@ export const ERROR_CATALOG = {
   "CONTAINER-UNAVAILABLE": "errors.container.unavailable",
   "CONTAINER-COMMAND-FAILED": "errors.container.commandFailed",
   "CONTAINER-NOT-CONNECTED": "errors.container.notConnected",
+  // vmrest
+  "VMREST-UNAVAILABLE": "errors.vmrest.unavailable",
+  "VMREST-UNAUTHORIZED": "errors.vmrest.unauthorized",
+  // Host locations
+  "HOST-LOCATION-UNKNOWN": "errors.hostLocation.unknown",
+  // VMware
+  "VMWARE-UNAVAILABLE": "errors.vmware.unavailable",
+  "VMWARE-COMMAND-FAILED": "errors.vmware.commandFailed",
+  "VMWARE-GUEST-CREDENTIALS": "errors.vmware.guestCredentials",
   // Kubernetes
   "K8S-UNAVAILABLE": "errors.k8s.unavailable",
   "K8S-KUBECONFIG-INVALID": "errors.k8s.kubeconfigInvalid",
@@ -104,6 +121,7 @@ export const ERROR_CATALOG = {
   "UPDATE-NOT-AVAILABLE": "errors.update.notAvailable",
   "UPDATE-INSTALL-FAILED": "errors.update.installFailed",
   "UPDATE-RELEASE-PAGE-FAILED": "errors.update.releasePageFailed",
+  "UPDATE-PORTABLE-UNAVAILABLE": "errors.update.portableUnavailable",
   // External MCP servers
   "MCP-SERVER-DUPLICATE": "errors.mcp.serverDuplicate",
   "MCP-SERVER-CONNECT-FAILED": "errors.mcp.serverConnectFailed",

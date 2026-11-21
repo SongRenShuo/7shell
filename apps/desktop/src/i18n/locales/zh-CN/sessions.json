@@ -1,14 +1,23 @@
 {
   "sessions": {
+    "newTab": {
+      "title": "新建标签页",
+      "search": "搜索会话…",
+      "empty": "没有匹配的会话。",
+      "newSession": "新建会话…"
+    },
     "list": {
       "empty": "还没有会话。新建一个，把地址、用户和凭据放在一起。",
       "add": "新建会话",
       "open": "打开终端",
+      "newTerminal": "新建终端",
+      "testConnection": "测试到 {name} 的连接",
       "openDesktop": "打开远程桌面",
       "openHint": "为 {name} 打开终端",
       "openDesktopHint": "为 {name} 打开远程桌面",
       "openWebdavHint": "打开 {name} 的 WebDAV 目录",
       "openFtpHint": "打开 {name} 的 FTP 目录",
+      "openVmHint": "打开虚拟机 {name}",
       "desktopLaunched": "已在 Windows 远程桌面中打开。",
       "connecting": "正在连接 {name}…",
       "system": "远程系统：{name}",
@@ -50,8 +59,8 @@
       "importPassphrase": "口令",
       "importPassphrasePlaceholder": "输入口令",
       "importPassphraseConfirm": "导入",
-      "dropOutOfGroups": "移出所有分组",
       "importExport": "导入 / 导出",
+      "importVmware": "从 VMware 导入",
       "collapseAll": "全部折叠",
       "connectCancelled": "已取消连接：{name}",
       "connectFailed": "无法连接到 {name}：{reason}",
@@ -109,6 +118,19 @@
       "jump": "跳板机",
       "forwards": "转发"
     },
+    "connectionTest": {
+      "action": "测试连接",
+      "testing": "测试中…",
+      "signedIn": "已登录，用时 {ms} ms。",
+      "reachable": "地址已响应，用时 {ms} ms。",
+      "fingerprint": "主机键 {value}",
+      "unknownTitle": "这个主机键从未见过",
+      "trust": "信任此键并重新测试",
+      "mismatchTitle": "主机键已变更",
+      "mismatchBody": "主机键变更时是硬停而不是询问：除非你确认变更原因，否则不要信任。",
+      "trustedFingerprint": "已信任：{value}",
+      "presentedFingerprint": "现在提供：{value}"
+    },
     "editor": {
       "titleNew": "新建会话",
       "titleEdit": "编辑会话",
@@ -122,6 +144,7 @@
         "files": "文件服务",
         "desktop": "远程桌面",
         "containers": "容器与集群",
+        "virtualization": "虚拟机",
         "other": "其他"
       },
       "desktop": {
@@ -129,7 +152,7 @@
       },
       "telnet": {
         "note": "Telnet 是明文协议：终端里输入的内容（包括密码）不加密传输，只适合可信网络中的老设备。",
-        "title": "键盘",
+        "title": "键盘与编码",
         "enter": "回车键",
         "enterCrlf": "CRLF（回车+换行）",
         "enterCr": "CR（仅回车）",
@@ -137,6 +160,12 @@
         "backspace": "退格键",
         "backspaceDel": "DEL (0x7F)",
         "backspaceCtrlH": "Ctrl+H (0x08)"
+      },
+      "encoding": {
+        "label": "编码",
+        "utf8": "UTF-8",
+        "gbk": "GBK（简体中文旧设备）",
+        "gb18030": "GB18030（简体中文全量）"
       },
       "rawTcp": {
         "note": "原始 TCP 不做任何协商：发什么就发什么，收到的字节原样显示。连接是明文的，适合设备自己的行协议。"
@@ -240,6 +269,20 @@
         "viaSshNone": "直接连接",
         "viaSshHint": "可选。选了会话后，API server 经由该会话访问，使用它的凭据和路线。"
       },
+      "vmware": {
+        "title": "VMware",
+        "machine": "虚拟机",
+        "machinePick": "从扫描结果中选择一台",
+        "machineHint": "来自 Workstation 的清单。会话保存的是虚拟机自身的标识，在 Workstation 里改名或移动都不会使它失效。",
+        "unknownMachine": "已不在清单中的虚拟机",
+        "sshUser": "SSH 用户",
+        "sshUserPlaceholder": "客户机账户",
+        "sshPort": "SSH 端口",
+        "rdpUser": "桌面用户",
+        "rdpUserPlaceholder": "留空则由客户端询问",
+        "rdpPort": "RDP 端口",
+        "hint": "首次连接时，工作台会建立一个普通的 SSH 或远程桌面会话，并在每次打开前更新它的地址。密码保存在那个会话里，不在这里。"
+      },
       "group": "分组",
       "groupNone": "不分组",
       "method": "认证方式",
@@ -268,6 +311,22 @@
         "forget": "移除密钥",
         "forgetMessage": "移除密钥“{name}”？它会从保险库里删除，用过它的会话下次会重新要求提供。",
         "none": "尚未附加密钥。"
+      },
+      "openssh": {
+        "title": "OpenSSH 配置",
+        "useConfig": "主机与身份来自 ~/.ssh/config",
+        "note": "会话保存的是别名而不是地址副本。每次连接都会重新解析主机、账号、端口和身份：优先使用配置指定的密钥，其次按顺序尝试默认的 ~/.ssh/id_* 文件。文件里的 ProxyJump 路线会被沿用，每一跳都做同样的主机键校验。",
+        "pick": "从 OpenSSH 配置添加…",
+        "dialogTitle": "~/.ssh/config 中的主机",
+        "dialogDescription": "选择一个别名。地址与账号按本机解析结果显示；保存前不会复制任何内容。",
+        "loading": "正在读取 ~/.ssh/config…",
+        "filterPlaceholder": "筛选别名、地址或账号…",
+        "empty": "还没有可用主机。在 ~/.ssh/config 中添加 Host 块后重新打开。",
+        "noMatch": "没有匹配的主机。",
+        "viaProxy": "途经 {route}",
+        "unsupported": "暂不支持：{directives}",
+        "close": "关闭",
+        "keyNote": "连接时会从 ~/.ssh/config 或默认的 ~/.ssh/id_* 读取身份，这里无需导入密钥。"
       },
       "jumps": {
         "title": "跳板机",
@@ -311,6 +370,7 @@
         "webdavUrl": "请填写以 http:// 或 https:// 开头的 WebDAV 地址。",
         "user": "请填写登录用户。",
         "port": "端口必须是 1 到 65535 之间的数字。",
+        "vmwareId": "请从扫描结果中选择一台虚拟机。",
         "key": "公钥认证需要先附加一个密钥文件。",
         "serialPort": "请选择串口。",
         "serialBaud": "波特率必须是 50 到 4000000 之间的整数。",
@@ -321,18 +381,118 @@
       "cancel": "取消",
       "terminal": {
         "title": "终端",
+        "encoding": "编码",
+        "backspace": "退格键",
         "forwardAgent": "允许这台服务器使用本机的密钥代理",
         "forwardAgentNote": "会话打开期间，那台服务器上运行的任何程序都可以请求签名。除非服务器确实需要，否则不要打开。",
         "record": "记录这次会话",
         "recordNote": "录制会保存终端显示的全部内容，格式为 asciicast，可用 asciinema 等播放器打开。文件位于设置旁边的 recordings 目录。"
       }
     },
+    "vmware": {
+      "endpoint": "VMware",
+      "stateLabel": "电源",
+      "systemLabel": "系统",
+      "state": {
+        "running": "运行中",
+        "suspended": "已挂起",
+        "stopped": "已停止",
+        "checking": "检查中…"
+      },
+      "toolsLabel": "VMware Tools",
+      "tools": {
+        "running": "运行中",
+        "installed": "已安装",
+        "notInstalled": "未安装",
+        "notRunning": "未运行",
+        "unknown": "未报告"
+      },
+      "addressLabel": "地址",
+      "addressNone": "尚未报告",
+      "refresh": "刷新",
+      "start": "开机",
+      "resume": "继续运行",
+      "stop": "关机",
+      "suspend": "挂起",
+      "stopTitle": "关闭 {name}？",
+      "stopMessage": "将通过 VMware Tools 请求客户机自行关机。若客户机未能及时响应，未保存的内容会丢失。",
+      "sshTitle": "终端",
+      "rdpTitle": "桌面",
+      "user": "用户",
+      "port": "端口",
+      "sshUserPlaceholder": "客户机账户",
+      "rdpUserPlaceholder": "留空则由客户端询问",
+      "openSsh": "打开 SSH",
+      "openRdp": "打开 RDP",
+      "hint": "首次打开时会建立一个普通的已保存会话去连接客户机；这个按钮只负责把它的地址更新到当前值。密码和密钥在那个会话里编辑。",
+      "lock": {
+        "hint": "上次运行留下的锁还在，直接开机会被拒绝。点击开机时会提供获取所有权。",
+        "title": "取得 {name} 的所有权？",
+        "message": "虚拟机没有运行，但锁目录仍然存在——通常来自一次没有正常关闭的运行。取得所有权会删除这个锁。只有在确认没有 Workstation 窗口或其他机器正在使用它时才这样做：运行中虚拟机的锁是防止两个虚拟机监视器同时写同一份磁盘的最后一道防线。",
+        "confirm": "取得所有权并开机"
+      },
+      "vmrest": {
+        "title": "VMware REST",
+        "user": "用户",
+        "password": "密码",
+        "save": "保存",
+        "start": "启动",
+        "saved": "已保存。",
+        "started": "vmrest 已应答。"
+      },
+      "locations": {
+        "title": "主机位置",
+        "folder": "目录",
+        "file": "文件",
+        "chooseFolder": "选择主机目录",
+        "chooseFile": "选择主机文件",
+        "forget": "移除"
+      },
+      "password": {
+        "title": "输入密码",
+        "description": "通过 SSH 登录 {target} 需要密码。",
+        "label": "密码",
+        "placeholder": "输入密码",
+        "hint": "密码会随这个会话保存在保险库中，下次重连不再询问。",
+        "connect": "连接"
+      },
+      "connect": {
+        "powerOnFirst": "请先启动虚拟机，或让挂起的虚拟机继续运行，再打开到它的连接。",
+        "noAddress": "客户机还没有报告地址。等它启动完成、VMware Tools 运行起来后刷新。",
+        "userRequired": "请填写 SSH 登录使用的客户机账户。"
+      }
+    },
+    "vmwareScan": {
+      "title": "从 VMware 导入",
+      "description": "本账户 Workstation 清单中的虚拟机会成为已保存的会话。每个会话打开一个工作台，显示电源状态和两种连接客户机的方式。",
+      "rescan": "重新扫描",
+      "scanning": "正在扫描 Workstation…",
+      "empty": "这个账户的清单里没有找到虚拟机。",
+      "selectAll": "全选",
+      "machine": "虚拟机",
+      "guest": "客户机",
+      "address": "地址",
+      "addressPending": "尚未报告",
+      "addressOff": "—",
+      "state": "状态",
+      "running": "运行中",
+      "stopped": "已停止",
+      "alreadyImported": "已在列表中",
+      "group": "分组",
+      "groupDefault": "VMware",
+      "groupName": "新分组名称",
+      "groupAdd": "新建分组",
+      "groupCreate": "创建分组",
+      "import": "导入",
+      "importCount": "导入 {count} 台",
+      "imported": "已导入 {count} 台虚拟机。"
+    },
     "reopen": {
       "title": "在新标签页打开",
       "message": "“{name}” 已在工作区打开，是否新建标签页？",
       "confirm": "在新标签页打开",
       "remember": "记住我的选择",
-      "rememberNote": "仅对右键菜单的“打开终端”生效，后续可在“设置 - 工作区”中修改。"
+      "rememberNote": "对会话右键菜单的“打开终端”和新建标签页选择器都生效，后续可在“设置 - 工作区”中修改。"
     },
     "hostKey": {
       "opening": "正在打开 {name}",

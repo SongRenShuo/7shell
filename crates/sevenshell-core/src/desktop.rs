@@ -12,9 +12,14 @@
 //! Every other platform refuses: the product offers remote desktops on Windows only, rather than
 //! pretending a different client would behave the same.
 
+// Both are only reached from the Windows half of this module, so the other platforms must not
+// import them: a warning is an error in CI, and "unused on every platform but one" is a build
+// failure waiting for the first Linux run.
+#[cfg(windows)]
 use std::time::Duration;
 
 use sevenshell_error::ShellError;
+#[cfg(windows)]
 use sevenshell_types::Protocol;
 
 use crate::sessions::Core;
@@ -245,6 +250,7 @@ mod tests {
             id: "desktop-1".to_owned(),
             name: "desktop".to_owned(),
             group_id: None,
+            order: None,
             protocol: Protocol::Rdp,
             host: "desktop.example".to_owned(),
             port: 3389,
@@ -260,6 +266,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 0,

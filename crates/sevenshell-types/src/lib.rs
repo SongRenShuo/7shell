@@ -12,6 +12,7 @@ mod batch;
 mod completion;
 mod container;
 mod descriptors;
+mod host_location;
 mod k8s;
 mod mcp_client;
 mod monitor;
@@ -23,6 +24,7 @@ mod snippet;
 mod sync;
 mod system;
 mod update;
+mod vmware;
 mod words;
 
 mod generated {
@@ -55,6 +57,7 @@ pub use generated::{
     AUTH_METHODS, AuthMethod, AuthMethodSpec, CAPABILITIES, Capability, CapabilityGroup, CapabilitySpec,
     DESCRIPTOR_SCHEMA_VERSION, PROTOCOLS, Protocol, ProtocolSpec, Runtime, SupportLevel,
 };
+pub use host_location::{HostLocationKind, HostLocationView};
 pub use k8s::{
     K8sExecRequest, K8sLogRequest, K8sMethod, K8sRequest, K8sResponse, K8sStreamEnd, K8sStreamLine, K8sWatchEvent,
     KubeContextInfo, KubeconfigSource, KubernetesSettings,
@@ -75,13 +78,13 @@ pub use monitor::{
 pub use policy_matrix::{PolicyAction, PolicyMatrix, PolicyRule};
 pub use risk::{RiskAssessment, RiskLevel, RiskReason};
 pub use session::{
-    BackspaceMode, CreatedKey, DesktopSettings, DownloadFolderView, EnterMode, EntryKind, ForwardMode, FtpSettings,
-    KeyAlgorithm, KeyInfo, KnownHostEntry, LocalForward, LocalSettings, LocalShell, OpenOutcome, OpenTunnel,
-    PresentedHostKey, SecretInput, SerialFlowControl, SerialParity, SerialPortInfo, SerialSettings, SerialStopBits,
-    Session, SessionAuth, SessionExportSummary, SessionGroup, SessionImportOutcome, SessionImportSummary, SftpEntry,
-    SftpListing, SftpOutcome, SftpPasteItem, SftpPasteOutcome, TelnetSettings, TerminalSettings, TransferDirection,
-    TransferInfo, TransferState, TunnelFailure, UploadAnswer, UploadOutcome, VaultArchive, VaultState, WebDavSettings,
-    WslSettings,
+    BackspaceMode, ConnectionTestOutcome, CreatedKey, DesktopSettings, DownloadFolderView, EnterMode, EntryKind,
+    ForwardMode, FtpSettings, KeyAlgorithm, KeyInfo, KnownHostEntry, LocalForward, LocalSettings, LocalShell,
+    OpenOutcome, OpenTunnel, PresentedHostKey, SecretInput, SerialFlowControl, SerialParity, SerialPortInfo,
+    SerialSettings, SerialStopBits, Session, SessionAuth, SessionExportSummary, SessionGroup, SessionImportOutcome,
+    SessionImportSummary, SftpEntry, SftpListing, SftpOutcome, SftpPasteItem, SftpPasteOutcome, SshConfigHost,
+    TelnetSettings, TerminalEncoding, TerminalSettings, TransferDirection, TransferInfo, TransferState, TunnelFailure,
+    UploadAnswer, UploadOutcome, VaultArchive, VaultKeychainStatus, VaultState, WebDavSettings, WslSettings,
 };
 pub use settings::{
     AI_SESSION_RETENTION_DAYS_DEFAULT, AI_SESSION_RETENTION_DAYS_MAX, AI_SESSION_RETENTION_DAYS_MIN, AppLayout,
@@ -97,15 +100,16 @@ pub use settings::{
     TERMINAL_LINE_HEIGHT_MIN, TERMINAL_MIN_CONTRAST_MAX, TERMINAL_MIN_CONTRAST_MIN, TERMINAL_PADDING_MAX,
     TERMINAL_PADDING_MIN, TERMINAL_SCHEME_PROFILE_LIMIT, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement,
     TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
-    TerminalHighlightRule, TerminalSchemeBackground, TerminalSchemeProfile, TerminalSchemeSource, ThemeMode,
-    ThemePalette, UI_SCALE_PERCENTS, ai_session_retention_days_default, background_blur_default,
-    background_transparency_default, command_completion_on, default_terminal_highlight_rules,
-    mcp_approval_timeout_seconds_default, mcp_audit_retention_days_default, mcp_max_result_bytes_default, monitor_on,
-    normalize_ai_session_retention_days, normalize_mcp_approval_timeout_seconds, normalize_mcp_audit_retention_days,
-    normalize_mcp_max_result_bytes, normalize_sync_auto_upload_minutes, normalize_terminal_bold_font_weight,
-    normalize_terminal_font_size, normalize_terminal_font_weight, normalize_terminal_letter_spacing,
-    normalize_terminal_line_height, normalize_terminal_min_contrast, normalize_terminal_padding, normalize_ui_scale,
-    sidebar_on, sync_auto_upload_minutes_default, terminal_bold_bright_on, terminal_bold_font_weight_default,
+    TerminalHighlightRule, TerminalPanelPlacement, TerminalSchemeBackground, TerminalSchemeProfile,
+    TerminalSchemeSource, ThemeMode, ThemePalette, UI_SCALE_PERCENTS, ai_session_retention_days_default,
+    background_blur_default, background_transparency_default, command_completion_on, default_terminal_highlight_rules,
+    files_columns_hidden_by_default, files_tree_on, mcp_approval_timeout_seconds_default,
+    mcp_audit_retention_days_default, mcp_max_result_bytes_default, monitor_on, normalize_ai_session_retention_days,
+    normalize_mcp_approval_timeout_seconds, normalize_mcp_audit_retention_days, normalize_mcp_max_result_bytes,
+    normalize_sync_auto_upload_minutes, normalize_terminal_bold_font_weight, normalize_terminal_font_size,
+    normalize_terminal_font_weight, normalize_terminal_letter_spacing, normalize_terminal_line_height,
+    normalize_terminal_min_contrast, normalize_terminal_padding, normalize_ui_scale, sidebar_on,
+    sync_auto_upload_minutes_default, terminal_bold_bright_on, terminal_bold_font_weight_default,
     terminal_cursor_blink_on, terminal_font_size_default, terminal_font_weight_default,
     terminal_letter_spacing_default, terminal_line_height_default, terminal_min_contrast_default,
     terminal_padding_x_default, terminal_padding_y_default, tray_icon_on, ui_scale_default, update_check_on,
@@ -120,4 +124,5 @@ pub use sync::{
 };
 pub use system::HostSystem;
 pub use update::{AvailableRelease, UpdateCheck, UpdateProgress};
+pub use vmware::{VmInfo, VmPowerAction, VmStatus, VmwareSettings, default_vm_rdp_port, default_vm_ssh_port};
 pub use words::CompletionWord;

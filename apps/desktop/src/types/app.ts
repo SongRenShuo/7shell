@@ -180,7 +180,7 @@ export type TabLayout = "scroll" | "wrap";
 export const DEFAULT_TAB_LAYOUT: TabLayout = "scroll";
 
 /** Which edge of the window the tab bar is drawn against, from `sevenshell_types::TabPlacement`. */
-export type TabPlacement = "top" | "bottom" | "left" | "right";
+export type TabPlacement = "top" | "bottom" | "left" | "right" | "titleBar";
 
 /** Across the top, which is where this build has always drawn it. */
 export const DEFAULT_TAB_PLACEMENT: TabPlacement = "top";
@@ -339,6 +339,9 @@ export interface TerminalSchemeProfile {
   readonly schemeDark?: string;
   readonly schemeLight?: string;
   readonly schemeBackground: TerminalSchemeBackground;
+  /** The text colour saved with the answer, absent when the palette's own was worn. */
+  readonly foregroundDark?: string;
+  readonly foregroundLight?: string;
 }
 
 /** How many saved scheme choices this build keeps. */
@@ -470,6 +473,22 @@ export type SessionReopen = "ask" | "new-tab" | "focus";
 
 /** The question, until a dialog's "remember my choice" answers it. */
 export const DEFAULT_SESSION_REOPEN: SessionReopen = "ask";
+
+/**
+ * Where the file panel sits while a terminal is open, from
+ * `sevenshell_types::TerminalPanelPlacement`.
+ *
+ * `tab` is the standalone file manager a session's menu already opens; it is a position here so
+ * that bottom, left, right and tab are one remembered answer rather than a panel plus a separate
+ * command.
+ */
+export type TerminalPanelPlacement = "bottom" | "left" | "right" | "tab";
+
+/** The three docked positions a panel has when it has no standalone tab of its own. */
+export type DockedPanelPlacement = Exclude<TerminalPanelPlacement, "tab">;
+
+/** The panel starts where the split layout has always drawn it. */
+export const DEFAULT_TERMINAL_PANEL_PLACEMENT: TerminalPanelPlacement = "bottom";
 
 /**
  * What an agent connected over MCP may do, from `sevenshell_types::McpScope`.
@@ -621,10 +640,20 @@ export interface AppSettings {
   /** `system` means "follow the interface theme" for the terminal, not the operating system. */
   readonly terminalTheme: ThemeMode;
   readonly filesLayout: FilesLayout;
+  /** Whether the directory tree is drawn beside a file listing. */
+  readonly filesTreeVisible: boolean;
+  /** File-browser columns folded away, by their stable keys. */
+  readonly filesHiddenColumns: readonly string[];
   /** Whether opening a session opens a terminal on its own, or one with its file panel. */
   readonly sessionLayout: SessionLayout;
   /** What the session list's menu does when the session it opens is already open. */
   readonly sessionReopen: SessionReopen;
+  /** Where the file panel sits while a terminal is open. */
+  readonly terminalPanelPlacement: TerminalPanelPlacement;
+  /** Where the commands panel sits while a terminal is open; it has no standalone tab. */
+  readonly terminalCommandPanelPlacement: DockedPanelPlacement;
+  /** How wide the file panel is on the left or right, in pixels. Absent means nobody has moved it. */
+  readonly terminalPanelWidth?: number;
   /** How tall the file panel under a terminal is, in pixels. Absent means nobody has moved it. */
   readonly terminalPanelHeight?: number;
   /** How wide the session sidebar is, in pixels. Absent means nobody has moved the divider. */
@@ -726,6 +755,14 @@ export interface AppSettings {
   readonly terminalSchemeDark?: string;
   /** The scheme worn while the terminal is light. */
   readonly terminalSchemeLight?: string;
+  /**
+   * The colour the terminal's text is drawn in, while the palette supplies it — `#rrggbb`.
+   *
+   * Absent means the palette's own text colour. Only the text changes: the background and the
+   * sixteen ANSI colours stay with the palette. One per half, because the two are chosen apart.
+   */
+  readonly terminalForegroundDark?: string;
+  readonly terminalForegroundLight?: string;
   /** What a chosen scheme replaces: its own surfaces, or the palette's with only the ANSI colours. */
   readonly terminalSchemeBackground: TerminalSchemeBackground;
   /** The schemes somebody imported, which the shipped catalogue does not include. */

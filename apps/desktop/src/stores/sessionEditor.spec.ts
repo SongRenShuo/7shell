@@ -9,8 +9,10 @@ vi.mock("@/lib/backend/tauri", () => ({
   groupsList: vi.fn(),
   k8sContexts: vi.fn(),
 }));
+vi.mock("@/lib/sessions/testConnection", () => ({ runConnectionTest: vi.fn() }));
 
 import { groupsList, k8sContexts, sessionSave, sessionsList } from "@/lib/backend/tauri";
+import { runConnectionTest } from "@/lib/sessions/testConnection";
 import { useSessionEditorStore } from "@/stores/sessionEditor";
 import { useSessionsStore } from "@/stores/sessions";
 import type { Session } from "@/types/session";
@@ -19,6 +21,7 @@ const sessionsListMock = vi.mocked(sessionsList);
 const sessionSaveMock = vi.mocked(sessionSave);
 const groupsListMock = vi.mocked(groupsList);
 const k8sContextsMock = vi.mocked(k8sContexts);
+const runConnectionTestMock = vi.mocked(runConnectionTest);
 
 function sample(id: string, name: string): Session {
   return {
@@ -29,7 +32,14 @@ function sample(id: string, name: string): Session {
     port: 22,
     user: "root",
     auth: { method: "password", hasSecret: false },
-    terminal: { terminalType: "xterm-256color", keepaliveSeconds: 30, forwardAgent: false, record: false },
+    terminal: {
+      terminalType: "xterm-256color",
+      keepaliveSeconds: 30,
+      encoding: "utf-8",
+      backspace: "del",
+      forwardAgent: false,
+      record: false,
+    },
     updatedAt: 1_700_000_000,
   };
 }
@@ -41,6 +51,52 @@ describe("session editor store", () => {
     groupsListMock.mockReset().mockResolvedValue([]);
     sessionSaveMock.mockReset().mockImplementation(async (session: Session) => session);
     k8sContextsMock.mockReset().mockResolvedValue([]);
+    runConnectionTestMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("tests the draft as it stands, without keeping the answer in the editor", async () => {
+    const editor = useSessionEditorStore();
+    editor.fill(sample("app", "app"));
+
+    await editor.testConnection();
+
+    expect(runConnectionTestMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "app", host: "app.test" }),
+      undefined,
+    );
+    expect(editor.testing).toBe(false);
+  });
+
+  it("passes a typed password to the test and stores nothing", async () => {
+    const editor = useSessionEditorStore();
+    editor.fill(null);
+    editor.name = "new";
+    editor.host = "new.test";
+    editor.user = "root";
+    editor.secret = "hunter2";
+
+    await editor.testConnection();
+
+    expect(runConnectionTestMock).toHaveBeenCalledWith(expect.objectContaining({ name: "new" }), { value: "hunter2" });
+  });
+
+  it("keeps the button busy until the helper answers", async () => {
+    let answer: (() => void) | undefined;
+    runConnectionTestMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const editor = useSessionEditorStore();
+    editor.fill(sample("app", "app"));
+
+    const pending = editor.testConnection();
+    expect(editor.testing).toBe(true);
+
+    answer?.();
+    await pending;
+    expect(editor.testing).toBe(false);
   });
 
   it("keeps hops in the order they were added, moved and removed", async () => {
@@ -173,6 +229,24 @@ describe("session editor store", () => {
       }),
       undefined,
     );
+  });
+
+  /** A Chinese switch: the terminal has its own encoding, and Telnet carries the one on the wire. */
+  it("keeps the encoding and backspace chosen for each kind of terminal", () => {
+    const editor = useSessionEditorStore();
+    editor.fill(sample("app", "app"));
+    editor.chooseTerminalEncoding("gbk");
+    editor.chooseTerminalBackspace("ctrlH");
+
+    expect(editor.draft().terminal).toMatchObject({ encoding: "gbk", backspace: "ctrlH" });
+
+    editor.fill({
+      ...sample("switch", "switch"),
+      protocol: "telnet",
+      telnet: { enter: "lf", backspace: "del", encoding: "gb18030" },
+    });
+    expect(editor.telnetEncoding).toBe("gb18030");
+    expect(editor.draft().telnet).toMatchObject({ enter: "lf", encoding: "gb18030" });
   });
 
   it("saves no route or forwards at all when there are none", async () => {
@@ -460,5 +534,30 @@ describe("session editor store", () => {
     await expect(editor.readKubeContexts()).resolves.toBeUndefined();
     expect(editor.kubeContextsFailure?.code).toBeTruthy();
     expect(editor.kubeContextsBusy).toBe(false);
+  });
+
+  it("fills the draft from an OpenSSH host and leaves the key to the connection", () => {
+    const editor = useSessionEditorStore();
+    editor.fill(null);
+
+    editor.applySshConfigHost({
+      alias: "web",
+      host: "10.0.0.5",
+      user: "deploy",
+      port: 2222,
+      unsupported: [],
+    });
+
+    expect(editor.protocol).toBe("ssh");
+    expect(editor.host).toBe("web");
+    expect(editor.user).toBe("deploy");
+    expect(editor.port).toBe("2222");
+    expect(editor.method).toBe("publicKey");
+    expect(editor.sshConfig).toBe(true);
+    expect(editor.sessionProblems.key).toBe(false);
+
+    const draft = editor.draft();
+    expect(draft.auth.sshConfig).toBe(true);
+    expect(draft.name).toBe("web");
   });
 });

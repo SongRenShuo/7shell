@@ -10,7 +10,7 @@
  * already has the files under its terminal — that panel is the shell's companion, following its
  * `cd` — while the file manager entry is a tab of its own, which is a place to browse rather than a
  * place to type. The terminal entry is the menu's own open, not the row's click: a session that is
- * already open is something this menu has an answer for (see `terminals.reopen`), and the row's
+ * already open is something this menu has an answer for (see `terminals.requestReopen`), and the row's
  * click never asks.
  *
  * The address is the one thing worth copying, and it is copied the way the sidebar prints it — with
@@ -33,6 +33,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   Terminal,
   Trash2,
   Unplug,
@@ -40,6 +41,7 @@ import {
 } from "@lucide/vue";
 
 import { drawOrder, groupPath } from "@/lib/sessions/groups";
+import { protocolSupports } from "@/types/generated/protocols";
 import type { OpenTunnel, Session, SessionGroup } from "@/types/session";
 
 import { copyText } from "./clipboard";
@@ -52,9 +54,17 @@ export interface SessionMenuActions {
    *
    * It is not the row's click, even though both ask for the same session: the menu is where somebody
    * chooses *how* to open a session that is already open, and the entry that decides that is this
-   * one — see `terminals.reopen`.
+   * one — see `terminals.requestReopen`.
    */
   readonly open: (session: Session) => void;
+  /**
+   * One more terminal for the same session, without the question the ordinary open asks.
+   *
+   * A session that is already open is exactly the case this entry exists for: "one more shell on
+   * that machine" is an answer, and a person who chose to ask every time should not be asked
+   * about the thing they just spelled out.
+   */
+  readonly openTerminal: (session: Session) => void;
   /** The file manager in a tab of its own, which is what its entry always means. */
   readonly openFiles: (session: Session) => void;
   readonly edit: (session: Session) => void;
@@ -92,6 +102,10 @@ export function sessionEndpoint(session: Session, t?: (key: string) => string): 
     }
     case "kubernetes":
       return session.kubernetes?.context || (t ? t("k8s.endpointDefault") : "kubeconfig");
+    case "vmware":
+      // The guest is reached at an address that is resolved on use, and the token that identifies
+      // the machine is not something a person reads. The row says what it is instead.
+      return t ? t("sessions.vmware.endpoint") : "VMware";
     default:
       return `${session.user}@${session.host}:${session.port}`;
   }
@@ -154,6 +168,19 @@ export function sessionMenu(
       icon: Terminal,
       run: () => actions.open(session),
     },
+    // Directly below the ordinary open, and only where a terminal is what the session is: a
+    // container workspace or a cluster has no second shell to give.
+    ...(protocolSupports(session.protocol, "shell")
+      ? ([
+          {
+            kind: "action",
+            id: "open-another-terminal",
+            labelKey: "sessions.list.newTerminal",
+            icon: Plus,
+            run: () => actions.openTerminal(session),
+          },
+        ] satisfies MenuEntry[])
+      : []),
     // Beside the terminal rather than instead of it, and drawn whatever the settings say a session
     // looks like: the files a split brings are the shell's own panel (they follow its `cd`), while
     // this entry is the file manager in a tab somebody browses in — two different things. A remote
@@ -169,6 +196,8 @@ export function sessionMenu(
           },
         ] satisfies MenuEntry[])
       : []),
+    // The test lives on the row itself, not here: it is about one session, and a button beside the
+    // selection tick is where somebody reaches for it while looking at that row.
     { kind: "separator", id: "sep-edit" },
     { kind: "action", id: "edit", labelKey: "sessions.list.edit", icon: Pencil, run: () => actions.edit(session) },
     ...(moveEntries.length > 0

@@ -21,7 +21,7 @@ import { sessionMenu, groupMenu, tunnelMenu } from "./sessions";
 import { terminalMenu, terminalSelectionTools } from "./terminal";
 import { transferMenu } from "./transfers";
 import type { MenuEntry } from "./types";
-import { tabMenu } from "./workspace";
+import { panelPlacementMenu, tabMenu } from "./workspace";
 import type { DiskUsage, EnvironmentEntry, ProcessDetail, ProcessSample, SocketRow } from "@/types/monitor";
 import type { DownloadFolderView, OpenTunnel, Session, SessionGroup, SftpEntry, TransferInfo } from "@/types/session";
 
@@ -71,7 +71,14 @@ const session: Session = {
   port: 22,
   user: "root",
   auth: { method: "password", hasSecret: true },
-  terminal: { terminalType: "xterm-256color", keepaliveSeconds: 30, forwardAgent: false, record: false },
+  terminal: {
+    terminalType: "xterm-256color",
+    keepaliveSeconds: 30,
+    encoding: "utf-8",
+    backspace: "del",
+    forwardAgent: false,
+    record: false,
+  },
   updatedAt: 1_700_000_000,
 };
 const group: SessionGroup = { id: "group-1", name: "Work", order: 0, pinned: false };
@@ -194,6 +201,10 @@ function menus(): readonly { readonly title: string; readonly entries: readonly 
       }),
     },
     {
+      title: MENU_TITLES.panelPlacement,
+      entries: panelPlacementMenu("bottom", { choose: nothing }),
+    },
+    {
       title: MENU_TITLES.tab,
       entries: tabMenu(
         { kind: "terminal", status: "open", hasHandle: true, index: 0, total: 2, reconnectable: 0 },
@@ -216,6 +227,7 @@ function menus(): readonly { readonly title: string; readonly entries: readonly 
       title: MENU_TITLES.session,
       entries: sessionMenu(session, [group], {
         open: nothing,
+        openTerminal: nothing,
         openFiles: nothing,
         edit: nothing,
         remove: nothing,

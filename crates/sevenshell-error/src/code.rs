@@ -46,12 +46,28 @@ error_catalog! {
     VaultUnlockFailed => "VAULT-UNLOCK-FAILED", "errors.vault.unlockFailed";
     #[doc = "The vault file exists but cannot be decrypted or parsed."]
     VaultCorrupt => "VAULT-CORRUPT", "errors.vault.corrupt";
+    #[doc = "This machine has no system keychain this build can use."]
+    VaultKeychainUnavailable => "VAULT-KEYCHAIN-UNAVAILABLE", "errors.vault.keychainUnavailable";
+    #[doc = "The system keychain refused to store or remove the vault's unlock material."]
+    VaultKeychainFailed => "VAULT-KEYCHAIN-FAILED", "errors.vault.keychainFailed";
 
     // -- SSH ---------------------------------------------------------------
     #[doc = "The server presented a host key that has never been seen for this host."]
     SshHostKeyUnknown => "SSH-HOSTKEY-UNKNOWN", "errors.ssh.hostKeyUnknown";
     #[doc = "The presented host key differs from the trusted one. Credentials were withheld."]
     SshHostKeyMismatch => "SSH-HOSTKEY-MISMATCH", "errors.ssh.hostKeyMismatch";
+    #[doc = "The key differs from the one this machine's OpenSSH known_hosts records. Nothing was sent."]
+    SshHostKeySystemMismatch => "SSH-HOSTKEY-SYSTEM-MISMATCH", "errors.ssh.hostKeySystemMismatch";
+    #[doc = "The OpenSSH configuration uses a directive this build cannot honour."]
+    SshConfigUnsupported => "SSH-CONFIG-UNSUPPORTED", "errors.ssh.configUnsupported";
+    #[doc = "A session asked OpenSSH's configuration for an alias no Host block matches."]
+    SshConfigUnknownAlias => "SSH-CONFIG-UNKNOWN-ALIAS", "errors.ssh.configUnknownAlias";
+    #[doc = "The key OpenSSH's configuration names needs a passphrase this build cannot ask for."]
+    SshConfigKeyPassphrase => "SSH-CONFIG-KEY-PASSPHRASE", "errors.ssh.configKeyPassphrase";
+    #[doc = "OpenSSH's configuration and its default identity files held no usable private key."]
+    SshConfigNoKey => "SSH-CONFIG-NO-KEY", "errors.ssh.configNoKey";
+    #[doc = "The ProxyJump chain in OpenSSH's configuration loops or names a hop that cannot be parsed."]
+    SshConfigProxyChain => "SSH-CONFIG-PROXY-CHAIN", "errors.ssh.configProxyChain";
     #[doc = "The server rejected the credentials or the authentication method."]
     SshAuthFailed => "SSH-AUTH-FAILED", "errors.ssh.authFailed";
     #[doc = "The host could not be reached."]
@@ -212,6 +228,8 @@ error_catalog! {
     UpdateInstallFailed => "UPDATE-INSTALL-FAILED", "errors.update.installFailed";
     #[doc = "The page a release is published on could not be opened."]
     UpdateReleasePageFailed => "UPDATE-RELEASE-PAGE-FAILED", "errors.update.releasePageFailed";
+    #[doc = "A portable copy checked for updates and the release names no archive it could unpack."]
+    UpdatePortableUnavailable => "UPDATE-PORTABLE-UNAVAILABLE", "errors.update.portableUnavailable";
 
     // -- Containers --------------------------------------------------------
     #[doc = "The container runtime could not be reached, or its command line is not installed."]
@@ -220,6 +238,24 @@ error_catalog! {
     ContainerCommandFailed => "CONTAINER-COMMAND-FAILED", "errors.container.commandFailed";
     #[doc = "The container connection this call names is no longer open."]
     ContainerNotConnected => "CONTAINER-NOT-CONNECTED", "errors.container.notConnected";
+
+    // -- VMware ------------------------------------------------------------
+    #[doc = "VMware Workstation's command line could not be found, or could not run."]
+    VmwareUnavailable => "VMWARE-UNAVAILABLE", "errors.vmware.unavailable";
+    #[doc = "A VMware command ran but did not succeed."]
+    VmwareCommandFailed => "VMWARE-COMMAND-FAILED", "errors.vmware.commandFailed";
+    #[doc = "A guest operation needs an account and password the VM session has not saved."]
+    VmwareGuestCredentials => "VMWARE-GUEST-CREDENTIALS", "errors.vmware.guestCredentials";
+
+    // -- VMware REST service ------------------------------------------------
+    #[doc = "The Workstation REST service (vmrest) could not be reached."]
+    VmrestUnavailable => "VMREST-UNAVAILABLE", "errors.vmrest.unavailable";
+    #[doc = "vmrest refused the configured credentials."]
+    VmrestUnauthorized => "VMREST-UNAUTHORIZED", "errors.vmrest.unauthorized";
+
+    // -- Host locations ----------------------------------------------------
+    #[doc = "A host location token is not known, or names the wrong kind of location."]
+    HostLocationUnknown => "HOST-LOCATION-UNKNOWN", "errors.hostLocation.unknown";
 
     // -- Kubernetes --------------------------------------------------------
     #[doc = "The Kubernetes API server could not be reached."]

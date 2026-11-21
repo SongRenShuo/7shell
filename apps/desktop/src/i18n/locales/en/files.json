@@ -7,9 +7,14 @@
       "retry": "Try again"
     },
     "up": "Go up one directory",
+    "parentHint": "Double-click to go up one directory",
+    "locateTerminal": "Locate the terminal here",
+    "moreActions": "More file actions",
+    "columns": {
+      "title": "Columns"
+    },
     "path": "Path",
     "refresh": "Refresh this directory",
-    "go": "Go",
     "newFolder": "New folder",
     "newFolderName": "Folder name",
     "newFile": "New file",
@@ -27,6 +32,13 @@
     "downloadTitle": "Choose where to save this file",
     "downloadPackedTitle": "Choose the folder to download into",
     "empty": "This directory is empty.",
+    "filter": {
+      "title": "Filter files ({shortcut})",
+      "label": "Filter files by name",
+      "placeholder": "Filter by name",
+      "clear": "Clear the filter",
+      "empty": "No file or folder matches “{query}”."
+    },
     "listing": "Files",
     "name": "File name",
     "size": "Size",
@@ -167,6 +179,8 @@
       "root": "/",
       "expand": "Expand",
       "collapse": "Collapse",
+      "hide": "Hide the directory tree",
+      "show": "Show the directory tree",
       "divider": "Resize the directory tree"
     },
     "drop": {

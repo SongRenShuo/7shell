@@ -12,7 +12,8 @@ export type ProtocolId =
   | "local"
   | "wsl"
   | "container"
-  | "kubernetes";
+  | "kubernetes"
+  | "vmware";
 
 export type Protocol = ProtocolId;
 
@@ -39,6 +40,7 @@ export type CapabilityKey =
   | "dynamicForwarding"
   | "agentForwarding"
   | "jumpHost"
+  | "opensshConfig"
   | "recording"
   | "secret"
   | "interactive"
@@ -54,9 +56,10 @@ export type CapabilityKey =
   | "kubernetesLogs"
   | "kubernetesExec"
   | "kubernetesMetrics"
-  | "kubernetesTunnel";
+  | "kubernetesTunnel"
+  | "vmLifecycle";
 
-export type CapabilityGroup = "terminal" | "session" | "transfer" | "network" | "auth" | "desktop" | "container";
+export type CapabilityGroup = "terminal" | "session" | "transfer" | "network" | "auth" | "desktop" | "container" | "virtualization";
 
 export type ProtocolRuntime = "native" | "external";
 
@@ -94,7 +97,7 @@ export const PROTOCOLS: readonly ProtocolDescriptor[] = [
     runtime: "native",
     transport: "tcp",
     supportLevel: "operate",
-    capabilities: ["shell", "exec", "resize", "keepalive", "hostMetrics", "sftp", "scp", "forwarding", "dynamicForwarding", "agentForwarding", "recording", "jumpHost"],
+    capabilities: ["shell", "exec", "resize", "keepalive", "hostMetrics", "sftp", "scp", "forwarding", "dynamicForwarding", "agentForwarding", "recording", "jumpHost", "opensshConfig"],
   },
   {
     id: "rdp",
@@ -186,6 +189,15 @@ export const PROTOCOLS: readonly ProtocolDescriptor[] = [
     supportLevel: "operate",
     capabilities: ["kubernetes", "kubernetesLogs", "kubernetesExec", "kubernetesMetrics", "kubernetesTunnel"],
   },
+  {
+    id: "vmware",
+    labelKey: "protocol.vmware.label",
+    defaultPort: null,
+    runtime: "native",
+    transport: "cli",
+    supportLevel: "operate",
+    capabilities: ["vmLifecycle"],
+  },
 ];
 
 export const AUTH_METHODS: readonly AuthMethodDescriptor[] = [
@@ -235,6 +247,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
   { key: "dynamicForwarding", group: "network", labelKey: "capability.dynamicForwarding.label" },
   { key: "agentForwarding", group: "network", labelKey: "capability.agentForwarding.label" },
   { key: "jumpHost", group: "network", labelKey: "capability.jumpHost.label" },
+  { key: "opensshConfig", group: "network", labelKey: "capability.opensshConfig.label" },
   { key: "recording", group: "session", labelKey: "capability.recording.label" },
   { key: "secret", group: "auth", labelKey: "capability.secret.label" },
   { key: "interactive", group: "auth", labelKey: "capability.interactive.label" },
@@ -251,10 +264,11 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
   { key: "kubernetesExec", group: "container", labelKey: "capability.kubernetesExec.label" },
   { key: "kubernetesMetrics", group: "container", labelKey: "capability.kubernetesMetrics.label" },
   { key: "kubernetesTunnel", group: "container", labelKey: "capability.kubernetesTunnel.label" },
+  { key: "vmLifecycle", group: "virtualization", labelKey: "capability.vmLifecycle.label" },
 ];
 
 export const CAPABILITY_GROUP_ORDER: readonly CapabilityGroup[] = [
-  "terminal", "session", "transfer", "network", "auth", "desktop", "container",
+  "terminal", "session", "transfer", "network", "auth", "desktop", "container", "virtualization",
 ];
 
 export function protocolById(id: string): ProtocolDescriptor | undefined {

@@ -406,9 +406,11 @@ pub struct ShellState {
 impl ShellState {
     /// Opens the vault at its usual place and builds the core around it.
     ///
-    /// The vault is *not* unlocked here: it starts locked, and the interface asks for the password.
-    /// The window handle is taken because one of the pieces below answers with an event — an
-    /// external server's state — and there is no other moment at which it can be handed over.
+    /// The vault starts locked. It may be opened a moment later by `apply_startup_shell_settings`
+    /// when the system keychain holds the key the person enrolled; otherwise the interface asks for
+    /// the password. The window handle is taken because one of the pieces below answers with an
+    /// event — an external server's state — and there is no other moment at which it can be handed
+    /// over.
     pub fn new(app: &tauri::AppHandle) -> (Self, tokio::sync::mpsc::Receiver<sevenshell_core::CoreEvent>) {
         let path = sevenshell_vault::default_path().unwrap_or_else(|| {
             log::warn!("the configuration directory could not be located; the vault will not persist");
@@ -745,6 +747,7 @@ mod tests {
             id: id.to_owned(),
             name: id.to_owned(),
             group_id: group_id.map(str::to_owned),
+            order: None,
             protocol: sevenshell_types::Protocol::Ssh,
             host: "host.example".to_owned(),
             port: 22,
@@ -760,6 +763,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 1,

@@ -2,17 +2,19 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sevenshell_error::ShellError;
 use sevenshell_session::{OpenTerminal, RecordingSpec, SessionRegistry};
+use sevenshell_ssh::openssh::SystemHostKey;
 use sevenshell_ssh::{
-    Credential, LocalForward as HopForward, OpenRequest, Purpose, Route, SshSession, Target, TerminalSize, TunnelHandle,
+    ChannelEvent, Credential, LocalForward as HopForward, OpenRequest, Purpose, Route, SshSession, Target,
+    TerminalSize, TunnelHandle,
 };
 use sevenshell_term::{LocalSpec, SerialSpec, TcpSpec, TelnetSpec, WslSpec};
 use sevenshell_types::{
-    AuthMethod, ForwardMode, KnownHostEntry, LocalForward, LocalShell, OpenOutcome, OpenTunnel, PresentedHostKey,
-    Protocol, SerialPortInfo, Session, TransferInfo, TunnelFailure,
+    AuthMethod, ConnectionTestOutcome, ForwardMode, KnownHostEntry, LocalForward, LocalShell, OpenOutcome, OpenTunnel,
+    PresentedHostKey, Protocol, SecretInput, SerialPortInfo, Session, TerminalEncoding, TransferInfo, TunnelFailure,
 };
 use sevenshell_vault::Vault;
 use tokio::sync::{Mutex, Notify, mpsc};
@@ -36,6 +38,102 @@ pub(crate) enum HostKeyDecision {
         key: PresentedHostKey,
         trusted: KnownHostEntry,
     },
+}
+
+/// A session after OpenSSH's configuration has had its say.
+///
+/// The saved session keeps the alias; this is the copy a connection actually uses. `config` is the
+/// resolved entry when there was one, so the credential step can read the identities it names
+/// without the interface ever learning a path. `proxy` is the `ProxyJump` route the same file
+/// names, outermost hop first; it is empty when the session keeps its own saved jump list, which
+/// is the person's explicit route.
+#[derive(Debug)]
+pub(crate) struct PreparedSession {
+    pub(crate) session: Session,
+    pub(crate) config: Option<sevenshell_ssh::openssh::ResolvedHost>,
+    pub(crate) proxy: Vec<crate::openssh::ProxyHop>,
+}
+
+/// One connection a route makes before it reaches the target.
+struct HopPlan {
+    host: String,
+    port: u16,
+    user: String,
+    keepalive_seconds: u16,
+    source: HopSource,
+}
+
+enum HopSource {
+    /// A saved session the route names, resolved on its own terms.
+    Saved(Box<PreparedSession>),
+    /// A hop the target's own `ProxyJump` names.
+    Config(Box<crate::openssh::ProxyHop>),
+}
+
+/// A key file larger than this is not a key.
+const MAX_IDENTITY_BYTES: u64 = 1024 * 1024;
+
+/// What this machine's own `known_hosts` says about the key a server presented.
+fn system_known_host(host: &str, port: u16, presented: &PresentedHostKey) -> SystemHostKey {
+    let Some(path) = sevenshell_platform::ssh_dir().map(|directory| directory.join("known_hosts")) else {
+        return SystemHostKey::Unknown;
+    };
+    sevenshell_ssh::openssh::check_system_known_host(&path, host, port, &presented.key_type, &presented.public_key)
+}
+
+/// What the two record keepers together say about the key a server presented.
+enum KeyStanding {
+    Accepted,
+    Unknown,
+    /// The record that stops the connection, for the prompt that shows both fingerprints.
+    Changed(KnownHostEntry),
+}
+
+/// Reads the vault's record and this machine's `known_hosts` as one answer.
+///
+/// Either keeper accepting the key is enough: both are records of keys a person has trusted, and
+/// asking again because only one of them knows the key would be the same question answered twice.
+/// A record of a *different algorithm* is not a record of this key — OpenSSH treats that as unseen
+/// and asks, and stopping there is how a server that added or switched a key type looked like a
+/// changed host key. Only a record of the same algorithm with different material is the real stop.
+/// Callers have already refused on `SystemHostKey::Changed`.
+fn standing(trusted: Option<KnownHostEntry>, system: SystemHostKey, presented: &PresentedHostKey) -> KeyStanding {
+    match trusted {
+        Some(entry) if entry.accepts(presented) => KeyStanding::Accepted,
+        Some(entry) if entry.key_type == presented.key_type => KeyStanding::Changed(entry),
+        _ if system == SystemHostKey::Trusted => KeyStanding::Accepted,
+        _ => KeyStanding::Unknown,
+    }
+}
+
+/// Where an `IdentityFile` value points on this machine.
+///
+/// `~` and `%d` are the home directory; a bare relative path is read under `~/.ssh`, which is where
+/// a configuration file's relative identities almost always live. The path stays in this process.
+fn identity_path(value: &str, home: &std::path::Path, ssh_dir: &std::path::Path) -> std::path::PathBuf {
+    // `~/.ssh` is the directory `ssh_dir()` names, which a controlled run may have moved. Expanding
+    // the tilde against the real home first would read the person's keys in a test that asked for
+    // its own.
+    for prefix in ["~/.ssh/", "~\\.ssh\\", "%d/.ssh/", "%d\\.ssh\\"] {
+        if let Some(rest) = value.strip_prefix(prefix) {
+            return ssh_dir.join(rest);
+        }
+    }
+    if value == "~/.ssh" || value == "~\\.ssh" || value == "%d/.ssh" || value == "%d\\.ssh" {
+        return ssh_dir.to_path_buf();
+    }
+
+    if value == "~"
+        || value.starts_with("~/")
+        || value.starts_with("~\\")
+        || value.starts_with("%d/")
+        || value.starts_with("%d\\")
+    {
+        return sevenshell_ssh::openssh::expand_home(value, home);
+    }
+
+    let path = std::path::PathBuf::from(value);
+    if path.is_absolute() { path } else { ssh_dir.join(path) }
 }
 
 /// A transfer that is running, or has finished running.
@@ -104,6 +202,9 @@ pub struct Core {
     /// Stops for the line streams a container tab is following. Keyed by the id the host emitted,
     /// so a stop button and a closing window use the same path.
     pub(crate) container_streams: Arc<Mutex<ContainerStreamStops>>,
+    /// Tokens for places on this machine a native dialog picked. Paths stay here; the token is
+    /// what the interface and the tools see.
+    pub(crate) vmrest_auth: std::sync::Mutex<Option<(String, String)>>,
     pub(crate) next_file: std::sync::atomic::AtomicU64,
     pub(crate) next_transfer: std::sync::atomic::AtomicU64,
     /// The matrix and the audit trail behind every unattended action. Replaced together, read
@@ -132,6 +233,7 @@ impl Core {
                 containers: Arc::new(sevenshell_container::ContainerManager::new()),
                 clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
                 container_streams: Arc::new(Mutex::new(HashMap::new())),
+                vmrest_auth: std::sync::Mutex::new(None),
                 next_file: std::sync::atomic::AtomicU64::new(1),
                 next_transfer: std::sync::atomic::AtomicU64::new(1),
                 // The default rule until a host replaces it: safe and caution run, the destructive
@@ -206,7 +308,8 @@ impl Core {
         session_id: &str,
         cancel: &Arc<Notify>,
     ) -> Result<OpenOutcome, ShellError> {
-        let session = self.session(session_id)?;
+        let prepared = self.prepare_session(&self.session(session_id)?)?;
+        let session = &prepared.session;
         match session.protocol {
             Protocol::Ssh => {}
             Protocol::Rdp => {
@@ -229,23 +332,28 @@ impl Core {
                     "this session is a container engine; open it from the container workspace",
                 ));
             }
+            Protocol::Vmware => {
+                return Err(ShellError::app_unsupported(
+                    "this session is a virtual machine; open it from the VM workspace",
+                ));
+            }
             Protocol::Kubernetes => {
                 return Err(ShellError::app_unsupported(
                     "this session is a Kubernetes cluster; open it from the cluster workspace",
                 ));
             }
             Protocol::Telnet | Protocol::RawTcp | Protocol::Serial | Protocol::Local | Protocol::Wsl => {
-                return self.open_stream_terminal_until_cancelled(&session, cancel).await;
+                return self.open_stream_terminal_until_cancelled(session, cancel).await;
             }
         }
-        let credential = self.credential(&session)?;
+        let credential = self.credential(session, prepared.config.as_ref())?;
         let target = Target {
             host: session.host.clone(),
             port: session.port,
             user: session.user.clone(),
         };
 
-        let route = until_cancelled(self.open_route(&session), cancel).await?;
+        let route = until_cancelled(self.open_route(&prepared, None), cancel).await?;
         let hop = match route {
             RouteOutcome::Ready(hop) => hop,
             RouteOutcome::Decision(decision) => return Ok(terminal_decision(*decision)),
@@ -268,15 +376,28 @@ impl Core {
             }
         };
 
-        match self.vault.find_known_host(&target.host, target.port)? {
-            None => return Ok(OpenOutcome::HostKeyUnknown { key: presented }),
-            Some(trusted) if trusted.public_key != presented.public_key => {
+        let system = system_known_host(&target.host, target.port, &presented);
+        if system == SystemHostKey::Changed {
+            return Err(ShellError::ssh_host_key_system_mismatch(
+                &target.host,
+                target.port,
+                &presented.key_type,
+                &presented.fingerprint,
+            ));
+        }
+        match standing(
+            self.vault.find_known_host(&target.host, target.port)?,
+            system,
+            &presented,
+        ) {
+            KeyStanding::Accepted => {}
+            KeyStanding::Unknown => return Ok(OpenOutcome::HostKeyUnknown { key: presented }),
+            KeyStanding::Changed(trusted) => {
                 return Ok(OpenOutcome::HostKeyMismatch {
                     key: presented,
                     trusted,
                 });
             }
-            Some(_) => {}
         }
 
         let route = match hop {
@@ -304,7 +425,7 @@ impl Core {
         };
 
         let opened = until_cancelled(
-            self.registry.open(session_id, request, self.recording_for(&session)?),
+            self.registry.open(session_id, request, self.recording_for(session)?),
             cancel,
         )
         .await;
@@ -319,7 +440,7 @@ impl Core {
                 return Err(cancelled);
             }
         };
-        let (tunnels, tunnel_failures) = self.bring_up_forwards(&handle, &session).await;
+        let (tunnels, tunnel_failures) = self.bring_up_forwards(&handle, session).await;
 
         Ok(OpenOutcome::Opened {
             handle,
@@ -335,6 +456,172 @@ impl Core {
             if open.session_id == session_id {
                 let _ = self.close_terminal(&open.handle).await;
             }
+        }
+    }
+
+    /// Tests a session's connection without opening a terminal.
+    ///
+    /// The order is the open's order, because a test that skipped a step would be testing a
+    /// different connection than the one the person would get: every jump host is authenticated,
+    /// the target's key is probed and checked against what is trusted, and only then is a
+    /// credential offered. What comes up is a carrier — no session channel and no pty — so the
+    /// server sees a login and nothing else. Calling this "connected" therefore means the key was
+    /// verified and the credential was accepted, which is the question a test is for.
+    ///
+    /// The session is the editor's draft rather than a saved id: a person should be able to learn
+    /// that a password is wrong before saving it. The credential is the one typed into the dialog
+    /// when there is one, and the vault's when there is not.
+    ///
+    /// Telnet and a raw TCP console have no login; for them the honest test is whether the
+    /// address answers. Every other transport has no connection of its own to test.
+    pub async fn test_session(
+        &self,
+        session: &Session,
+        secret: Option<SecretInput>,
+    ) -> Result<ConnectionTestOutcome, ShellError> {
+        let started = Instant::now();
+        let prepared = self.prepare_session(session)?;
+        let session = &prepared.session;
+
+        match session.protocol {
+            Protocol::Ssh => self.test_ssh(&prepared, secret, started).await,
+            Protocol::Telnet | Protocol::RawTcp => {
+                let stream = match tokio::time::timeout(
+                    self.timeout,
+                    tokio::net::TcpStream::connect((session.host.as_str(), session.port)),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => stream,
+                    Ok(Err(error)) => {
+                        return Err(ShellError::terminal_unreachable(
+                            &session.host,
+                            session.port,
+                            error.to_string(),
+                        ));
+                    }
+                    Err(_) => {
+                        return Err(ShellError::terminal_unreachable(
+                            &session.host,
+                            session.port,
+                            format!("nothing answered within {} seconds", self.timeout.as_secs()),
+                        ));
+                    }
+                };
+                drop(stream);
+                Ok(ConnectionTestOutcome::Connected {
+                    latency_ms: elapsed_millis(started),
+                    authenticated: false,
+                    fingerprint: None,
+                })
+            }
+            _ => Err(ShellError::app_unsupported(
+                "this kind of session has no connection to test",
+            )),
+        }
+    }
+
+    /// The SSH half of [`Core::test_session`]: verify the route and the key, authenticate, hang up.
+    async fn test_ssh(
+        &self,
+        prepared: &PreparedSession,
+        secret: Option<SecretInput>,
+        started: Instant,
+    ) -> Result<ConnectionTestOutcome, ShellError> {
+        let session = &prepared.session;
+        let credential = self.credential_for_test(session, prepared.config.as_ref(), secret.as_ref())?;
+        let target = Target {
+            host: session.host.clone(),
+            port: session.port,
+            user: session.user.clone(),
+        };
+
+        let route = self.open_route(prepared, secret.as_ref()).await?;
+        let hop = match route {
+            RouteOutcome::Ready(hop) => hop,
+            RouteOutcome::Decision(decision) => return Ok(test_decision(*decision)),
+        };
+
+        let presented = match &hop {
+            Some(hop) => sevenshell_ssh::probe_host_key_via(hop, &target.host, target.port, self.timeout).await?,
+            None => sevenshell_ssh::probe_host_key(&target.host, target.port, self.timeout).await?,
+        };
+
+        let system = system_known_host(&target.host, target.port, &presented);
+        if system == SystemHostKey::Changed {
+            return Err(ShellError::ssh_host_key_system_mismatch(
+                &target.host,
+                target.port,
+                &presented.key_type,
+                &presented.fingerprint,
+            ));
+        }
+        match standing(
+            self.vault.find_known_host(&target.host, target.port)?,
+            system,
+            &presented,
+        ) {
+            KeyStanding::Accepted => {}
+            KeyStanding::Unknown => return Ok(ConnectionTestOutcome::HostKeyUnknown { key: presented }),
+            KeyStanding::Changed(trusted) => {
+                return Ok(ConnectionTestOutcome::HostKeyMismatch {
+                    key: presented,
+                    trusted,
+                });
+            }
+        }
+
+        let route = match hop {
+            Some(hop) => Route::Through {
+                hop,
+                host: target.host.clone(),
+                port: target.port,
+            },
+            None => Route::Direct,
+        };
+        let fingerprint = presented.fingerprint.clone();
+        let request = OpenRequest {
+            target,
+            credential,
+            terminal_type: session.terminal.terminal_type.clone(),
+            // A connection with no terminal has no life to keep.
+            keepalive_seconds: 0,
+            forward_agent: false,
+            timeout: self.timeout,
+            expected_host_key: presented,
+            size: INITIAL_SIZE,
+            route,
+            purpose: Purpose::Carrier,
+        };
+
+        let (events, _unused) = mpsc::channel::<ChannelEvent>(1);
+        let connected = SshSession::open(request, events).await?;
+        let outcome = ConnectionTestOutcome::Connected {
+            latency_ms: elapsed_millis(started),
+            authenticated: true,
+            fingerprint: Some(fingerprint),
+        };
+        // The test is over either way. A disconnect that fails changes nothing about what the
+        // connection already answered.
+        let _ = connected.close().await;
+        Ok(outcome)
+    }
+
+    /// The credential a test offers: the typed one when there is one, the stored one otherwise.
+    ///
+    /// Only the login-and-password method has anything new to offer here. A key's material is in
+    /// the vault or on disk already, and an imported key carries its own passphrase with it.
+    fn credential_for_test(
+        &self,
+        session: &Session,
+        config: Option<&sevenshell_ssh::openssh::ResolvedHost>,
+        secret: Option<&SecretInput>,
+    ) -> Result<Credential, ShellError> {
+        match (session.auth.method, secret) {
+            (AuthMethod::Password | AuthMethod::KeyboardInteractive, Some(input)) => {
+                Ok(Credential::Password(input.value.clone()))
+            }
+            _ => self.credential(session, config),
         }
     }
 
@@ -396,6 +683,7 @@ impl Core {
             | Protocol::WebDav
             | Protocol::Ftp
             | Protocol::Container
+            | Protocol::Vmware
             | Protocol::Kubernetes => {
                 unreachable!("only the stream protocols reach this function")
             }
@@ -430,6 +718,16 @@ impl Core {
     /// Sends keystrokes or pasted text.
     pub async fn write(&self, handle: &str, data: &[u8]) -> Result<(), ShellError> {
         self.registry.write(handle, data).await
+    }
+
+    /// Sends text in the encoding the terminal session asked for.
+    ///
+    /// The terminal on this side always speaks UTF-8; a switch or an old Unix host may not. Encoding
+    /// here rather than in the interface keeps the browser edition and the desktop edition on the
+    /// same rule, and keeps the conversion next to the only code that writes to the pty.
+    pub async fn write_text(&self, handle: &str, text: &str, encoding: TerminalEncoding) -> Result<(), ShellError> {
+        let bytes = encoded_text(text, encoding);
+        self.write(handle, &bytes).await
     }
 
     /// Tells the remote side the terminal changed size.
@@ -524,26 +822,32 @@ impl Core {
             .ok_or_else(|| ShellError::session_not_found(id))
     }
 
-    /// Connects every jump host in order, and answers with the last one.
+    /// Connects every hop in order, and answers with the last one.
     ///
-    /// Each hop is a connection of its own, on the same terms as the final one: verified before
-    /// anything is sent through it, and authenticated with its own saved credential. A hop whose
-    /// key is unknown ends the attempt with a decision about *that* host, so asking again after
-    /// trusting it moves the chain forward one link at a time.
-    pub(crate) async fn open_route(&self, session: &Session) -> Result<RouteOutcome, ShellError> {
+    /// The route is the session's own saved jump list when it has one; otherwise it is the
+    /// `ProxyJump` chain its alias names, already walked outward first. Each hop is a connection of
+    /// its own, verified before anything is sent through it, and authenticated with its own
+    /// credential — a saved hop's stored one, or the target's for a hop the configuration names. A
+    /// hop whose key is unknown ends the attempt with a decision about *that* host, so asking again
+    /// after trusting it moves the chain forward one link at a time.
+    ///
+    /// `secret` is a password typed into the connection test. It answers for every hop whose
+    /// credential is inherited from the target, which is what makes testing a draft before it is
+    /// saved say something true.
+    pub(crate) async fn open_route(
+        &self,
+        prepared: &PreparedSession,
+        secret: Option<&SecretInput>,
+    ) -> Result<RouteOutcome, ShellError> {
+        let plan = self.route_plan(prepared)?;
         let mut current: Option<Arc<SshSession>> = None;
 
-        for hop_id in &session.jump {
-            if hop_id == &session.id {
-                return Err(ShellError::app_unsupported("a session that is its own jump host"));
-            }
-
-            let hop_session = self.session(hop_id)?;
-            let credential = self.credential(&hop_session)?;
+        for hop in plan {
+            let credential = self.hop_credential(prepared, &hop, secret)?;
             let target = Target {
-                host: hop_session.host.clone(),
-                port: hop_session.port,
-                user: hop_session.user.clone(),
+                host: hop.host.clone(),
+                port: hop.port,
+                user: hop.user.clone(),
             };
 
             let presented = match &current {
@@ -551,15 +855,30 @@ impl Core {
                 None => sevenshell_ssh::probe_host_key(&target.host, target.port, self.timeout).await?,
             };
 
-            match self.vault.find_known_host(&target.host, target.port)? {
-                None => return Ok(RouteOutcome::Decision(Box::new(HostKeyDecision::Unknown(presented)))),
-                Some(trusted) if trusted.public_key != presented.public_key => {
+            let system = system_known_host(&target.host, target.port, &presented);
+            if system == SystemHostKey::Changed {
+                return Err(ShellError::ssh_host_key_system_mismatch(
+                    &target.host,
+                    target.port,
+                    &presented.key_type,
+                    &presented.fingerprint,
+                ));
+            }
+            match standing(
+                self.vault.find_known_host(&target.host, target.port)?,
+                system,
+                &presented,
+            ) {
+                KeyStanding::Accepted => {}
+                KeyStanding::Unknown => {
+                    return Ok(RouteOutcome::Decision(Box::new(HostKeyDecision::Unknown(presented))));
+                }
+                KeyStanding::Changed(trusted) => {
                     return Ok(RouteOutcome::Decision(Box::new(HostKeyDecision::Mismatch {
                         key: presented,
                         trusted,
                     })));
                 }
-                Some(_) => {}
             }
 
             let route = match current {
@@ -577,7 +896,7 @@ impl Core {
                 // A hop carries a connection; it is not a terminal, and asking it for a shell
                 // would leave a process running on the jump host for no reason.
                 terminal_type: String::new(),
-                keepalive_seconds: hop_session.terminal.keepalive_seconds,
+                keepalive_seconds: hop.keepalive_seconds,
                 forward_agent: false,
                 timeout: self.timeout,
                 expected_host_key: presented,
@@ -593,6 +912,127 @@ impl Core {
         }
 
         Ok(RouteOutcome::Ready(current))
+    }
+
+    /// Every hop from this machine outward, in the order they are connected.
+    ///
+    /// Saved hops keep their own routes: a hop may name jumps of its own, and that chain is walked
+    /// before the hop itself. A config hop has no saved route, so its `ProxyJump` was already
+    /// walked when the prepared session was built. `visiting` is the sessions on the current path,
+    /// which is what turns two sessions naming each other into an error instead of a loop.
+    fn route_plan(&self, prepared: &PreparedSession) -> Result<Vec<HopPlan>, ShellError> {
+        let mut plan = Vec::new();
+        let mut visiting = std::collections::HashSet::new();
+        self.collect_hops(prepared, &mut visiting, &mut plan)?;
+        Ok(plan)
+    }
+
+    fn collect_hops(
+        &self,
+        prepared: &PreparedSession,
+        visiting: &mut std::collections::HashSet<String>,
+        plan: &mut Vec<HopPlan>,
+    ) -> Result<(), ShellError> {
+        let session = &prepared.session;
+
+        if !session.jump.is_empty() {
+            if !visiting.insert(session.id.clone()) {
+                let id = &session.id;
+                return Err(ShellError::app_unsupported(&format!(
+                    "a route that loops back through session {id}"
+                )));
+            }
+            for hop_id in &session.jump {
+                if hop_id == &session.id {
+                    return Err(ShellError::app_unsupported("a session that is its own jump host"));
+                }
+                let hop = Box::new(self.prepare_session(&self.session(hop_id)?)?);
+                self.collect_hops(&hop, visiting, plan)?;
+                plan.push(HopPlan {
+                    host: hop.session.host.clone(),
+                    port: hop.session.port,
+                    user: hop.session.user.clone(),
+                    keepalive_seconds: hop.session.terminal.keepalive_seconds,
+                    source: HopSource::Saved(hop),
+                });
+            }
+            visiting.remove(&session.id);
+            return Ok(());
+        }
+
+        for hop in &prepared.proxy {
+            plan.push(HopPlan {
+                host: hop.host.clone(),
+                port: hop.port,
+                user: hop.user.clone(),
+                keepalive_seconds: session.terminal.keepalive_seconds,
+                source: HopSource::Config(Box::new(hop.clone())),
+            });
+        }
+        Ok(())
+    }
+
+    /// The credential one hop offers.
+    ///
+    /// A saved hop answers with what its own session stores. A hop named by the configuration has
+    /// no session of its own, so it uses that hop's `IdentityFile` when it names one; otherwise it
+    /// inherits the target's credential, the way one would expect a route written into the same
+    /// file to share an identity.
+    fn hop_credential(
+        &self,
+        prepared: &PreparedSession,
+        hop: &HopPlan,
+        secret: Option<&SecretInput>,
+    ) -> Result<Credential, ShellError> {
+        match &hop.source {
+            HopSource::Saved(hop) => self.credential(&hop.session, hop.config.as_ref()),
+            HopSource::Config(hop) => self.proxy_hop_credential(prepared, hop, secret),
+        }
+    }
+
+    fn proxy_hop_credential(
+        &self,
+        prepared: &PreparedSession,
+        hop: &crate::openssh::ProxyHop,
+        secret: Option<&SecretInput>,
+    ) -> Result<Credential, ShellError> {
+        let session = &prepared.session;
+        let method = session.auth.method;
+
+        match method {
+            AuthMethod::Password | AuthMethod::KeyboardInteractive => {
+                if let Some(input) = secret {
+                    return Ok(Credential::Password(input.value.clone()));
+                }
+                match self.vault.secret_for_session(&session.id)? {
+                    Some(stored) => Ok(Credential::Password(stored.into_value())),
+                    None => Err(ShellError::ssh_auth_failed(&hop.host, hop.port, "password")
+                        .with_detail("the jump host inherits this session's password, and none is stored for it")),
+                }
+            }
+            AuthMethod::PublicKey => {
+                let hop_names_identity = hop
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| !config.identity_files.is_empty());
+                // A key attached to the session is the person's explicit choice, and is offered to
+                // the hops unless the hop's own block names the identities it wants.
+                if !hop_names_identity
+                    && let Some(key_ref) = session.auth.key.as_ref().and_then(|key| key.key_ref.as_deref())
+                {
+                    let material = self
+                        .vault
+                        .key_material(key_ref)?
+                        .ok_or_else(|| ShellError::ssh_key_invalid("the key this session used is no longer stored"))?;
+                    let (contents, passphrase) = material.into_parts();
+                    return Ok(Credential::Key { contents, passphrase });
+                }
+                let hop_config = hop.config.clone().unwrap_or_default();
+                self.key_from_config(&hop.name, &hop_config)
+            }
+            AuthMethod::Agent => Ok(Credential::Agent),
+            AuthMethod::Pageant => Ok(Credential::Pageant),
+        }
     }
 
     /// Starts the forwards a session saves, and reports what happened to each.
@@ -701,14 +1141,16 @@ impl Core {
     /// Used when the terminal's connection is the wrong place for a new channel: one SSH
     /// connection carries only so many, and the terminal still needs room for its monitor.
     pub(crate) async fn open_fresh_carrier(&self, session: &Session) -> Result<ConnectionOutcome, ShellError> {
-        let credential = self.credential(session)?;
+        let prepared = self.prepare_session(session)?;
+        let session = &prepared.session;
+        let credential = self.credential(session, prepared.config.as_ref())?;
         let target = Target {
             host: session.host.clone(),
             port: session.port,
             user: session.user.clone(),
         };
 
-        let hop = match self.open_route(session).await? {
+        let hop = match self.open_route(&prepared, None).await? {
             RouteOutcome::Ready(hop) => hop,
             RouteOutcome::Decision(decision) => return Ok(ConnectionOutcome::Decision(decision)),
         };
@@ -718,19 +1160,32 @@ impl Core {
             None => sevenshell_ssh::probe_host_key(&target.host, target.port, self.timeout).await?,
         };
 
-        match self.vault.find_known_host(&target.host, target.port)? {
-            None => {
+        let system = system_known_host(&target.host, target.port, &presented);
+        if system == SystemHostKey::Changed {
+            return Err(ShellError::ssh_host_key_system_mismatch(
+                &target.host,
+                target.port,
+                &presented.key_type,
+                &presented.fingerprint,
+            ));
+        }
+        match standing(
+            self.vault.find_known_host(&target.host, target.port)?,
+            system,
+            &presented,
+        ) {
+            KeyStanding::Accepted => {}
+            KeyStanding::Unknown => {
                 return Ok(ConnectionOutcome::Decision(Box::new(HostKeyDecision::Unknown(
                     presented,
                 ))));
             }
-            Some(trusted) if trusted.public_key != presented.public_key => {
+            KeyStanding::Changed(trusted) => {
                 return Ok(ConnectionOutcome::Decision(Box::new(HostKeyDecision::Mismatch {
                     key: presented,
                     trusted,
                 })));
             }
-            Some(_) => {}
         }
 
         let route = match hop {
@@ -803,9 +1258,79 @@ impl Core {
         }))
     }
 
+    /// The session a connection uses, with an OpenSSH alias resolved to its real target.
+    ///
+    /// A session that does not use the configuration is returned as it was saved. One that does is
+    /// resolved again on every connection, so editing `~/.ssh/config` changes the next connection
+    /// without editing the session. Every directive that would change where the connection goes and
+    /// that this build cannot honour refuses here, before a socket.
+    ///
+    /// A `ProxyJump` becomes the route unless the session already names saved jumps: those are the
+    /// person's explicit route, and a file must not silently replace them.
+    pub(crate) fn prepare_session(&self, session: &Session) -> Result<PreparedSession, ShellError> {
+        if !session.auth.ssh_config || session.protocol != Protocol::Ssh {
+            return Ok(PreparedSession {
+                session: session.clone(),
+                config: None,
+                proxy: Vec::new(),
+            });
+        }
+
+        let Some(config) = crate::openssh::config() else {
+            return Err(ShellError::app_unsupported("OpenSSH's configuration directory"));
+        };
+        let resolved = config.resolve(&session.host);
+        if !resolved.matched {
+            return Err(ShellError::ssh_config_unknown_alias(&session.host));
+        }
+
+        let mut unsupported = resolved.unsupported.clone();
+        if resolved.proxy_command.is_some() && !unsupported.iter().any(|name| name == "ProxyCommand") {
+            unsupported.push("ProxyCommand".to_owned());
+        }
+        if let Some(directive) = unsupported.first() {
+            return Err(ShellError::ssh_config_unsupported(directive));
+        }
+
+        let mut prepared = session.clone();
+        prepared.host = resolved.address(&session.host);
+        if let Some(user) = &resolved.user {
+            prepared.user = user.clone();
+        }
+        if let Some(port) = resolved.port {
+            prepared.port = port;
+        }
+
+        let proxy = if prepared.jump.is_empty() {
+            crate::openssh::proxy_hops(&config, &resolved, &prepared.user).map_err(proxy_chain_error)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(PreparedSession {
+            session: prepared,
+            config: Some(resolved),
+            proxy,
+        })
+    }
+
+    /// The real address a session reaches, for a policy layer that must not be bypassed by an
+    /// alias. A session that cannot be resolved keeps its saved values; the connection that
+    /// follows will refuse with the reason.
+    pub(crate) fn policy_target_for(&self, session: &Session) -> (String, u16) {
+        match self.prepare_session(session) {
+            Ok(prepared) => (prepared.session.host, prepared.session.port),
+            Err(_) => (session.host.clone(), session.port),
+        }
+    }
+
     /// Collects what a session authenticates with. The material is held only long enough to be
     /// handed to the transport, which zeroizes it when the connection is done with it.
-    pub(crate) fn credential(&self, session: &Session) -> Result<Credential, ShellError> {
+    pub(crate) fn credential(
+        &self,
+        session: &Session,
+        config: Option<&sevenshell_ssh::openssh::ResolvedHost>,
+    ) -> Result<Credential, ShellError> {
         let method = session.auth.method;
 
         match method {
@@ -821,26 +1346,87 @@ impl Core {
                 }
             }
             AuthMethod::PublicKey => {
-                let key_ref = session
-                    .auth
-                    .key
-                    .as_ref()
-                    .and_then(|key| key.key_ref.as_deref())
-                    .ok_or_else(|| ShellError::ssh_key_invalid("this session has no key attached"))?;
+                if let Some(key_ref) = session.auth.key.as_ref().and_then(|key| key.key_ref.as_deref()) {
+                    let material = self
+                        .vault
+                        .key_material(key_ref)?
+                        .ok_or_else(|| ShellError::ssh_key_invalid("the key this session used is no longer stored"))?;
 
-                let material = self
-                    .vault
-                    .key_material(key_ref)?
-                    .ok_or_else(|| ShellError::ssh_key_invalid("the key this session used is no longer stored"))?;
+                    let (contents, passphrase) = material.into_parts();
+                    return Ok(Credential::Key { contents, passphrase });
+                }
 
-                let (contents, passphrase) = material.into_parts();
-                Ok(Credential::Key { contents, passphrase })
+                // A session that takes its identity from OpenSSH's configuration names files, not
+                // vault handles. They are read here and never leave the process.
+                if let Some(config) = config {
+                    return self.key_from_config(&session.host, config);
+                }
+
+                Err(ShellError::ssh_key_invalid("this session has no key attached"))
             }
             // Two different things, kept apart on purpose: the machine's own agent is asked for a
             // signature, while Pageant speaks a protocol this build does not — and saying *which*
             // one is missing is what tells somebody whether to start a program or stop looking.
             AuthMethod::Agent => Ok(Credential::Agent),
             AuthMethod::Pageant => Ok(Credential::Pageant),
+        }
+    }
+
+    /// Reads the first usable identity the configuration names, then OpenSSH's defaults.
+    ///
+    /// An encrypted key is reported by its file name only: this build has no interactive
+    /// passphrase step in this path, and guessing would either skip a key the person meant to use
+    /// or ask for a secret in a place that cannot ask. The answer names the alternative — the
+    /// agent, or importing the key into the vault.
+    fn key_from_config(
+        &self,
+        alias: &str,
+        config: &sevenshell_ssh::openssh::ResolvedHost,
+    ) -> Result<Credential, ShellError> {
+        let Some(home) = sevenshell_platform::home_dir() else {
+            return Err(ShellError::ssh_config_no_key(alias));
+        };
+        let ssh_dir = sevenshell_platform::ssh_dir().unwrap_or_else(|| home.join(".ssh"));
+
+        let mut candidates: Vec<std::path::PathBuf> = config
+            .identity_files
+            .iter()
+            .map(|value| identity_path(value, &home, &ssh_dir))
+            .collect();
+        for name in sevenshell_ssh::openssh::DEFAULT_IDENTITY_FILES {
+            candidates.push(ssh_dir.join(name));
+        }
+
+        let mut locked: Option<String> = None;
+        for path in candidates {
+            let Ok(metadata) = std::fs::metadata(&path) else {
+                continue;
+            };
+            if !metadata.is_file() || metadata.len() > MAX_IDENTITY_BYTES {
+                continue;
+            }
+            let Ok(contents) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            match sevenshell_ssh::describe_key(&contents, None) {
+                Ok(description) if !description.has_passphrase => {
+                    return Ok(Credential::Key {
+                        contents,
+                        passphrase: None,
+                    });
+                }
+                Ok(_) => {
+                    if locked.is_none() {
+                        locked = path.file_name().map(|name| name.to_string_lossy().into_owned());
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        match locked {
+            Some(name) => Err(ShellError::ssh_config_key_passphrase(&name)),
+            None => Err(ShellError::ssh_config_no_key(alias)),
         }
     }
 }
@@ -877,6 +1463,30 @@ fn terminal_decision(decision: HostKeyDecision) -> OpenOutcome {
     }
 }
 
+/// The same two decisions, in the vocabulary a connection test answers in.
+fn test_decision(decision: HostKeyDecision) -> ConnectionTestOutcome {
+    match decision {
+        HostKeyDecision::Unknown(key) => ConnectionTestOutcome::HostKeyUnknown { key },
+        HostKeyDecision::Mismatch { key, trusted } => ConnectionTestOutcome::HostKeyMismatch { key, trusted },
+    }
+}
+
+/// A stopwatch reading as whole milliseconds, which is the precision the interface prints.
+fn elapsed_millis(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// A `ProxyJump` chain that cannot be followed, in the vocabulary of the error envelope.
+fn proxy_chain_error(error: crate::openssh::ProxyChainError) -> ShellError {
+    use crate::openssh::ProxyChainError;
+
+    match error {
+        ProxyChainError::Directive(directive) => ShellError::ssh_config_unsupported(&directive),
+        ProxyChainError::Invalid(hop) => ShellError::ssh_config_proxy_chain(&hop),
+        ProxyChainError::Loop(chain) => ShellError::ssh_config_proxy_chain(&chain),
+    }
+}
+
 pub(crate) fn now_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -896,6 +1506,15 @@ async fn until_cancelled<T>(
     tokio::select! {
         result = step => result,
         () = cancel.notified() => Err(ShellError::session_open_cancelled()),
+    }
+}
+
+/// A terminal's text in the bytes its far side prints and expects.
+fn encoded_text(text: &str, encoding: TerminalEncoding) -> Vec<u8> {
+    match encoding {
+        TerminalEncoding::Utf8 => text.as_bytes().to_vec(),
+        TerminalEncoding::Gbk => encoding_rs::GBK.encode(text).0.into_owned(),
+        TerminalEncoding::Gb18030 => encoding_rs::GB18030.encode(text).0.into_owned(),
     }
 }
 
@@ -922,6 +1541,7 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             group_id: None,
+            order: None,
             protocol: sevenshell_types::Protocol::Ssh,
             host: "127.0.0.1".to_owned(),
             port: 2222,
@@ -937,10 +1557,26 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 0,
         }
+    }
+
+    /// A Chinese switch expects two bytes for a character an xterm would send as three.
+    #[test]
+    fn typed_text_becomes_the_bytes_the_session_s_encoding_names() {
+        assert_eq!(encoded_text("中文", TerminalEncoding::Utf8), "中文".as_bytes());
+        assert_eq!(
+            encoded_text("中文", TerminalEncoding::Gbk),
+            vec![0xD6, 0xD0, 0xCE, 0xC4]
+        );
+        assert_eq!(
+            encoded_text("😀", TerminalEncoding::Gb18030).len(),
+            4,
+            "GB18030 reaches every scalar as four bytes at most; GBK would have replaced this one"
+        );
     }
 
     #[tokio::test]
@@ -975,6 +1611,38 @@ mod tests {
             .expect_err("no such session");
 
         assert_eq!(error.code(), sevenshell_error::ErrorCode::SessionNotFound);
+    }
+
+    #[tokio::test]
+    async fn a_raw_tcp_test_reports_reachability_without_authenticating() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a free port");
+        let port = listener.local_addr().expect("the bound address").port();
+        let (_directory, vault, _) = vault_with_a_session();
+        let (core, _events) = Core::new(vault);
+        let mut session = sample("raw", "raw");
+        session.protocol = sevenshell_types::Protocol::RawTcp;
+        session.port = port;
+        session.user = String::new();
+
+        let outcome = core.test_session(&session, None).await.expect("the address answers");
+        match outcome {
+            ConnectionTestOutcome::Connected {
+                authenticated,
+                fingerprint,
+                ..
+            } => {
+                assert!(!authenticated, "a raw TCP console has no login to authenticate");
+                assert_eq!(fingerprint, None, "and no key to report");
+            }
+            other => panic!("expected a connected test, got {other:?}"),
+        }
+
+        drop(listener);
+        let error = core
+            .test_session(&session, None)
+            .await
+            .expect_err("nothing is listening");
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::TerminalUnreachable);
     }
 
     #[tokio::test]
@@ -1160,5 +1828,300 @@ mod tests {
         let _ = opening.await;
 
         assert!(!core.cancel_open("session-1").await, "nothing is in flight any more");
+    }
+
+    /// The SSH-directory override is process-wide, so these tests take turns.
+    static SSH_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct SshDir {
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl SshDir {
+        fn at(path: &std::path::Path) -> Self {
+            let previous = std::env::var_os(sevenshell_platform::SSH_DIR_OVERRIDE);
+            unsafe { std::env::set_var(sevenshell_platform::SSH_DIR_OVERRIDE, path) };
+            Self { previous }
+        }
+    }
+
+    impl Drop for SshDir {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => unsafe { std::env::set_var(sevenshell_platform::SSH_DIR_OVERRIDE, value) },
+                None => unsafe { std::env::remove_var(sevenshell_platform::SSH_DIR_OVERRIDE) },
+            }
+        }
+    }
+
+    fn ssh_config(text: &str) -> (TempDir, SshDir) {
+        let directory = tempdir().expect("temp dir");
+        let ssh = directory.path().join("ssh");
+        std::fs::create_dir_all(&ssh).expect("ssh dir");
+        std::fs::write(ssh.join("config"), text).expect("config");
+        let env = SshDir::at(&ssh);
+        (directory, env)
+    }
+
+    fn aliased(method: AuthMethod) -> Session {
+        let mut session = sample("web-1", "web");
+        session.host = "web".to_owned();
+        session.port = 22;
+        session.user = "placeholder".to_owned();
+        session.auth = SessionAuth {
+            method,
+            key: None,
+            has_secret: false,
+            ssh_config: true,
+        };
+        session
+    }
+
+    fn core_with(session: Session) -> (TempDir, Arc<Core>) {
+        let directory = tempdir().expect("temp dir");
+        let vault = Arc::new(Vault::open_at(directory.path().join("vault.json")));
+        vault.create("correct horse battery staple").expect("create");
+        vault.save_session(session, None).expect("save");
+        (directory, Core::new(vault).0)
+    }
+
+    #[test]
+    fn a_session_that_uses_openssh_resolves_its_alias_by_config() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) = ssh_config("Host web\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n");
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::Agent));
+
+        let prepared = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect("the alias resolves");
+
+        assert_eq!(prepared.session.host, "10.0.0.5");
+        assert_eq!(prepared.session.user, "deploy");
+        assert_eq!(prepared.session.port, 2222);
+    }
+
+    #[test]
+    fn a_proxy_jump_becomes_the_route_the_connection_will_take() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) = ssh_config(
+            "Host web\n  HostName 10.0.0.5\n  ProxyJump bastion\n\
+             Host bastion\n  HostName 10.0.0.9\n  Port 2200\n  User ops\n",
+        );
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::Agent));
+
+        let prepared = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect("the alias resolves");
+
+        assert_eq!(prepared.session.host, "10.0.0.5");
+        assert_eq!(prepared.proxy.len(), 1);
+        assert_eq!(prepared.proxy[0].host, "10.0.0.9");
+        assert_eq!(prepared.proxy[0].port, 2200);
+        assert_eq!(prepared.proxy[0].user, "ops");
+    }
+
+    #[test]
+    fn saved_jumps_win_over_a_route_in_the_file() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) =
+            ssh_config("Host web\n  HostName 10.0.0.5\n  ProxyJump bastion\nHost bastion\n  HostName 10.0.0.9\n");
+
+        let mut leaf = aliased(AuthMethod::Agent);
+        leaf.jump = vec!["hop".to_owned()];
+        let mut hop = sample("hop", "bastion");
+        hop.host = "10.0.0.9".to_owned();
+
+        let directory = tempdir().expect("temp dir");
+        let vault = Arc::new(Vault::open_at(directory.path().join("vault.json")));
+        vault.create("correct horse battery staple").expect("create");
+        vault.save_session(leaf, None).expect("save the leaf");
+        vault.save_session(hop, None).expect("save the hop");
+        let core = Core::new(vault).0;
+
+        let prepared = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect("the alias resolves");
+
+        assert!(
+            prepared.proxy.is_empty(),
+            "the saved jumps are the person's own route, not the file's"
+        );
+    }
+
+    #[test]
+    fn a_proxy_cycle_refuses_with_the_chain_it_walked() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) = ssh_config("Host web\n  ProxyJump gateway\nHost gateway\n  ProxyJump web\n");
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::Agent));
+
+        let error = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect_err("a cycle is not a route");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::SshConfigProxyChain);
+    }
+
+    #[test]
+    fn a_proxy_directive_refuses_before_a_socket_is_dialled() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) = ssh_config("Host web\n  ProxyCommand ssh -W %h:%p bastion\n");
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::Agent));
+
+        let error = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect_err("a ProxyCommand is not guessed at");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::SshConfigUnsupported);
+    }
+
+    #[test]
+    fn an_alias_the_configuration_does_not_name_is_refused_by_name() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let (_directory, _env) = ssh_config("Host other\n  HostName 10.0.0.9\n");
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::Agent));
+
+        let error = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect_err("the alias is not in the file");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::SshConfigUnknownAlias);
+    }
+
+    #[test]
+    fn an_identity_named_by_the_config_authenticates_without_a_vault_key() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let directory = tempdir().expect("temp dir");
+        let ssh = directory.path().join("ssh");
+        std::fs::create_dir_all(&ssh).expect("ssh dir");
+        std::fs::write(ssh.join("config"), "Host web\n  IdentityFile ~/.ssh/id_test\n").expect("config");
+        let generated =
+            sevenshell_ssh::generate(sevenshell_types::KeyAlgorithm::Ed25519, "test", None).expect("a generated key");
+        std::fs::write(ssh.join("id_test"), generated.private_text()).expect("the key file");
+        let _env = SshDir::at(&ssh);
+
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::PublicKey));
+        let prepared = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect("the alias resolves");
+        let credential = core
+            .credential(&prepared.session, prepared.config.as_ref())
+            .expect("the key file is read");
+
+        let Credential::Key { contents, passphrase } = &credential else {
+            panic!("the configuration names a key file");
+        };
+        assert!(contents.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----"));
+        assert!(passphrase.is_none());
+    }
+
+    #[test]
+    fn an_encrypted_identity_is_named_rather_than_silently_skipped() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let directory = tempdir().expect("temp dir");
+        let ssh = directory.path().join("ssh");
+        std::fs::create_dir_all(&ssh).expect("ssh dir");
+        std::fs::write(ssh.join("config"), "Host web\n  IdentityFile ~/.ssh/id_locked\n").expect("config");
+        let generated = sevenshell_ssh::generate(sevenshell_types::KeyAlgorithm::Ed25519, "test", Some("a passphrase"))
+            .expect("a generated key");
+        std::fs::write(ssh.join("id_locked"), generated.private_text()).expect("the key file");
+        let _env = SshDir::at(&ssh);
+
+        let (_vault_dir, core) = core_with(aliased(AuthMethod::PublicKey));
+        let prepared = core
+            .prepare_session(&core.session("web-1").expect("session"))
+            .expect("the alias resolves");
+        let error = core
+            .credential(&prepared.session, prepared.config.as_ref())
+            .expect_err("a locked key cannot be used without a passphrase");
+
+        assert_eq!(error.code(), sevenshell_error::ErrorCode::SshConfigKeyPassphrase);
+    }
+
+    #[test]
+    fn a_key_in_the_system_known_hosts_is_trusted_without_the_vault_asking() {
+        let _guard = SSH_ENV.lock().expect("the environment lock");
+        let directory = tempdir().expect("temp dir");
+        let ssh = directory.path().join("ssh");
+        std::fs::create_dir_all(&ssh).expect("ssh dir");
+        let generated =
+            sevenshell_ssh::generate(sevenshell_types::KeyAlgorithm::Ed25519, "test", None).expect("a generated key");
+        let mut parts = generated.public_line().split_whitespace();
+        let key_type = parts.next().expect("a key type").to_owned();
+        let public_key = parts.next().expect("a public key").to_owned();
+        std::fs::write(
+            ssh.join("known_hosts"),
+            format!("web.example {key_type} {public_key}\n"),
+        )
+        .expect("known_hosts");
+        let _env = SshDir::at(&ssh);
+
+        let presented = PresentedHostKey {
+            host: "web.example".to_owned(),
+            port: 22,
+            key_type,
+            public_key,
+            fingerprint: String::new(),
+        };
+
+        assert_eq!(system_known_host("web.example", 22, &presented), SystemHostKey::Trusted);
+    }
+
+    fn as_presented(key_type: &str, public_key: &str) -> PresentedHostKey {
+        PresentedHostKey {
+            host: "web.example".to_owned(),
+            port: 22,
+            key_type: key_type.to_owned(),
+            public_key: public_key.to_owned(),
+            fingerprint: String::new(),
+        }
+    }
+
+    fn as_recorded(key_type: &str, public_key: &str) -> KnownHostEntry {
+        KnownHostEntry {
+            host: "web.example".to_owned(),
+            port: 22,
+            key_type: key_type.to_owned(),
+            public_key: public_key.to_owned(),
+            fingerprint: String::new(),
+            added_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_record_of_another_algorithm_asks_instead_of_stopping() {
+        let presented = as_presented("ssh-ed25519", "AAAA");
+        let answer = standing(Some(as_recorded("ssh-rsa", "BBBB")), SystemHostKey::Unknown, &presented);
+        assert!(
+            matches!(answer, KeyStanding::Unknown),
+            "a record of another algorithm says nothing about this key"
+        );
+
+        let answer = standing(Some(as_recorded("ssh-rsa", "BBBB")), SystemHostKey::Trusted, &presented);
+        assert!(
+            matches!(answer, KeyStanding::Accepted),
+            "the system file knows this very key, so there is nothing to ask"
+        );
+    }
+
+    #[test]
+    fn a_record_of_the_same_algorithm_with_other_material_is_a_stop() {
+        let presented = as_presented("ssh-ed25519", "AAAA");
+        let answer = standing(
+            Some(as_recorded("ssh-ed25519", "BBBB")),
+            SystemHostKey::Unknown,
+            &presented,
+        );
+        assert!(matches!(answer, KeyStanding::Changed(_)));
+    }
+
+    #[test]
+    fn a_matching_vault_record_is_accepted() {
+        let presented = as_presented("ssh-ed25519", "AAAA");
+        let answer = standing(
+            Some(as_recorded("ssh-ed25519", "AAAA")),
+            SystemHostKey::Unknown,
+            &presented,
+        );
+        assert!(matches!(answer, KeyStanding::Accepted));
     }
 }

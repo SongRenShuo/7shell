@@ -62,6 +62,56 @@ fn minimal_arguments() -> Vec<(&'static str, Value)> {
             "sshell_batch_exec",
             json!({ "sessionIds": ["lab"], "command": "uptime" }),
         ),
+        ("sshell_vms_list", json!({})),
+        ("sshell_vm_status", json!({ "sessionId": "lab" })),
+        ("sshell_vm_power", json!({ "sessionId": "lab", "action": "start" })),
+        ("sshell_vm_snapshots", json!({ "sessionId": "lab" })),
+        (
+            "sshell_vm_snapshot_change",
+            json!({ "sessionId": "lab", "action": "take", "name": "before" }),
+        ),
+        (
+            "sshell_vm_guest_read",
+            json!({ "sessionId": "lab", "action": "processes" }),
+        ),
+        (
+            "sshell_vm_guest_write",
+            json!({ "sessionId": "lab", "action": "toolsInstall" }),
+        ),
+        ("sshell_vm_send_key", json!({ "sessionId": "lab", "sequence": "esc" })),
+        (
+            "sshell_vm_config_read",
+            json!({ "sessionId": "lab", "action": "config" }),
+        ),
+        (
+            "sshell_vm_config_write",
+            json!({ "sessionId": "lab", "action": "toolsUpgrade" }),
+        ),
+        (
+            "sshell_vm_host_read",
+            json!({ "sessionId": "lab", "action": "networks" }),
+        ),
+        (
+            "sshell_vm_host_write",
+            json!({
+                "sessionId": "lab",
+                "action": "deletePortForward",
+                "network": "vmnet8",
+                "protocol": "tcp",
+                "hostPort": 2222
+            }),
+        ),
+        ("sshell_vm_image", json!({ "sessionId": "lab", "action": "delete" })),
+        ("sshell_host_locations_list", json!({})),
+        (
+            "sshell_vm_screenshot",
+            json!({ "sessionId": "lab", "token": "location-1" }),
+        ),
+        ("sshell_vmrest_read", json!({ "action": "vms" })),
+        (
+            "sshell_vmrest_network_create",
+            json!({ "name": "vmnet-test", "kind": "nat" }),
+        ),
     ]
 }
 
@@ -195,6 +245,7 @@ fn session(id: &str, protocol: Protocol) -> Session {
         id: id.to_owned(),
         name: id.to_owned(),
         group_id: None,
+        order: None,
         protocol,
         host: "127.0.0.1".to_owned(),
         port: 2222,
@@ -210,6 +261,7 @@ fn session(id: &str, protocol: Protocol) -> Session {
         kubernetes: KubernetesSettings::default(),
         webdav: WebDavSettings::default(),
         ftp: FtpSettings::default(),
+        vmware: sevenshell_types::VmwareSettings::default(),
         jump: Vec::new(),
         forwards: Vec::new(),
         updated_at: 0,

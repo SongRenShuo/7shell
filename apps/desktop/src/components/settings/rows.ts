@@ -97,18 +97,19 @@ export const SETTINGS_CATEGORY_LABEL_KEYS: Record<SettingsCategoryId, string> = 
 /**
  * The fields a row can write.
  *
- * Nine settings have no row of their own. Four are dividers somebody drags — the file panel's
- * height, the sidebar's width, the file panel's tree, and the command panel's library; whether the
- * sidebar is open is a button in the sidebar's own header; the two hand-picked colour sets are five
- * pickers that appear inside the colour-theme row once it says `custom` — a row of their own would
- * be a row that means nothing until another row is set; and the startup update check is a switch
- * drawn inside the update block, where what it is a switch *about* — the answer the channel gave —
- * is on screen beside it. They are reset with the category they belong to —
- * `SettingsPage.fieldsOf` is where that is said — rather than listed here.
+ * Nine settings have no row of their own. Five are dividers somebody drags — the file panel's
+ * height, its width when docked to a side, the sidebar's width, the file panel's tree, and the
+ * command panel's library; whether the sidebar is open is a button in the sidebar's own header;
+ * the two hand-picked colour sets are five pickers that appear inside the colour-theme row once it
+ * says `custom` — a row of their own would be a row that means nothing until another row is set;
+ * and the startup update check is a switch drawn inside the update block, where what it is a switch
+ * *about* — the answer the channel gave — is on screen beside it. They are reset with the category
+ * they belong to — `SettingsPage.fieldsOf` is where that is said — rather than listed here.
  */
 export type SettingsRowField = Exclude<
   PreferenceField,
   | "terminalPanelHeight"
+  | "terminalPanelWidth"
   | "sidebarWidth"
   | "filesTreeWidth"
   | "commandsLibraryWidth"
@@ -783,6 +784,7 @@ export const SETTINGS_ROWS: readonly SettingsRowDefinition[] = [
         { value: "bottom", labelKey: "settings.tabPlacement.bottom" },
         { value: "left", labelKey: "settings.tabPlacement.left" },
         { value: "right", labelKey: "settings.tabPlacement.right" },
+        { value: "titleBar", labelKey: "settings.tabPlacement.titleBar" },
       ],
     },
   },
@@ -853,6 +855,40 @@ export const SETTINGS_ROWS: readonly SettingsRowDefinition[] = [
       options: [
         { value: "split", labelKey: "settings.session.split" },
         { value: "terminal", labelKey: "settings.session.terminal" },
+      ],
+    },
+  },
+  {
+    // The file half's own default; the commands half remembers independently below.
+    id: "file-panel-position",
+    category: "workspace",
+    field: "terminalPanelPlacement",
+    titleKey: "settings.rows.panelPlacement.title",
+    summaryKey: "settings.rows.panelPlacement.summary",
+    helpKey: "settings.rows.panelPlacement.help",
+    control: {
+      kind: "select",
+      options: [
+        { value: "bottom", labelKey: "settings.panelPlacement.bottom" },
+        { value: "left", labelKey: "settings.panelPlacement.left" },
+        { value: "right", labelKey: "settings.panelPlacement.right" },
+        { value: "tab", labelKey: "settings.panelPlacement.tab" },
+      ],
+    },
+  },
+  {
+    id: "command-panel-position",
+    category: "workspace",
+    field: "terminalCommandPanelPlacement",
+    titleKey: "settings.rows.commandPanelPlacement.title",
+    summaryKey: "settings.rows.commandPanelPlacement.summary",
+    helpKey: "settings.rows.commandPanelPlacement.help",
+    control: {
+      kind: "select",
+      options: [
+        { value: "bottom", labelKey: "settings.panelPlacement.bottom" },
+        { value: "left", labelKey: "settings.panelPlacement.left" },
+        { value: "right", labelKey: "settings.panelPlacement.right" },
       ],
     },
   },
