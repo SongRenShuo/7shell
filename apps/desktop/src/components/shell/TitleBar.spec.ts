@@ -76,9 +76,10 @@ describe("the title bar's accessible names", () => {
 
     for (const button of buttons) {
       const name = button.getAttribute("aria-label") ?? "";
-      expect(name.trim(), `the ${button.dataset.settingsToggle ?? button.outerHTML.slice(0, 80)} button has a name`).not.toBe(
-        "",
-      );
+      expect(
+        name.trim(),
+        `the ${button.dataset.settingsToggle ?? button.outerHTML.slice(0, 80)} button has a name`,
+      ).not.toBe("");
     }
   });
 
