@@ -161,6 +161,25 @@ describe("openWindow", () => {
     expect(opened).toMatchObject({ left: 300, top: 200, width: 500, height: 400 });
   });
 
+  it("clamps an out-of-bounds remembered rectangle fully inside a desk that shrank", () => {
+    // An old memory written beside a wider desk — its left edge parked off the desk — must come
+    // back whole: every edge inside, width included, or the window opens with its title cut off.
+    const small: WorkbenchBounds = { width: 400, height: 300 };
+    const [opened] = openWindow([], {
+      id: "w1",
+      title: "Forwards",
+      kind: "forwards",
+      bounds: small,
+      remembered: { left: -300, top: 50, width: 666, height: 422 },
+    });
+
+    expect(opened).toMatchObject({ left: 0, top: 0, width: 400, height: 300 });
+    expect(opened!.left).toBeGreaterThanOrEqual(0);
+    expect(opened!.top).toBeGreaterThanOrEqual(0);
+    expect(opened!.left + opened!.width).toBeLessThanOrEqual(small.width);
+    expect(opened!.top + opened!.height).toBeLessThanOrEqual(small.height);
+  });
+
   it("ignores junk fields in a remembered rectangle, falling back to the centred default", () => {
     const roomy: WorkbenchBounds = { width: 1200, height: 800 };
     const [opened] = openWindow([], {
@@ -350,7 +369,7 @@ describe("maximising and restoring", () => {
 
   it("puts the remembered geometry back exactly", () => {
     const maxed = setMaximized([windowAt()], "w1", DESK);
-    const [restored] = restoreWindow(maxed, "w1");
+    const [restored] = restoreWindow(maxed, "w1", DESK);
 
     expect(restored).toMatchObject({
       left: 100,
@@ -364,10 +383,46 @@ describe("maximising and restoring", () => {
     expect(restored?.restore).toBeUndefined();
   });
 
+  it("clamps a remembered rectangle that hangs off the desk's edge back inside it", () => {
+    // A window may be dragged mostly off the desk before it is maximised — the memory keeps that
+    // rectangle, and restoring it used to put the window back off the edge, its title half gone.
+    const offEdge = windowAt({
+      left: -300,
+      top: 100,
+      width: 666,
+      height: 422,
+      mode: "max",
+      restore: { left: -300, top: 100, width: 666, height: 422 },
+    });
+    const [restored] = restoreWindow([offEdge], "w1", DESK);
+
+    expect(restored).toMatchObject({ left: 0, top: 100, width: 666, height: 422 });
+    expect(restored!.left).toBeGreaterThanOrEqual(0);
+    expect(restored!.left + restored!.width).toBeLessThanOrEqual(DESK.width);
+  });
+
+  it("clamps a remembered rectangle into a desk that shrank under the maximised window", () => {
+    const small: WorkbenchBounds = { width: 400, height: 300 };
+    const maxed = windowAt({
+      mode: "max",
+      left: 0,
+      top: 0,
+      width: DESK.width,
+      height: DESK.height,
+      restore: { left: 100, top: 100, width: 666, height: 422 },
+    });
+    const [restored] = restoreWindow([maxed], "w1", small);
+
+    // The whole window lands inside the smaller desk, width included: nothing hangs off any edge.
+    expect(restored).toMatchObject({ left: 0, top: 0, width: 400, height: 300 });
+    expect(restored!.left + restored!.width).toBeLessThanOrEqual(small.width);
+    expect(restored!.top + restored!.height).toBeLessThanOrEqual(small.height);
+  });
+
   it("is a no-op when the window is already normal", () => {
     const list = [windowAt()];
 
-    expect(restoreWindow(list, "w1")).toEqual(list);
+    expect(restoreWindow(list, "w1", DESK)).toEqual(list);
   });
 
   it("maximises a minimised window and shows it", () => {
@@ -424,14 +479,25 @@ describe("minimising and showing", () => {
 
   it("brings it back with a new stacking value and the focus", () => {
     const minimized = minimizeWindow([windowAt({ z: 2 })], "w1");
-    const [shown] = showWindow(minimized, "w1");
+    const [shown] = showWindow(minimized, "w1", DESK);
 
     expect(shown).toMatchObject({ mode: "normal", focused: true, z: 3, left: 100, top: 100 });
   });
 
+  it("clamps a hidden window whose geometry no longer fits the desk as it is now", () => {
+    // Put away on a wider desk, then the desk shrank: showing it must not hand back a window
+    // hanging off the edge it was parked beside.
+    const hidden = windowAt({ mode: "min", left: -300, top: 100, width: 666, height: 422, focused: false });
+
+    const [shown] = showWindow([hidden], "w1", DESK);
+
+    expect(shown).toMatchObject({ mode: "normal", focused: true, left: 0, top: 100, width: 666, height: 422 });
+    expect(shown!.left + shown!.width).toBeLessThanOrEqual(DESK.width);
+  });
+
   it("restoring a minimised window is the same as showing it", () => {
     const minimized = minimizeWindow([windowAt()], "w1");
-    const [restored] = restoreWindow(minimized, "w1");
+    const [restored] = restoreWindow(minimized, "w1", DESK);
 
     expect(restored).toMatchObject({ mode: "normal", focused: true, left: 100, top: 100, width: 666, height: 422 });
   });
@@ -439,7 +505,7 @@ describe("minimising and showing", () => {
   it("brings a visible window forward when asked to show it", () => {
     const list = [windowAt({ id: "a", z: 1, focused: false }), windowAt({ id: "b", z: 2, focused: true })];
 
-    const shown = showWindow(list, "a");
+    const shown = showWindow(list, "a", DESK);
 
     expect(shown[0]).toMatchObject({ focused: true, z: 3 });
     expect(shown[1]?.focused).toBe(false);
@@ -568,24 +634,42 @@ describe("restoreAll", () => {
       windowAt({ id: "c", z: 3, focused: true }),
     ];
 
-    const restored = restoreAll(desk);
+    const restored = restoreAll(desk, DESK);
 
     expect(restored.find((window) => window.id === "a")).toMatchObject({ mode: "normal" });
     expect(restored.find((window) => window.id === "b")).toMatchObject({ mode: "normal", focused: true });
     expect(restored.find((window) => window.id === "c")).toMatchObject({ mode: "normal", focused: false });
   });
 
+  it("clamps every hidden window into the desk as it is now", () => {
+    const desk = [
+      windowAt({ id: "a", mode: "min", left: -300, top: 10, width: 666, height: 422, focused: false }),
+      windowAt({ id: "b", mode: "min", left: 10, top: 20, width: 900, height: 700, focused: false }),
+    ];
+
+    const restored = restoreAll(desk, DESK);
+
+    for (const window of restored) {
+      expect(window.left).toBeGreaterThanOrEqual(0);
+      expect(window.top).toBeGreaterThanOrEqual(WORK_TOP);
+      expect(window.left + window.width).toBeLessThanOrEqual(DESK.width);
+      expect(window.top + window.height).toBeLessThanOrEqual(WORK_BOTTOM);
+    }
+    expect(restored.find((window) => window.id === "a")).toMatchObject({ left: 0, width: 666 });
+    expect(restored.find((window) => window.id === "b")).toMatchObject({ width: DESK.width, height: DESK.height });
+  });
+
   it("leaves visible windows alone on an already-open desk", () => {
     const desk = [windowAt({ focused: true })];
     const snapshot = JSON.stringify(desk);
-    const restored = restoreAll(desk);
+    const restored = restoreAll(desk, DESK);
     expect(JSON.stringify(restored)).toBe(snapshot);
   });
 
   it("does not write through its arguments", () => {
     const desk = [windowAt({ mode: "min", focused: false })];
     const snapshot = JSON.stringify(desk);
-    restoreAll(desk);
+    restoreAll(desk, DESK);
     expect(JSON.stringify(desk)).toBe(snapshot);
   });
 });

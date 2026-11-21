@@ -462,6 +462,8 @@ function openNewTab(): void {
         <button
           type="button"
           :class="cn('flex min-w-0 items-center gap-2 text-xs', vertical ? 'flex-1 py-1' : 'py-1.5')"
+          :aria-label="tabLabel(entry.tab)"
+          :aria-current="entry.tab.id === terminals.activeTabId ? 'true' : undefined"
           @click="terminals.activate(entry.tab.id)"
         >
           <span v-if="dotClass(entry.tab)" class="size-1.5 shrink-0 rounded-full" :class="dotClass(entry.tab)"></span>
