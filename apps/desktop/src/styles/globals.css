@@ -1155,6 +1155,40 @@
     height: 100%;
   }
 
+  /*
+   * The scrollbar, everywhere, is the app's own: thin, translucent, and rounded, never the
+   * platform's wide bright bar pressed against a panel's border. This is the global default —
+   * a panel opts out with an explicit rule of its own, and `.scroll-thin` below remains as the
+   * named alias for callers that want to say so.
+   *
+   * `scrollbar-gutter` on the root keeps the track's width reserved even before a page overflows,
+   * so a page that grows into scrolling does not shift its layout sideways.
+   */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 30%, transparent) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--foreground) 30%, transparent);
+    background-clip: padding-box;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
