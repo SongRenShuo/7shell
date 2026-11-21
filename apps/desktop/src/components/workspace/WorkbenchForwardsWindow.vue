@@ -11,7 +11,7 @@
  *   a terminal brings a forward up or takes one down, and this window re-reads the authoritative
  *   list whenever that state moves, so a forward opened or stopped somewhere else does not stay
  *   stale here. Stopping one is the single write, and it is asked about once, plainly.
- * - **Adding one** is the the reference product scene, said in sentences rather than fields alone: a local forward
+ * - **Adding one** is the reference scene, said in sentences rather than fields alone: a local forward
  *   maps a service inside the machine onto a port here, a dynamic one turns the machine into a
  *   SOCKS5 door, and a remote one opens a port on the *server* handed to something on this
  *   machine. The open answer is the runtime entry — which carries the id, and the port that was

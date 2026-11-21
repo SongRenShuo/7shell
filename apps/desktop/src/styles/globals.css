@@ -180,20 +180,22 @@
  * The Semi token layer — the desktop's one fact source for colour.
  *
  * Phase five re-pointed the desktop at the Semi Design token system: the same `--semi-*` naming
- * the reference's own stylesheet speaks, with the values the the reference image's measured tokens gave (调研报告
- * 20261119-0302 §A). Everything the desktop's chrome draws reads from here, through the
+ * the reference desktop's stylesheet speaks, with the values the reference image's measured tokens
+ * gave. Everything the desktop's chrome draws reads from here, through the
  * `--workbench-*` family below, and the direction is one way — **`--workbench-*` derives from
  * `--semi-*`; nothing in the workbench layer writes a colour of its own.** The guard that keeps
  * the arrow one-way is `WorkbenchPane.spec.ts` (it reads this file's text); a definition emptied
  * here turns that guard red rather than silently greying the desktop.
  *
- * The palette steps are written as RGB triplets — the reference's own convention (`--semi-brand-5:
- * 0,102,255`) — so an alpha combination is `rgba(var(--semi-x), a)` and no colour is written
+ * The palette steps are written as RGB triplets — the reference's own convention
+ * (`--semi-brand-5: 0,102,255`) — so an alpha combination is `rgba(var(--semi-x), a)` and no
+ * colour is written
  * twice. The triplets that carry a hex in their comment are the measured values; the rest of a
  * ramp interpolates between two measured anchors and says so.
  *
- * `:root` carries the light ramp; `.dark` re-points the greys and the semantic colours at the reference's
- * dark values (grey inverts 0↔9; the brand blue does not move). The semantic aliases are declared
+ * `:root` carries the light ramp; `.dark` re-points the greys and the semantic colours at the
+ * reference's dark values (grey inverts 0↔9; the brand blue does not move). The semantic aliases
+ * are declared
  * once, in `:root`: a custom property is substituted where it is *declared*, and that is the
  * document root — so re-pointing the triplets on the same element re-points every alias with them.
  */
@@ -203,7 +205,8 @@
   --semi-black: 0, 0, 0;
 
   /*
-   * The brand blue, 0 lightest → 9 deepest. 5 is the the reference brand (`#0066FF`, measured) and 4 is
+   * The brand blue, 0 lightest → 9 deepest. 5 is the reference brand (`#0066FF`, measured) and 4
+   * is
    * the hover step (`#3388FF`, measured); the remaining steps interpolate between the two anchors
    * and the theme-neutral ends.
    */
@@ -274,7 +277,7 @@
   /* Radius: the Semi control step, measured 6px — inputs, buttons, menus, dropdown cards. */
   --semi-border-radius-medium: 6px;
 
-  /* Shadows, the three measured the reference recipes, one per kind of floating thing. They are said once
+  /* Shadows, the three measured reference recipes, one per kind of floating thing. They are said once
      and do not follow the theme: a shadow falling on a picture cannot follow the host's theme. */
   --semi-shadow-app:
     0 15px 20px rgba(0, 0, 0, 0.08), 8px 8px 16px -6px rgba(3, 3, 3, 0.08), 1px 12px 42px -4px rgba(10, 10, 10, 0.08);
@@ -291,7 +294,7 @@
 }
 
 /*
- * The dark face of the fact source: the grey ramp inverted (the reference dark, measured at the ends
+ * The dark face of the fact source: the grey ramp inverted (reference dark, measured at the ends
  * #0C0C0D → #F8F8F8) and the semantic colours at their measured dark values. The brand blue does
  * not follow the theme, so it is not repeated here.
  */
@@ -384,7 +387,7 @@
   --wb-ease-out: var(--semi-ease-out);
 
   /*
-   * Shadows, three of them, one per kind of floating thing — each the measured the reference recipe, named
+   * Shadows, three of them, one per kind of floating thing — each the measured reference recipe, named
    * once in the Semi layer above. A shadow that follows the theme would be a shadow that follows
    * the host's theme while it falls on a picture; one recipe for both faces is the honest answer.
    */
@@ -400,7 +403,7 @@
 
   /*
    * Radii, derived from the corner style like every other radius here: at the default corner style
-   * they land on the adopted the reference tiers collapsed for a tool's context (window 12px, content 8px),
+   * they land on the adopted reference tiers collapsed for a tool's context (window 12px, content 8px),
    * and a smaller corner style shrinks them by the same ratio — square is still square everywhere.
    * The third step is the control step: at the default corner style it is exactly the Semi
    * `--semi-border-radius-medium` (6px), and it shrinks with the corner style the same way.
@@ -420,7 +423,7 @@
 :root {
   /* The window pane: pale glass under the blur. */
   --workbench-glass: rgba(var(--semi-white), 0.85);
-  /* The hairline every glass surface draws around itself (the the reference 8% edge, on grey-9). */
+  /* The hairline every glass surface draws around itself (the reference 8% edge, on grey-9). */
   --workbench-glass-border: rgba(var(--semi-grey-9), 0.08);
   /* Text that stands on the chrome's own glass: grey-9, not a wallpaper's white. */
   --workbench-on-picture: rgba(var(--semi-grey-9), 1);
@@ -456,7 +459,7 @@
  * why every theme-following token is repeated here even where the value reads the same.
  */
 .dark {
-  /* The window pane: the dark page grey under a blur, at the the reference dock's own depth. */
+  /* The window pane: the dark page grey under a blur, at the reference dock's own depth. */
   --workbench-glass: rgba(var(--semi-grey-0), 0.62);
   /* The hairline every glass surface draws around itself (white at 8%). */
   --workbench-glass-border: rgba(var(--semi-white), 0.08);

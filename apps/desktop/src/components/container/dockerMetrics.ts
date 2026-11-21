@@ -8,13 +8,13 @@
  */
 import type { ContainerStats } from "@/types/container";
 
-/** How often the overview asks the engine for stats. the reference's own cadence for the same page. */
+/** How often the overview asks the engine for stats. The reference page's own cadence. */
 export const SAMPLE_INTERVAL_MS = 5_000;
 
 /** How many samples each line keeps. Thirty fives are two and a half minutes of history. */
 export const SERIES_POINTS = 30;
 
-/** The chart's own size, the reference's mini AreaChart measure. */
+/** The chart's own size, the reference mini AreaChart measure. */
 export const SPARKLINE_WIDTH = 290;
 export const SPARKLINE_HEIGHT = 74;
 

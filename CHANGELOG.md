@@ -78,12 +78,13 @@ All notable changes to 7Shell are documented in this file. The format is
 - The widgets' column no longer covers a door: on a narrow desk the door grid reserves the
   widgets' column, the way the reference reserves its dock's width (6893c36).
 
-#### The desktop wears tokens, and the Docker window speaks the reference
+#### The desktop wears tokens, and the Docker window speaks the reference language
 
 - The desktop chrome's colours, durations, shadows and radii moved into a `--workbench-*` /
   `--wb-*` token family in `globals.css` — glass pane, glass border, on-picture text, accent teal,
-  danger, menu skin, three surface elevations, the wallpaper gradients, the reference's three durations and
-  two easings, three shadow tiers, the two-layer icon-label shadow, and two radius steps derived
+  danger, menu skin, three surface elevations, the wallpaper gradients, the reference desktop's
+  three durations and two easings, three shadow tiers, the two-layer icon-label shadow, and two
+  radius steps derived
   from the corner style. The window, status bar, taskbar, starter, desktop pane and the desktop's
   teal menu read the tokens instead of inline literals, with no literal colour left in any of them
   (fe64549, 6639435, 9a4664c, 249bcff).

@@ -74,7 +74,7 @@ describe("the network rate", () => {
 });
 
 describe("the sparkline", () => {
-  it("draws in the the reference mini chart's measure", () => {
+  it("draws in the reference mini chart's measure", () => {
     expect(SPARKLINE_WIDTH).toBe(290);
     expect(SPARKLINE_HEIGHT).toBe(74);
   });

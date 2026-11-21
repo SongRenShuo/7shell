@@ -339,8 +339,8 @@ pub struct ContainerVolume {
     pub read_only: bool,
 }
 
-/// The CPU weight presets the create dialog offers, in the reference's three steps. The engine turns each
-/// into the `--cpu-shares` count the runtime takes.
+/// The CPU weight presets the create dialog offers, in the reference's three steps. The engine
+/// turns each into the `--cpu-shares` count the runtime takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerCpuWeight {
