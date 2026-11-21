@@ -420,9 +420,19 @@ function onResizePointerUp(event: PointerEvent): void {
       The application goes here. It stays mounted through every mode, including minimised: the
       collapse is a transform, not a `v-if`, because the terminal underneath would lose its buffer
       and the file browser its open channel every time somebody put the window away.
+
+      The rounded clip is carried by a shell under the pane rather than by the pane alone. A
+      `backdrop-filter`ed element rounding its own corners is where the compositor lets a
+      scroller's square corner bleed past the curve — the white block that used to sit on the
+      terminal window's bottom-right edge, on top of the scrollbar it was swallowing. One layer
+      down, where the paint is plain, `overflow-hidden` clips without argument, so the inner
+      scroller keeps its `min-h-0`, its scrollbar falls inside the border and out of the grip's
+      corner, and nothing it draws reaches the frame.
     -->
-    <div class="min-h-0 flex-1 overflow-auto">
-      <slot />
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
+      <div class="min-h-0 flex-1 overflow-auto">
+        <slot />
+      </div>
     </div>
 
     <!--

@@ -566,13 +566,13 @@ async function forgetKey(): Promise<void> {
                 :options="protocolOptions"
                 @update:model-value="chooseProtocol"
               />
-              <p v-if="isDesktop" class="mt-1 text-[11px] text-muted-foreground">
+              <p v-if="isDesktop" class="mt-1.5 text-[11px] text-muted-foreground">
                 {{ t("sessions.editor.desktop.note") }}
               </p>
-              <p v-else-if="editor.protocol === 'telnet'" class="mt-1 text-[11px] text-muted-foreground">
+              <p v-else-if="editor.protocol === 'telnet'" class="mt-1.5 text-[11px] text-muted-foreground">
                 {{ t("sessions.editor.telnet.note") }}
               </p>
-              <p v-else-if="editor.protocol === 'rawTcp'" class="mt-1 text-[11px] text-muted-foreground">
+              <p v-else-if="editor.protocol === 'rawTcp'" class="mt-1.5 text-[11px] text-muted-foreground">
                 {{ t("sessions.editor.rawTcp.note") }}
               </p>
             </div>
@@ -627,7 +627,7 @@ async function forgetKey(): Promise<void> {
                       {{ t("sessions.editor.openssh.pick") }}
                     </button>
                   </div>
-                  <p v-if="editor.sshConfig" class="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  <p v-if="editor.sshConfig" class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                     {{ t("sessions.editor.openssh.note") }}
                   </p>
                 </template>
@@ -657,7 +657,7 @@ async function forgetKey(): Promise<void> {
                   :placeholder="t('sessions.editor.userPlaceholder')"
                 />
                 <p v-if="submitted && errors.user" class="mt-1 text-[11px] text-destructive">{{ errors.user }}</p>
-                <p v-if="editor.isWebDav" class="mt-1 text-[11px] text-muted-foreground">
+                <p v-if="editor.isWebDav" class="mt-1.5 text-[11px] text-muted-foreground">
                   {{ t("sessions.editor.webdavAnonymous") }}
                 </p>
               </div>
@@ -669,7 +669,7 @@ async function forgetKey(): Promise<void> {
                 <input v-model="editor.ftpSecure" type="checkbox" class="size-3.5 rounded-sm border-border" />
                 {{ t("sessions.editor.ftp.secure") }}
               </label>
-              <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                 {{ t("sessions.editor.ftp.secureHint") }}
               </p>
             </section>
@@ -682,7 +682,7 @@ async function forgetKey(): Promise<void> {
               <template v-if="!isDesktop && !editor.isWebDav && !editor.isFtp">
                 <label class="block text-xs font-medium" for="session-method">{{ t("sessions.editor.method") }}</label>
                 <Select id="session-method" v-model="editor.method" class="mt-1" :options="methodOptions" />
-                <p class="mt-1 text-[11px] text-muted-foreground">{{ t("sessions.editor.methodUnsupported") }}</p>
+                <p class="mt-1.5 text-[11px] text-muted-foreground">{{ t("sessions.editor.methodUnsupported") }}</p>
               </template>
 
               <div v-if="editor.method === 'password' || editor.method === 'keyboardInteractive'" class="mt-3">
@@ -701,7 +701,7 @@ async function forgetKey(): Promise<void> {
                       : t('sessions.editor.secret.placeholder')
                   "
                 />
-                <p class="mt-1 text-[11px] text-muted-foreground">
+                <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                   {{
                     storedSecret
                       ? t("sessions.editor.secret.stored")
@@ -759,7 +759,7 @@ async function forgetKey(): Promise<void> {
                     class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none"
                     :placeholder="t('sessions.editor.key.passphrasePlaceholder')"
                   />
-                  <p class="mt-1 text-[11px] text-muted-foreground">{{ t("sessions.editor.key.passphraseHint") }}</p>
+                  <p class="mt-1.5 text-[11px] text-muted-foreground">{{ t("sessions.editor.key.passphraseHint") }}</p>
                 </div>
 
                 <button
@@ -884,7 +884,7 @@ async function forgetKey(): Promise<void> {
                   something to the far side, and what it lends is the ability to sign with the keys
                   in this machine's agent.
                 -->
-                  <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                  <span class="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">
                     {{ t("sessions.editor.terminal.forwardAgentNote") }}
                   </span>
                 </span>
@@ -894,7 +894,7 @@ async function forgetKey(): Promise<void> {
                 <input v-model="editor.terminal.record" type="checkbox" class="mt-0.5 size-3.5 accent-primary" />
                 <span>
                   <span>{{ t("sessions.editor.terminal.record") }}</span>
-                  <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                  <span class="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">
                     {{ t("sessions.editor.terminal.recordNote") }}
                   </span>
                 </span>
