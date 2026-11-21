@@ -302,6 +302,69 @@ pub struct ContainerRuntimeInfo {
     /// an error and never becomes a poll.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub events_available: bool,
+    /// Whether the engine's volume surface can be asked at all — the bit behind the volumes page.
+    /// Probed once when a desktop engine opened, network-free; absent on the connections that were
+    /// never probed. An engine without it keeps its other pages and trims this one, which is not
+    /// an error anyone sees.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub volume_available: bool,
+}
+
+/// The kinds of disk object the engine's `system df` counts, as the cleanup page's four rows name
+/// them. A kind the build does not name is dropped by the parser, not guessed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContainerDiskUsageKind {
+    Images,
+    Containers,
+    Volumes,
+    BuildCache,
+}
+
+/// One row of the engine's own `system df` answer: how much one kind of disk object occupies and
+/// how much of it the engine says it could give back. The two numbers are the whole point of the
+/// cleanup page's order — the reading comes first, and the prune that would change it is offered
+/// beside the number it is offered for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDiskUsage {
+    pub kind: ContainerDiskUsageKind,
+    pub count: u32,
+    /// The bytes the kind occupies, as the engine's own size string said.
+    pub size: u64,
+    /// The bytes the engine says it could give back. An engine that could not say — a running
+    /// container's share, a builder mid-write — says zero, and the page draws the zero it was given.
+    pub reclaimable: u64,
+}
+
+/// One volume as the volumes page shows it. The page is a reader, not a maker: there is no create
+/// here, and the only verb is a removal the engine itself refuses while a container still holds
+/// the volume.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeSummary {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+    /// The size the engine printed for the volume, when its listing prints sizes at all — a plain
+    /// `volume ls` answers without one. Empty means the engine gave no reading, and the page draws
+    /// a dash rather than a zero, which would read as "nothing stored".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub size: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub created_at: String,
+}
+
+/// What one prune came back with: the bytes the engine says it gave back and the objects it named
+/// while doing it. The list is the engine's own sentence, trimmed to identifiers — what the reader
+/// wants beside the number is what went, not the prose around it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerPruneReport {
+    #[serde(default)]
+    pub reclaimed: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<String>,
 }
 
 /// What the engine's `info` says about where it pulls from.
@@ -424,6 +487,11 @@ pub struct ContainerCreateRequest {
     /// The command as one line; the backend splits it into argv without a shell.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub command: String,
+    /// The entrypoint the container runs instead of the image's own. Absent leaves the image's
+    /// default alone — the only recreate-shaped flow that sets it is the upgrade, which read it
+    /// off the container it is rebuilding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
     #[serde(default)]
     pub interactive: bool,
     #[serde(default)]

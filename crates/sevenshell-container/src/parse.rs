@@ -14,9 +14,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value};
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ComposeProject, ComposeServiceRow, ContainerDetail, ContainerEvent, ContainerImage, ContainerMount, ContainerPort,
-    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerStateCount, ContainerStats,
-    ContainerSummary, ImageLayer, NetworkSummary,
+    ComposeProject, ComposeServiceRow, ContainerDetail, ContainerDiskUsage, ContainerDiskUsageKind, ContainerEvent,
+    ContainerImage, ContainerMount, ContainerPort, ContainerPruneReport, ContainerRegistrySettings, ContainerRuntime,
+    ContainerRuntimeInfo, ContainerStateCount, ContainerStats, ContainerSummary, ImageLayer, NetworkSummary,
+    VolumeSummary,
 };
 
 /// The largest answer that is still parsed. Beyond this the interface would be showing a table
@@ -481,6 +482,8 @@ pub(crate) fn runtime_info(
         manifest_inspect_available: false,
         // The events bit is decided by the probe at engine open, never parsed from `info`.
         events_available: false,
+        // The volumes bit is the same kind of fact: probed once at open, never parsed from `info`.
+        volume_available: false,
     };
 
     if let Some(document) = documents(info.unwrap_or_default()).into_iter().next() {
@@ -1332,6 +1335,112 @@ pub(crate) fn network_container_count(inspect: &str, name: &str) -> Result<u32, 
     Err(malformed(&format!("the network {name} was not in the inspect answer")))
 }
 
+// -- Disk usage, volumes, prune reports ----------------------------------------
+
+/// The engine's own `system df` answer, one row per kind of disk object it counts.
+///
+/// A type word this build does not name — a plugin's own section — is dropped rather than guessed
+/// at: the cleanup page draws four rows, and a fifth row nobody asked for would be a guess about
+/// what the engine meant.
+pub(crate) fn disk_usage(output: &str) -> Vec<ContainerDiskUsage> {
+    documents(output)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .filter_map(|row| {
+            let kind = match text(&row, &["Type", "type"]).as_str() {
+                "Images" => ContainerDiskUsageKind::Images,
+                "Containers" => ContainerDiskUsageKind::Containers,
+                "Local Volumes" => ContainerDiskUsageKind::Volumes,
+                "Build Cache" => ContainerDiskUsageKind::BuildCache,
+                _ => return None,
+            };
+            Some(ContainerDiskUsage {
+                kind,
+                count: count(&row, &["Count", "count"]),
+                size: df_size(&row, &["Size", "size"]),
+                reclaimable: df_size(&row, &["Reclaimable", "reclaimable"]),
+            })
+        })
+        .collect()
+}
+
+/// The human size one `system df` field carries. The table form hangs a share on the reclaimable
+/// number (`1.2GB (74%)`); the JSON form does not, but a reader that takes the parenthesis off
+/// costs nothing and keeps both dialects alive.
+fn df_size(map: &Map<String, Value>, keys: &[&str]) -> u64 {
+    let raw = text(map, keys);
+    let raw = match raw.find(" (") {
+        Some(index) => &raw[..index],
+        None => raw.as_str(),
+    };
+    parse_size(raw)
+}
+
+/// The volumes a `volume ls` answer carries, in the order the engine gave them.
+///
+/// The listing of an older daemon names no sizes and no creation dates; the row is still shown —
+/// a volume the engine cannot size is a volume the engine holds — and the empty reading draws a
+/// dash rather than a zero, which would read as "nothing stored".
+pub(crate) fn volumes(output: &str) -> Vec<VolumeSummary> {
+    documents(output)
+        .into_iter()
+        .take(MAX_ITEMS)
+        .filter_map(|row| {
+            let name = text(&row, &["Name", "name"]);
+            if name.is_empty() {
+                return None;
+            }
+            Some(VolumeSummary {
+                name,
+                driver: text(&row, &["Driver", "driver"]),
+                mountpoint: text(&row, &["Mountpoint", "mountpoint"]),
+                size: text(&row, &["Size", "size"]),
+                created_at: text(&row, &["CreatedAt", "createdAt"]),
+            })
+        })
+        .collect()
+}
+
+/// Reads a `prune -f` answer: the objects the engine said it deleted, and the bytes it said it
+/// gave back.
+///
+/// The three prunes this build runs print the same shape — a `Deleted …:` heading, one object per
+/// line, a blank line, and a closing `Total reclaimed space:` sentence — so one reader serves all.
+/// Lines the engine printed that name no object are prose and are left out; the report is a list
+/// of what went, not a transcript.
+pub(crate) fn prune_report(output: &str) -> ContainerPruneReport {
+    let mut deleted: Vec<String> = Vec::new();
+    let mut reclaimed = 0u64;
+    let mut in_deleted = false;
+    for line in capped(output).lines() {
+        let line = line.trim();
+        if let Some(size) = line.strip_prefix("Total reclaimed space:") {
+            reclaimed = parse_size(size);
+            in_deleted = false;
+            continue;
+        }
+        if line.starts_with("Deleted") && line.ends_with(':') {
+            in_deleted = true;
+            continue;
+        }
+        if line.is_empty() {
+            in_deleted = false;
+            continue;
+        }
+        if in_deleted {
+            let entry = line
+                .strip_prefix("deleted: ")
+                .or_else(|| line.strip_prefix("untagged: "))
+                .unwrap_or(line)
+                .trim();
+            if !entry.is_empty() && deleted.len() < MAX_ITEMS {
+                deleted.push(entry.to_owned());
+            }
+        }
+    }
+    ContainerPruneReport { reclaimed, deleted }
+}
+
 // -- Compose -----------------------------------------------------------------
 
 /// Folds a `compose ls` answer and the labelled `ps` answer into the project rows.
@@ -1437,6 +1546,8 @@ mod tests {
     const DOCKER_STATS: &str = include_str!("../testdata/docker_stats.jsonl");
     const PODMAN_STATS: &str = include_str!("../testdata/podman_stats.json");
     const DOCKER_INSPECT: &str = include_str!("../testdata/docker_inspect.json");
+    const DOCKER_SYSTEM_DF: &str = include_str!("../testdata/docker_system_df.jsonl");
+    const DOCKER_VOLUMES: &str = include_str!("../testdata/docker_volumes.jsonl");
     const WSLC_INSPECT: &str = include_str!("../testdata/wslc_inspect.json");
     const DOCKER_HISTORY: &str = include_str!("../testdata/docker_history.jsonl");
     const WSLC_IMAGE_INSPECT: &str = include_str!("../testdata/wslc_image_inspect.json");
@@ -1822,6 +1933,70 @@ mod tests {
             "the name is compared the way the argv was trimmed"
         );
         assert!(network_container_count(inspect, "other-net").is_err());
+    }
+
+    #[test]
+    fn the_disk_reading_becomes_four_rows_and_a_type_word_nobody_names_is_dropped() {
+        let rows = disk_usage(DOCKER_SYSTEM_DF);
+        assert_eq!(rows.len(), 4, "{rows:?}");
+        assert_eq!(rows[0].kind, ContainerDiskUsageKind::Images);
+        assert_eq!(rows[0].count, 8);
+        assert_eq!(rows[0].size, 1_634_000_000, "the engine's decimal gigabytes, as bytes");
+        assert_eq!(
+            rows[0].reclaimable, 1_200_000_000,
+            "the percentage share is prose, not part of the number"
+        );
+        assert_eq!(rows[1].kind, ContainerDiskUsageKind::Containers);
+        assert_eq!(rows[2].kind, ContainerDiskUsageKind::Volumes);
+        assert_eq!(rows[3].kind, ContainerDiskUsageKind::BuildCache);
+
+        let unknown = disk_usage(
+            "{\"Type\":\"Containerd Snapshots\",\"Count\":\"1\",\"Size\":\"1B\",\"Reclaimable\":\"0B\",\"Active\":\"1\"}",
+        );
+        assert!(
+            unknown.is_empty(),
+            "a section this build does not draw is dropped, not invented into a row"
+        );
+    }
+
+    #[test]
+    fn volume_rows_carry_what_the_listing_printed_and_no_row_without_a_name() {
+        let rows = volumes(DOCKER_VOLUMES);
+        assert_eq!(rows.len(), 4, "{rows:?}");
+        assert_eq!(rows[0].name, "site-data");
+        assert_eq!(rows[0].driver, "local");
+        assert_eq!(rows[0].mountpoint, "/var/lib/docker/volumes/site-data/_data");
+        assert_eq!(rows[0].size, "1.5GB");
+        assert_eq!(rows[0].created_at, "2026-11-10T10:00:00+08:00");
+        // The daemon that answers without sizes and dates still lists its volumes: the absent
+        // reading is empty, and the page draws a dash rather than a zero.
+        assert_eq!(rows[2].name, "legacy");
+        assert!(rows[2].size.is_empty());
+        assert!(rows[2].created_at.is_empty());
+        assert_eq!(rows[3].driver, "nfs");
+    }
+
+    #[test]
+    fn a_prune_answer_becomes_the_objects_it_named_and_the_bytes_it_gave_back() {
+        let report = prune_report("Deleted Containers:\n4d1a1d0c8bd0\n6c5d0b5f3e2a\n\nTotal reclaimed space: 57.9MB\n");
+        assert_eq!(report.reclaimed, 57_900_000);
+        assert_eq!(report.deleted, vec!["4d1a1d0c8bd0", "6c5d0b5f3e2a"]);
+
+        let volumes_report = prune_report("Deleted Volumes:\ncache-vol\n\nTotal reclaimed space: 1.5GB\n");
+        assert_eq!(volumes_report.deleted, vec!["cache-vol"]);
+        assert_eq!(volumes_report.reclaimed, 1_500_000_000);
+
+        let cache_report =
+            prune_report("Deleted build cache objects:\nx2nc0zvcigq0\n\nTotal reclaimed space: 209.7MB\n");
+        assert_eq!(cache_report.deleted, vec!["x2nc0zvcigq0"]);
+        assert_eq!(cache_report.reclaimed, 209_700_000);
+
+        // Nothing to delete is an answer, not a failure: zero bytes, no objects, no error.
+        let nothing = prune_report("Total reclaimed space: 0B\n");
+        assert!(nothing.deleted.is_empty());
+        assert_eq!(nothing.reclaimed, 0);
+        // An answer that was cut mid-sentence still reads what it managed to say.
+        assert_eq!(prune_report("").reclaimed, 0);
     }
 
     #[test]
