@@ -1601,7 +1601,10 @@ mod tests {
         assert_eq!(rows[0].ports, "0.0.0.0:8080->80/tcp, [::]:8080->80/tcp");
         assert_eq!(rows[0].created_at, "2026-11-21 08:15:04");
 
-        assert_eq!(rows[1].health, "unhealthy", "the verdict travels as the engine spells it");
+        assert_eq!(
+            rows[1].health, "unhealthy",
+            "the verdict travels as the engine spells it"
+        );
         assert_eq!(rows[2].health, "starting", "a starting healthcheck is its own verdict");
         assert_eq!(rows[3].health, "", "no healthcheck is no badge, not a guessed word");
         assert_eq!(rows[3].ports, "", "an empty column between separators stays empty");

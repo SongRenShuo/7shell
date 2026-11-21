@@ -1688,7 +1688,13 @@ mod tests {
             .unwrap(),
             events(ContainerRuntime::Docker, "").unwrap(),
             exec(ContainerRuntime::Docker, "", "abc123", "sh").unwrap(),
-            copy(ContainerRuntime::Docker, "", "abc123:/etc/nginx/nginx.conf", "/tmp/nginx.conf").unwrap(),
+            copy(
+                ContainerRuntime::Docker,
+                "",
+                "abc123:/etc/nginx/nginx.conf",
+                "/tmp/nginx.conf",
+            )
+            .unwrap(),
         ];
         for argv in &mutations {
             assert!(
@@ -1704,10 +1710,23 @@ mod tests {
         assert!(!is_idempotent_read(&["docker".to_owned()]));
         // A verb the builders do not produce, and a trailing-word shape they do not build either:
         // the safe default is the one that does not repeat a command.
-        assert!(!is_idempotent_read(&["docker".to_owned(), "build".to_owned(), ".".to_owned()]));
-        assert!(!is_idempotent_read(&["docker".to_owned(), "network".to_owned(), "rm".to_owned()]));
+        assert!(!is_idempotent_read(&[
+            "docker".to_owned(),
+            "build".to_owned(),
+            ".".to_owned()
+        ]));
+        assert!(!is_idempotent_read(&[
+            "docker".to_owned(),
+            "network".to_owned(),
+            "rm".to_owned()
+        ]));
         // The live events stream is a stream, not a command that may be fired twice.
-        assert!(!is_idempotent_read(&["docker".to_owned(), "events".to_owned(), "--format".to_owned(), "{{json .}}".to_owned()]));
+        assert!(!is_idempotent_read(&[
+            "docker".to_owned(),
+            "events".to_owned(),
+            "--format".to_owned(),
+            "{{json .}}".to_owned()
+        ]));
     }
 
     #[test]
