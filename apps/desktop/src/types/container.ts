@@ -187,7 +187,7 @@ export interface ContainerVolume {
   readonly readOnly?: boolean;
 }
 
-/** The CPU weight presets the create dialog offers, in fnOS's three steps. */
+/** The CPU weight presets the create dialog offers, in the reference's three steps. */
 export type ContainerCpuWeight = "high" | "normal" | "low";
 
 export interface ContainerCreateRequest {

@@ -2,7 +2,7 @@
  * What a container's state means, and what colour it is drawn in.
  *
  * The engine reports a state word, and the desktop window draws that state as a light wash of the
- * colour it means — the tag treatment fnOS gives its container list. Nine states cover what the
+ * colour it means — the tag treatment the reference container list gives. Nine states cover what the
  * engine can report; anything else (a new state, a runtime this build has not met) falls to the
  * neutral tone and its own raw word, because a state nobody named must not be guessed at a colour
  * or at a translation.
@@ -55,7 +55,8 @@ export function containerStateLabel(state: string, translate: (key: string) => s
 }
 
 /**
- * The loading words a write action draws while the engine is doing it — fnOS's enumeration, said
+ * The loading words a write action draws while the engine is doing it — the reference
+ * enumeration, said
  * in the interface's own key space, keyed by the action names the store sends on the wire. Each
  * action's button carries its word; the pair with the state table is deliberate: starting is both
  * what the container is doing and what we are waiting for.

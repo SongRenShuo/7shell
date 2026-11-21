@@ -105,7 +105,7 @@ it("clips a count that outgrows the rail to N+", () => {
   expect(row("images").querySelector("[data-side-nav-badge]")?.textContent?.trim()).toBe("10+");
 });
 
-it("keeps the fnOS measure: the rail is 220px wide", () => {
+it("keeps the reference measure: the rail is 220px wide", () => {
   expect(host.querySelector("aside")?.className).toContain("w-[220px]");
 });
 

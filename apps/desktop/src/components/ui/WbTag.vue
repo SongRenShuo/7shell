@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * A status tag: a state drawn as a pale wash of the colour it means, with the colour itself as the
- * text — the "light" combination fnOS draws its container states with, the Semi light-default
- * recipe (the meaning colour at a low mix as the fill, the meaning colour itself as the words).
+ * text — the "light" combination the reference draws its container states with, the Semi
+ * light-default recipe (the meaning colour at a low mix as the fill, the meaning colour itself as
+ * the words).
  *
  * A state word on its own is data; a state word on its own colour is a thing a person scans. Four
  * tones: `success` for the running-and-healthy family, `danger` for the dead-and-failed family,

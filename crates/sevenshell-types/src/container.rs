@@ -339,8 +339,8 @@ pub struct ContainerVolume {
     pub read_only: bool,
 }
 
-/// The CPU weight presets the create dialog offers, in fnOS's three steps. The engine turns each
-/// into the `--cpu-shares` count the runtime takes.
+/// The CPU weight presets the create dialog offers, in the reference's three steps. The engine
+/// turns each into the `--cpu-shares` count the runtime takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerCpuWeight {
@@ -351,7 +351,7 @@ pub enum ContainerCpuWeight {
 }
 
 impl ContainerCpuWeight {
-    /// The share count each step maps to, matching fnOS's own three-step values.
+    /// The share count each step maps to, matching the reference's own three-step values.
     pub const fn cpu_shares(self) -> u32 {
         match self {
             Self::High => 768,

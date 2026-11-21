@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * The desktop Docker window's left navigation: the 220px rail fnOS's Docker manager keeps, drawn
- * for this window rather than shared with the application's flat workspace.
+ * The desktop Docker window's left navigation: the 220px rail the reference Docker manager keeps,
+ * drawn for this window rather than shared with the application's flat workspace.
  *
  * It is presentational. What the pages are, what counts they carry and which of them the session
  * can open right now are decided by the pane that hands the items over — the pane is where "the
@@ -10,7 +10,7 @@
  *
  * The badge is a count, not an alarm: a number that outgrows its pill is clipped to
  * `overflowCount` with a plus, because "thirty-nine" in a nav rail is noise and "10+" still says
- * "more than the rail has room to say". fnOS clips the same way.
+ * "more than the rail has room to say". The reference nav clips the same way.
  */
 import type { Component } from "vue";
 import { computed } from "vue";

@@ -180,30 +180,33 @@
  * The Semi token layer — the desktop's one fact source for colour.
  *
  * Phase five re-pointed the desktop at the Semi Design token system: the same `--semi-*` naming
- * fnOS's own stylesheet speaks, with the values the fnOS image's measured tokens gave (调研报告
- * 20261119-0302 §A). Everything the desktop's chrome draws reads from here, through the
+ * the reference desktop's stylesheet speaks, with the values the reference image's measured tokens
+ * gave. Everything the desktop's chrome draws reads from here, through the
  * `--workbench-*` family below, and the direction is one way — **`--workbench-*` derives from
  * `--semi-*`; nothing in the workbench layer writes a colour of its own.** The guard that keeps
  * the arrow one-way is `WorkbenchPane.spec.ts` (it reads this file's text); a definition emptied
  * here turns that guard red rather than silently greying the desktop.
  *
- * The palette steps are written as RGB triplets — fnOS's own convention (`--semi-brand-5:
- * 0,102,255`) — so an alpha combination is `rgba(var(--semi-x), a)` and no colour is written
+ * The palette steps are written as RGB triplets — the reference's own convention
+ * (`--semi-brand-5: 0,102,255`) — so an alpha combination is `rgba(var(--semi-x), a)` and no
+ * colour is written
  * twice. The triplets that carry a hex in their comment are the measured values; the rest of a
  * ramp interpolates between two measured anchors and says so.
  *
- * `:root` carries the light ramp; `.dark` re-points the greys and the semantic colours at fnOS's
- * dark values (grey inverts 0↔9; the brand blue does not move). The semantic aliases are declared
+ * `:root` carries the light ramp; `.dark` re-points the greys and the semantic colours at the
+ * reference's dark values (grey inverts 0↔9; the brand blue does not move). The semantic aliases
+ * are declared
  * once, in `:root`: a custom property is substituted where it is *declared*, and that is the
  * document root — so re-pointing the triplets on the same element re-points every alias with them.
  */
 :root {
-  /* The white/black pair the wallpaper's opacity language is written in (fnOS bg-white-10 …). */
+  /* The white/black pair the wallpaper's opacity language is written in (the reference bg-white-10 …). */
   --semi-white: 255, 255, 255;
   --semi-black: 0, 0, 0;
 
   /*
-   * The brand blue, 0 lightest → 9 deepest. 5 is the fnOS brand (`#0066FF`, measured) and 4 is
+   * The brand blue, 0 lightest → 9 deepest. 5 is the reference brand (`#0066FF`, measured) and 4
+   * is
    * the hover step (`#3388FF`, measured); the remaining steps interpolate between the two anchors
    * and the theme-neutral ends.
    */
@@ -239,7 +242,7 @@
   --semi-warning: 255, 161, 0; /* #ffa100 measured */
 
   /*
-   * Semantic aliases — the names fnOS's components actually read. Hover and active are one ramp
+   * Semantic aliases — the names the reference's components actually read. Hover and active are one ramp
    * step away from the base (the brand's own 5→4 relationship); the `-light-*` trio is the "pale
    * ground, deep text" combination every Tag/Banner/row selection wears.
    */
@@ -268,13 +271,13 @@
   --semi-color-warning-light-hover: rgba(var(--semi-warning), 0.2);
   --semi-color-warning-light-active: rgba(var(--semi-warning), 0.28);
 
-  /* The modal hairline: grey-9 at 6% is the 1px outline fnOS draws around a floating app panel. */
+  /* The modal hairline: grey-9 at 6% is the 1px outline the reference draws around a floating app panel. */
   --semi-color-border-modal: rgba(var(--semi-grey-9), 0.06);
 
   /* Radius: the Semi control step, measured 6px — inputs, buttons, menus, dropdown cards. */
   --semi-border-radius-medium: 6px;
 
-  /* Shadows, the three measured fnOS recipes, one per kind of floating thing. They are said once
+  /* Shadows, the three measured reference recipes, one per kind of floating thing. They are said once
      and do not follow the theme: a shadow falling on a picture cannot follow the host's theme. */
   --semi-shadow-app:
     0 15px 20px rgba(0, 0, 0, 0.08), 8px 8px 16px -6px rgba(3, 3, 3, 0.08), 1px 12px 42px -4px rgba(10, 10, 10, 0.08);
@@ -291,7 +294,7 @@
 }
 
 /*
- * The dark face of the fact source: the grey ramp inverted (fnOS dark, measured at the ends
+ * The dark face of the fact source: the grey ramp inverted (reference dark, measured at the ends
  * #0C0C0D → #F8F8F8) and the semantic colours at their measured dark values. The brand blue does
  * not follow the theme, so it is not repeated here.
  */
@@ -339,7 +342,7 @@
  * `data-workbench-on-picture` when it draws a backdrop, and the remap block re-points the whole
  * chrome at the fixed pair and the dark glass: on a picture, the desktop keeps the face it has
  * always worn. The menu tokens are deliberately *absent* from the remap — a dropdown is a floating
- * card, not paint on the picture, and it keeps the host's face the way fnOS's own dropdowns do.
+ * card, not paint on the picture, and it keeps the host's face the way the reference's own dropdowns do.
  */
 :root,
 .dark {
@@ -384,7 +387,7 @@
   --wb-ease-out: var(--semi-ease-out);
 
   /*
-   * Shadows, three of them, one per kind of floating thing — each the measured fnOS recipe, named
+   * Shadows, three of them, one per kind of floating thing — each the measured reference recipe, named
    * once in the Semi layer above. A shadow that follows the theme would be a shadow that follows
    * the host's theme while it falls on a picture; one recipe for both faces is the honest answer.
    */
@@ -393,14 +396,14 @@
   --wb-shadow-dropdown: var(--semi-shadow-dropdown);
 
   /*
-   * The icon-label shadow: fnOS's two-layer recipe (`0 1px 6px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.5)`)
+   * The icon-label shadow: the reference's two-layer recipe (`0 1px 6px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.5)`)
    * — a soft drop plus a halo — which is what keeps white text readable on any wallpaper.
    */
   --wb-shadow-text-picture: 0 1px 6px rgba(0, 0, 0, 0.2), 0 0 4px rgba(0, 0, 0, 0.5);
 
   /*
    * Radii, derived from the corner style like every other radius here: at the default corner style
-   * they land on the adopted fnOS tiers collapsed for a tool's context (window 12px, content 8px),
+   * they land on the adopted reference tiers collapsed for a tool's context (window 12px, content 8px),
    * and a smaller corner style shrinks them by the same ratio — square is still square everywhere.
    * The third step is the control step: at the default corner style it is exactly the Semi
    * `--semi-border-radius-medium` (6px), and it shrinks with the corner style the same way.
@@ -420,7 +423,7 @@
 :root {
   /* The window pane: pale glass under the blur. */
   --workbench-glass: rgba(var(--semi-white), 0.85);
-  /* The hairline every glass surface draws around itself (the fnOS 8% edge, on grey-9). */
+  /* The hairline every glass surface draws around itself (the reference 8% edge, on grey-9). */
   --workbench-glass-border: rgba(var(--semi-grey-9), 0.08);
   /* Text that stands on the chrome's own glass: grey-9, not a wallpaper's white. */
   --workbench-on-picture: rgba(var(--semi-grey-9), 1);
@@ -450,13 +453,13 @@
 }
 
 /*
- * The dark host's face: fnOS's dark values — the glass is the dark page grey at the dock's own
+ * The dark host's face: the reference's dark values — the glass is the dark page grey at the dock's own
  * transparency, the text is dark grey-9, the washes are the white pair. The pairing rule the rest
  * of this file holds (a theme block that forgets a token quietly keeps the other theme's value) is
  * why every theme-following token is repeated here even where the value reads the same.
  */
 .dark {
-  /* The window pane: the dark page grey under a blur, at the fnOS dock's own depth. */
+  /* The window pane: the dark page grey under a blur, at the reference dock's own depth. */
   --workbench-glass: rgba(var(--semi-grey-0), 0.62);
   /* The hairline every glass surface draws around itself (white at 8%). */
   --workbench-glass-border: rgba(var(--semi-white), 0.08);

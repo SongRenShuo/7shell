@@ -621,7 +621,7 @@ describe("the workbench desktop", () => {
     // shadow and every surface colour are named in globals.css. The probe is the source itself.
     const source = readFileSync(resolve("apps/desktop/src/components/workspace/WorkbenchPane.vue"), "utf8");
     expect(source, "wallpapers come from the workbench tokens").toContain("var(--workbench-wallpaper-");
-    expect(source, "icon labels carry the fnOS two-layer shadow").toContain("var(--wb-shadow-text-picture)");
+    expect(source, "icon labels carry the reference two-layer shadow").toContain("var(--wb-shadow-text-picture)");
     expect(source, "an icon selects on the brand's pale ground (D2)").toContain(
       "var(--semi-color-primary-light-default)",
     );

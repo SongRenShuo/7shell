@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The Docker window's overview page: what the engine holds, whether it is well, and how hard it is
- * working — the page fnOS opens its Docker manager onto.
+ * working — the page the reference Docker manager opens onto.
  *
  * Three rows say what the engine holds, and each row is the page it summarizes: a click is a jump,
  * because a number that cannot be pressed is a number somebody has to go and find. The three
@@ -153,7 +153,8 @@ function netLabel(): string {
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-docker-overview>
     <!--
-      The summary: three rows, each the page it counts. fnOS draws these as rows rather than cards,
+      The summary: three rows, each the page it counts. The reference draws these as rows rather
+      than cards,
       and the difference matters — a card invites decorating, a row invites pressing.
     -->
     <div class="flex flex-col" data-docker-overview-summary>
@@ -207,7 +208,8 @@ function netLabel(): string {
     </p>
 
     <!--
-      The three lines. Each is drawn at the fnOS mini chart's measure, from the series this page
+      The three lines. Each is drawn at the reference mini chart's measure, from the series this
+      page
       has sampled — the shell is `StatSparkline`, shared with a single container's monitor.
     -->
     <div class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-3" data-docker-overview-charts>

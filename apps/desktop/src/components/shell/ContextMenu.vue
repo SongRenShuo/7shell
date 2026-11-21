@@ -59,7 +59,7 @@ const label = computed(() => t(title.value.key, title.value.params ?? {}));
  * of `globals.css` — `--workbench-menu-bg` with `--workbench-menu-text` rows, the dropdown tier of
  * the `--wb-shadow-*` scale to lift it off the desk, and the control radius (6px at the default
  * corner style). It keeps the host's face — white over a light host, dark over a dark one — the
- * way fnOS's own dropdowns do, so it is deliberately *not* re-pointed by the on-picture remap; the
+ * way the reference's own dropdowns do, so it is deliberately *not* re-pointed by the on-picture remap; the
  * card is a floating surface, not paint on the wallpaper. No blur sits behind it: a Semi dropdown
  * is a solid card, and a blur behind an opaque ground draws nothing.
  *
