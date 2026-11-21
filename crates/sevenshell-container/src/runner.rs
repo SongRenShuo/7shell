@@ -371,6 +371,29 @@ impl LineStream {
         self.lines.recv().await
     }
 
+    /// A stream whose lines are this stream's lines as `map` rewrites them. A line `map` declines
+    /// (`None`) reaches nobody: a raw line the reader cannot use is not an error the reader should
+    /// see, it is noise the command printed.
+    ///
+    /// The mapping runs on its own task, and stopping this stream stops the mapped one with it —
+    /// they are the same command, carrying different words.
+    pub fn mapped(self, map: impl Fn(String) -> Option<String> + Send + 'static) -> Self {
+        let (lines, receiver) = mpsc::channel(crate::local::STREAM_LINE_CAPACITY);
+        let stop = Arc::clone(&self.stop);
+        tokio::spawn(async move {
+            let mut stream = self;
+            while let Some(line) = stream.next().await {
+                let Some(mapped) = map(line) else {
+                    continue;
+                };
+                if lines.send(mapped).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Self::new(receiver, move || stop())
+    }
+
     /// A handle that stops the command without ending the stream that is being read here.
     ///
     /// Two things need it: a stop button that arrives on another task, and a registry that has to

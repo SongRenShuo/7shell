@@ -51,11 +51,12 @@ pub use completion::{
     COMPLETION_TIMEOUT_MAX_MS, COMPLETION_TIMEOUT_MIN_MS, CompletionExecuteRequest, CompletionExecuteResult,
 };
 pub use container::{
-    ComposeProject, ComposeServiceRow, ContainerCommitRequest, ContainerCpuWeight, ContainerCreateRequest,
-    ContainerDetail, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerMount, ContainerPort,
-    ContainerPortMapping, ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo,
-    ContainerSettings, ContainerStateCount, ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary,
-    ContainerTransport, ContainerVolume, ImageLayer, NetworkCreateRequest, NetworkSummary,
+    ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCpuWeight,
+    ContainerCreateRequest, ContainerDetail, ContainerEvent, ContainerImage, ContainerImageRemoteDigest,
+    ContainerImageTransfer, ContainerMount, ContainerPort, ContainerPortMapping, ContainerRegistryLogin,
+    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerSettings, ContainerStateCount,
+    ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ContainerVolume,
+    ImageLayer, NetworkCreateRequest, NetworkSummary,
 };
 pub use generated::{
     AUTH_METHODS, AuthMethod, AuthMethodSpec, CAPABILITIES, Capability, CapabilityGroup, CapabilitySpec,

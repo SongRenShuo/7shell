@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 
 use sevenshell_core::Core;
 use sevenshell_error::{ErrorCode, ShellError};
-use sevenshell_types::{ContainerSummary, K8sMethod, K8sRequest, K8sResponse, Session, SftpListing, SftpOutcome};
+use sevenshell_types::{
+    ContainerActionOutcome, ContainerSummary, K8sMethod, K8sRequest, K8sResponse, Session, SftpListing, SftpOutcome,
+};
 use tokio::sync::Mutex;
 
 /// How long an entry nobody has touched survives. Long enough that a conversation is one connection,
@@ -160,21 +162,22 @@ impl ConnectionCache {
     }
 
     /// Runs one container action on the cached connection. The verdict has already been taken by the
-    /// caller; this only carries out what was decided.
+    /// caller; this only carries out what was decided. A race the engine settled first answers
+    /// `AlreadySatisfied` — a success with a name, not an error.
     pub async fn container_action(
         &self,
         session_id: &str,
         container_id: &str,
         action: &str,
         acknowledged: bool,
-    ) -> Result<(), ShellError> {
+    ) -> Result<ContainerActionOutcome, ShellError> {
         let connection = self.connection(Kind::Container, session_id).await?;
         match self
             .core
             .container_action(&connection, container_id, action, acknowledged)
             .await
         {
-            Ok(()) => Ok(()),
+            Ok(outcome) => Ok(outcome),
             Err(error) if gone(&error) => {
                 self.forget(Kind::Container, session_id).await;
                 let connection = self.connection(Kind::Container, session_id).await?;

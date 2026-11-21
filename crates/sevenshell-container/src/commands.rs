@@ -30,8 +30,10 @@ const MAX_REMOTE_PATH_CHARS: usize = 1024;
 
 /// The template `ps` uses. `{{json .}}` is deliberately avoided: it includes `.Size`, which makes
 /// the CLI ask the daemon for per-container filesystem statistics — tens of seconds on a busy host.
-/// Listing the fields we draw is as fast as the table output.
-const PS_FORMAT_DOCKER: &str = "{{.ID}}|{{.Image}}|{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}";
+/// Listing the fields we draw is as fast as the table output. `.Health` renders empty for a
+/// container with no healthcheck, which is how the row knows to draw no badge.
+const PS_FORMAT_DOCKER: &str =
+    "{{.ID}}|{{.Image}}|{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}|{{.Health}}";
 const JSON_FORMAT: &str = "{{json .}}";
 /// WSLC's `--format` takes a fixed vocabulary, not a template.
 const WSLC_FORMAT: &str = "json";
@@ -142,6 +144,36 @@ pub(crate) fn stats(runtime: ContainerRuntime, namespace: &str) -> Vec<String> {
         }
     }
     argv
+}
+
+/// The engine's own event stream, one JSON document per line, for as long as the command lives.
+///
+/// Nothing is filtered on the command line: every runtime spells `--filter type=container`
+/// differently enough that a filter here would be three dialects to test, while the parser reads
+/// the kind off each document anyway. WSLC is refused outright — its event surface was never
+/// exercised, and an untested command line is refused rather than guessed at.
+pub(crate) fn events(runtime: ContainerRuntime, namespace: &str) -> Result<Vec<String>, ShellError> {
+    if runtime == ContainerRuntime::Wslc {
+        return Err(ShellError::app_unsupported("container events on the WSLC runtime"));
+    }
+    let mut argv = base(runtime, namespace);
+    argv.push("events".to_owned());
+    argv.extend(json_format_flag(runtime));
+    Ok(argv)
+}
+
+/// The one cheap, network-free probe for whether this CLI can answer an events request at all.
+///
+/// It answers only for the command line — that the daemon *serves* events is what the stream
+/// itself finds out, and a stream that cannot open is a reconnect, not a refusal.
+pub(crate) fn events_probe(runtime: ContainerRuntime) -> Result<Vec<String>, ShellError> {
+    if runtime == ContainerRuntime::Wslc {
+        return Err(ShellError::app_unsupported("container events on the WSLC runtime"));
+    }
+    let mut argv = base(runtime, "");
+    argv.push("events".to_owned());
+    argv.push("--help".to_owned());
+    Ok(argv)
 }
 
 /// The action verb as the runtime spells it: the interface says `remove`, the CLI says `rm`.
