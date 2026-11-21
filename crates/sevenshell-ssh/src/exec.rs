@@ -15,6 +15,7 @@ use sevenshell_error::ShellError;
 use tokio::time::Instant;
 
 use crate::SshSession;
+use crate::budget::ChannelHolder;
 use crate::session::close_channel_quietly;
 
 /// How much output one command may produce before it is stopped.
@@ -89,7 +90,7 @@ impl SshSession {
         max_output_bytes: usize,
     ) -> Result<ExecCapture, ShellError> {
         let started = Instant::now();
-        let mut channel = self.open_command_channel().await?;
+        let (mut channel, _held) = self.open_command_channel().await?;
 
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
@@ -154,8 +155,13 @@ impl SshSession {
     }
 
     /// Opens a channel for a command, which is a session channel with nothing requested on it yet.
-    async fn open_command_channel(&self) -> Result<Channel<russh::client::Msg>, ShellError> {
-        self.open_session_channel_for("a command").await
+    ///
+    /// The budget slot travels beside the channel and is released when this function ends — a
+    /// capture is the one short-lived channel shape, held only for the length of the call.
+    async fn open_command_channel(
+        &self,
+    ) -> Result<(Channel<russh::client::Msg>, crate::budget::HeldChannel), ShellError> {
+        self.open_session_channel_for("a command", ChannelHolder::Exec).await
     }
 }
 

@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use sevenshell_error::ShellError;
-use sevenshell_ssh::{ExecOutput, SshSession};
+use sevenshell_ssh::{ChannelHolder, ExecOutput, SshSession};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::mpsc;
 
@@ -526,10 +526,15 @@ impl Runner {
     }
 
     /// Runs a command whose output keeps arriving after it starts.
-    pub async fn stream(&self, argv: &[String]) -> Result<LineStream, ShellError> {
+    ///
+    /// The `holder` names the feature that will hold the SSH channel for the stream's life —
+    /// a log follow, the engine's events — because the connection's channel budget refuses an
+    /// open in those words, and a merged view that asks how much room is left reads them back.
+    /// A local command holds no channel and the name goes unused.
+    pub async fn stream(&self, holder: ChannelHolder, argv: &[String]) -> Result<LineStream, ShellError> {
         match self {
             Self::Local => local::stream(argv).await,
-            Self::Ssh(session) => remote::stream(session, argv).await,
+            Self::Ssh(session) => remote::stream(session, holder, argv).await,
         }
     }
 
