@@ -8,6 +8,15 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+- The desk widgets show shape as well as numbers: the processor and network cards each draw a
+  strip of the pump's own last sixty samples — standing still the moment sampling stops — and the
+  storage card a capacity bar wearing the tier its reading earns, in the workbench colours the
+  wallpaper allows, with a hot processor's number wearing its tier too (2050664).
+- The docker window's overview reads at a glance: three tiles — containers, images, and the
+  engine's health, whose number is the count the lamp beside the rows used to say, red when the
+  engine is not well with the sentence still on its tooltip — each pressing through to the page it
+  counts as before, and the three charts titled with their series' newest reading, unit and all;
+  the single container's monitor draws the same titles (2050664).
 - The monitor window opens on how the host is doing now: a status band of readings under the
   host's name, CPU and memory trend charts drawn from the store's own history with the memory
   line wearing the tier its reading earns, the processors' share as one bar per column, disk
