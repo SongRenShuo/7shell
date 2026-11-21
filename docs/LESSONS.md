@@ -178,6 +178,9 @@ russh 的 `Channel` 丢弃时**不发** SSH_MSG_CLOSE（`ChannelCloseOnDrop` 只
 **A5 车道自验的「全绿」以 CI 的完整关卡清单为准，缺一项就是一道假绿**
 工作树车道自报「oxlint/typecheck/fmt 全净」，CI 在合并提交上仍红：车道只跑了 `oxlint`（规则检查）没跑 `pnpm fmt:check`（格式关卡），四个文件带着格式偏差合入，红在合并后的第一次 CI 上。关卡清单是**合取**——少跑任何一项，其余全绿证明不了任何事；派活模板里的验收清单就是 CI 的 job 步骤逐条镜像，车道收口按清单逐项打勾，不许凭记忆自报。证据：7shell run 44880513075 `Interface failure`（`pnpm fmt:check` 4 文件不合格）对照车道报告「oxlint 0 警告」；修复 `8dcdc15`。Seen 1。
 
+**A6 junction 指着主仓的 node_modules 时，`rm -rf` 工作树会顺着 junction 把主仓掏空**
+Windows junction 在 Git Bash 的 `rm -rf` 下按普通目录递归穿透：清理 `.worktrees/<车道>` 时一条 `rm -rf` 就把主仓 `node_modules` 的链接层（`.bin`、顶层包链接）删掉，只剩 `.pnpm` 虚拟店，而 `.pnpm-workspace-state-v1.json` 谎报完好——症状是「vitest/lint-staged 找不到」且 `pnpm install` 秒过不修。正解：先 `cmd /c rmdir` 只删 junction 本身，再 `git worktree remove`；恢复用「删 `.pnpm-workspace-state-v1.json` + `pnpm install`」强制重建链接（秒级）。证据：7shell 2026-11-21 一天内两次掏空（车道 junction 增删六次后），vitest 3002 全绿后 `pnpm build` 一跑 `lint-staged not found`。Seen 1。
+
 ## 升级记录
 
 | 日期 | 条目 | 去向 |
