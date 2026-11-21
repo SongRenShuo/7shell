@@ -21,8 +21,8 @@ use sevenshell_types::{
     ContainerActionOutcome, ContainerChannelBudget, ContainerChannelHolders, ContainerCommitRequest,
     ContainerCreateRequest, ContainerDetail, ContainerDiskUsage, ContainerImage, ContainerImageTransfer,
     ContainerPruneReport, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
-    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction,
-    Protocol, RiskAssessment, VolumeSummary,
+    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction, Protocol,
+    RiskAssessment, VolumeSummary,
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -784,6 +784,26 @@ mod tests {
             Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>),
         );
         (directory, core, journal)
+    }
+
+    #[tokio::test]
+    async fn a_local_engine_answers_no_budget_and_an_unknown_connection_is_an_error() {
+        let directory = tempdir().expect("temp dir");
+        let (core, _events) = Core::new(Arc::new(Vault::open_at(directory.path().join("vault.json"))));
+        let provider = Provider::new(ContainerRuntime::Docker, "", Runner::Local).expect("a local provider");
+        core.containers
+            .add("conn-local", provider)
+            .expect("the provider registers");
+
+        // A local command holds no SSH channel, so there is nothing to count and nothing that
+        // could refuse: the view that asks opens every stream it was asked for.
+        let budget = core.container_channels("conn-local").expect("the read");
+        assert!(budget.is_none(), "a local engine is no budget at all, got {budget:?}");
+
+        let error = core
+            .container_channels("conn-that-never-was")
+            .expect_err("no provider, no answer");
+        assert!(error.to_string().contains("NOT-CONNECTED"), "{error}");
     }
 
     #[tokio::test]

@@ -779,6 +779,7 @@ mod live_tests {
         // A command that prints and then keeps running: the shape of a log follow.
         let mut lines = stream(
             &session,
+            ChannelHolder::Logs,
             &[
                 "sh".to_owned(),
                 "-c".to_owned(),

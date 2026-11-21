@@ -464,9 +464,8 @@ async fn an_exhausted_budget_yields_the_events_stream_and_the_new_open_takes_its
         .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
         .await
         .expect("the yield made room");
-    assert_eq!(
+    assert!(
         stopped.lock().expect("not poisoned").is_none(),
-        true,
         "the hook ran and the events stream went"
     );
     let budget = session.channel_budget();
