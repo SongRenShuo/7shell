@@ -8,6 +8,9 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- The Docker manager's create action sits on the containers page's own toolbar; the empty pane
+  header that carried it alone, and the second create button beside it, are gone (container).
+
 - The scrollbar is the application's own everywhere: thin, translucent and inside the panel's
   borders, on every surface that scrolls (8205762, 35bf33d, 48360a3).
 - A selected row in the file tree leaves the panel's border visible instead of painting over it
