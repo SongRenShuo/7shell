@@ -1,15 +1,15 @@
 //! Opening, driving and closing terminals, the routes they take, and the forwards they bring up.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sevenshell_error::ShellError;
 use sevenshell_session::{OpenTerminal, RecordingSpec, SessionRegistry};
 use sevenshell_ssh::openssh::SystemHostKey;
 use sevenshell_ssh::{
-    ChannelEvent, Credential, LocalForward as HopForward, OpenRequest, Purpose, Route, SshSession, Target, TcpDialer,
-    TerminalSize, TunnelHandle,
+    CarrierPool, ChannelEvent, ConnectFactory, Credential, DEFAULT_POOL_SIZE, LocalForward as HopForward, OpenRequest,
+    Purpose, Route, SshSession, Target, TcpDialer, TerminalSize, TunnelHandle,
 };
 use sevenshell_term::{LocalSpec, SerialSpec, TcpSpec, TelnetSpec, WslSpec};
 use sevenshell_types::{
@@ -50,7 +50,7 @@ pub(crate) enum HostKeyDecision {
 /// without the interface ever learning a path. `proxy` is the `ProxyJump` route the same file
 /// names, outermost hop first; it is empty when the session keeps its own saved jump list, which
 /// is the person's explicit route.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PreparedSession {
     pub(crate) session: Session,
     pub(crate) config: Option<sevenshell_ssh::openssh::ResolvedHost>,
@@ -231,6 +231,14 @@ pub struct Core {
     /// The reconnect throttle: a host whose fresh connections keep failing is not attempted again
     /// before its pause is over. See [`crate::backoff`].
     pub(crate) reconnects: crate::backoff::ReconnectGate,
+    /// The connection groups a fresh carrier joins, keyed by the peer they serve: host, port,
+    /// account, credential kind and the route they take. Each group's carriers are the pool's to
+    /// grow, refill and close; a caller handed a carrier never learns there was more than one
+    /// connection behind it.
+    pools: std::sync::Mutex<HashMap<String, Arc<CarrierPool>>>,
+    /// A weak handle on this core, for the connect factories a pool calls long after the open
+    /// that built them has returned. Set once, right after the core is constructed.
+    self_ref: OnceLock<Weak<Core>>,
     /// The matrix and the audit trail behind every unattended action. Replaced together, read
     /// without waiting on a disk because the journal is called after the snapshot is released.
     pub(crate) policy: std::sync::Mutex<crate::policy::PolicySnapshot>,
@@ -248,33 +256,36 @@ impl Core {
     /// Builds the core around a vault, and returns it with the receiver its terminal output arrives on.
     pub fn new(vault: Arc<Vault>) -> (Arc<Self>, mpsc::Receiver<CoreEvent>) {
         let (registry, events) = SessionRegistry::start();
-        (
-            Arc::new(Self {
-                vault,
-                registry,
-                files: Mutex::new(HashMap::new()),
-                transfers: Arc::new(Mutex::new(HashMap::new())),
-                containers: Arc::new(sevenshell_container::ContainerManager::new()),
-                clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
-                container_streams: Arc::new(Mutex::new(HashMap::new())),
-                container_events_streams: Mutex::new(HashMap::new()),
-                desktop_engines: Mutex::new(HashMap::new()),
-                desktop_engine_caps: Mutex::new(HashMap::new()),
-                tail_streams: Arc::new(Mutex::new(HashMap::new())),
-                vmrest_auth: std::sync::Mutex::new(None),
-                next_file: std::sync::atomic::AtomicU64::new(1),
-                next_transfer: std::sync::atomic::AtomicU64::new(1),
-                sampling: crate::backoff::SamplingGate::new(),
-                reconnects: crate::backoff::ReconnectGate::new(),
-                // The default rule until a host replaces it: safe and caution run, the destructive
-                // levels ask, and nothing is journaled because there is no trail yet.
-                policy: std::sync::Mutex::new(crate::policy::PolicySnapshot::default()),
-                tunnels: Mutex::new(HashMap::new()),
-                opens_in_flight: Mutex::new(HashMap::new()),
-                timeout: OPEN_TIMEOUT,
-            }),
-            events,
-        )
+        let core = Arc::new(Self {
+            vault,
+            registry,
+            files: Mutex::new(HashMap::new()),
+            transfers: Arc::new(Mutex::new(HashMap::new())),
+            containers: Arc::new(sevenshell_container::ContainerManager::new()),
+            clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
+            container_streams: Arc::new(Mutex::new(HashMap::new())),
+            container_events_streams: Mutex::new(HashMap::new()),
+            desktop_engines: Mutex::new(HashMap::new()),
+            desktop_engine_caps: Mutex::new(HashMap::new()),
+            tail_streams: Arc::new(Mutex::new(HashMap::new())),
+            vmrest_auth: std::sync::Mutex::new(None),
+            next_file: std::sync::atomic::AtomicU64::new(1),
+            next_transfer: std::sync::atomic::AtomicU64::new(1),
+            sampling: crate::backoff::SamplingGate::new(),
+            reconnects: crate::backoff::ReconnectGate::new(),
+            pools: std::sync::Mutex::new(HashMap::new()),
+            self_ref: OnceLock::new(),
+            // The default rule until a host replaces it: safe and caution run, the destructive
+            // levels ask, and nothing is journaled because there is no trail yet.
+            policy: std::sync::Mutex::new(crate::policy::PolicySnapshot::default()),
+            tunnels: Mutex::new(HashMap::new()),
+            opens_in_flight: Mutex::new(HashMap::new()),
+            timeout: OPEN_TIMEOUT,
+        });
+        core.self_ref
+            .set(Arc::downgrade(&core))
+            .expect("the core's weak handle is set once, here, before anything can read it");
+        (core, events)
     }
 
     /// The vault this core reads from, for the commands that only touch storage.
@@ -998,6 +1009,18 @@ impl Core {
             let _ = self.close_tunnel(&id).await;
         }
         self.registry.close_all().await;
+        // The connection groups go last: their carriers are what the tunnels and the terminals'
+        // siblings were riding, and each group closes every connection it still holds.
+        let pools: Vec<Arc<CarrierPool>> = self
+            .pools
+            .lock()
+            .expect("the carrier pools lock")
+            .drain()
+            .map(|(_, pool)| pool)
+            .collect();
+        for pool in pools {
+            pool.close().await;
+        }
     }
 
     /// Records a host key a person has just accepted.
@@ -1353,7 +1376,10 @@ impl Core {
     pub(crate) async fn open_fresh_carrier(&self, session: &Session) -> Result<ConnectionOutcome, ShellError> {
         let prepared = self.prepare_session(session)?;
         let session = &prepared.session;
-        let credential = self.credential(session, prepared.config.as_ref())?;
+        // Collected here, before the throttle, so a session with no secret stored for it fails
+        // before any socket and a pausing host does not hide that from the caller. What each
+        // connection of the pool offers is collected again per connect, from the same place.
+        self.credential(session, prepared.config.as_ref())?;
         let target = Target {
             host: session.host.clone(),
             port: session.port,
@@ -1361,9 +1387,7 @@ impl Core {
         };
 
         self.reconnects.check(&target.host, target.port)?;
-        let opened = self
-            .open_fresh_carrier_connection(&prepared, session, &target, credential)
-            .await;
+        let opened = self.open_fresh_carrier_connection(&prepared, session, &target).await;
         match &opened {
             Ok(ConnectionOutcome::Ready(_)) => self.reconnects.record_success(&target.host, target.port),
             Err(error) if connection_attempt_failed(error) => {
@@ -1377,15 +1401,16 @@ impl Core {
 
     /// The fresh carrier's steps, once the throttle has let them run.
     ///
-    /// `credential` was already collected before the throttle ran: a missing password is answered
-    /// before any socket, and a host that is pausing should not change what the caller learns
-    /// about its own configuration.
+    /// The carrier comes from the peer's connection group — one connection among the several
+    /// that serve it, picked for having the most room, and a fresh one when none of them does —
+    /// so the ceiling one connection runs under stops being the ceiling of the features behind
+    /// it. The trust steps are this open's own, unchanged: the decision returns a caller can
+    /// answer stay returns, because the first open is the one a person is involved in.
     async fn open_fresh_carrier_connection(
         &self,
         prepared: &PreparedSession,
         session: &Session,
         target: &Target,
-        credential: Credential,
     ) -> Result<ConnectionOutcome, ShellError> {
         let hop = match self.open_route(prepared, None).await? {
             RouteOutcome::Ready(hop) => hop,
@@ -1425,6 +1450,112 @@ impl Core {
             }
         }
 
+        // The trust is settled, so the pool can hand out a carrier — opening one when its group
+        // is new or every carrier it has is close to full. The factory it grows by repeats
+        // exactly the steps this open just took.
+        let pool = self.carrier_pool(prepared, session, target)?;
+        let connection = pool.carrier().await?;
+        Ok(ConnectionOutcome::Ready(Carrier {
+            connection,
+            shared: false,
+        }))
+    }
+
+    /// The connection group one peer's carriers belong to: keyed by the host, port, account,
+    /// credential kind and route the connections share. An existing group answers; a new one is
+    /// built around a factory that opens a carrier the way this open just did, and is called
+    /// again for every refill the pool does on its own.
+    fn carrier_pool(
+        &self,
+        prepared: &PreparedSession,
+        session: &Session,
+        target: &Target,
+    ) -> Result<Arc<CarrierPool>, ShellError> {
+        let key = pool_key(&self.route_plan(prepared)?, session, target);
+        let mut pools = self.pools.lock().expect("the carrier pools lock");
+        if let Some(pool) = pools.get(&key) {
+            return Ok(Arc::clone(pool));
+        }
+        let pool = Arc::new(CarrierPool::with_limit(
+            self.pooled_carrier_factory(prepared, target),
+            DEFAULT_POOL_SIZE,
+        ));
+        pools.insert(key, Arc::clone(&pool));
+        Ok(pool)
+    }
+
+    /// The factory a pool grows by: the fresh-carrier path this open just walked — the route,
+    /// the probe, the verification, a carrier with no shell on it — and nothing else. It is kept
+    /// by the pool and called again for every refill, and it collects the credential from the
+    /// vault each time: the person is never asked again, and no secret is kept alive between
+    /// connects. An unknown or changed key mid-flight ends the connect as an error, because a
+    /// pool has no prompt to stop at.
+    fn pooled_carrier_factory(&self, prepared: &PreparedSession, target: &Target) -> ConnectFactory {
+        let core = self.self_ref.get().cloned();
+        let prepared = Arc::new(prepared.clone());
+        let target = target.clone();
+        Arc::new(move || {
+            let core = core.clone();
+            let prepared = Arc::clone(&prepared);
+            let target = target.clone();
+            Box::pin(async move {
+                match core.and_then(|weak| weak.upgrade()) {
+                    Some(core) => core.connect_pooled_carrier(&prepared, &target).await,
+                    None => Err(ShellError::app_internal(
+                        "the core was dropped while its carrier pool was connecting",
+                    )),
+                }
+            })
+        })
+    }
+
+    /// One pooled carrier's connection: the fresh-carrier steps in the order the security model
+    /// requires, without the decision returns a *first* open needs. The outer open has already
+    /// settled what the person trusts; a connect that meets an unknown or changed key here ends
+    /// as an error, and the pool's own backoff keeps it from being repeated quickly.
+    pub(crate) async fn connect_pooled_carrier(
+        &self,
+        prepared: &PreparedSession,
+        target: &Target,
+    ) -> Result<Arc<SshSession>, ShellError> {
+        // The credential comes from the vault every time: what the person saved is what every
+        // connection of this group offers, and nothing is kept between connects to leak or go
+        // stale.
+        let credential = self.credential(&prepared.session, prepared.config.as_ref())?;
+        let hop = match self.open_route(prepared, None).await? {
+            RouteOutcome::Ready(hop) => hop,
+            RouteOutcome::Decision(decision) => return Err(decision_error(*decision)),
+        };
+
+        let presented = match &hop {
+            Some(hop) => sevenshell_ssh::probe_host_key_via(hop, &target.host, target.port, self.timeout).await?,
+            None => sevenshell_ssh::probe_host_key(&target.host, target.port, self.timeout).await?,
+        };
+
+        let system = system_known_host(&target.host, target.port, &presented);
+        if system == SystemHostKey::Changed {
+            return Err(ShellError::ssh_host_key_system_mismatch(
+                &target.host,
+                target.port,
+                &presented.key_type,
+                &presented.fingerprint,
+            ));
+        }
+        match standing(
+            self.vault.find_known_host(&target.host, target.port)?,
+            system,
+            &presented,
+        ) {
+            KeyStanding::Accepted => {}
+            KeyStanding::Unknown => return Err(decision_error(HostKeyDecision::Unknown(presented))),
+            KeyStanding::Changed(trusted) => {
+                return Err(decision_error(HostKeyDecision::Mismatch {
+                    key: presented,
+                    trusted,
+                }));
+            }
+        }
+
         let route = match hop {
             Some(hop) => Route::Through {
                 hop,
@@ -1440,9 +1571,11 @@ impl Core {
                 port: target.port,
                 user: target.user.clone(),
             },
+            // Cloned per connect by the factory: the same secret, offered again on the
+            // connection that replaces a dead carrier. Nothing here asks a person.
             credential,
             terminal_type: String::new(),
-            keepalive_seconds: session.terminal.keepalive_seconds,
+            keepalive_seconds: prepared.session.terminal.keepalive_seconds,
             forward_agent: false,
             timeout: self.timeout,
             expected_host_key: presented,
@@ -1453,10 +1586,7 @@ impl Core {
         };
 
         let (output, _unused) = mpsc::channel(1);
-        Ok(ConnectionOutcome::Ready(Carrier {
-            connection: Arc::new(SshSession::open(request, output).await?),
-            shared: false,
-        }))
+        Ok(Arc::new(SshSession::open(request, output).await?))
     }
 
     /// Where this session's recording goes, when it is being recorded.
@@ -1730,6 +1860,27 @@ fn connection_attempt_failed(error: &ShellError) -> bool {
         sevenshell_error::ErrorCode::SshUnreachable
             | sevenshell_error::ErrorCode::SshTimeout
             | sevenshell_error::ErrorCode::SshAuthFailed
+    )
+}
+
+/// The identity of one connection group: everything two connections must share for a channel to
+/// be at home on either — the peer, the account, the credential kind, and the route they reach
+/// the peer by. Two saved sessions that name the same server, account and jumps share a group;
+/// a different credential kind does not, because a group's carriers offer what one factory
+/// collected, and a secret for one account is not an offer on another's behalf.
+fn pool_key(plan: &[HopPlan], session: &Session, target: &Target) -> String {
+    let route = plan
+        .iter()
+        .map(|hop| format!("{}@{}:{}", hop.user, hop.host, hop.port))
+        .collect::<Vec<_>>()
+        .join(">");
+    format!(
+        "{}|{}|{}|{}|{}",
+        target.host,
+        target.port,
+        target.user,
+        session.auth.method.as_str(),
+        route
     )
 }
 
