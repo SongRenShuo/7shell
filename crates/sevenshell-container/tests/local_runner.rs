@@ -86,7 +86,10 @@ async fn a_stream_yields_one_line_at_a_time_and_then_ends() {
     #[cfg(not(windows))]
     let command = shell("printf 'one\\ntwo\\n'");
 
-    let mut stream = Runner::Local.stream(&command).await.expect("stream should start");
+    let mut stream = Runner::Local
+        .stream(sevenshell_ssh::ChannelHolder::Logs, &command)
+        .await
+        .expect("stream should start");
     let mut lines = Vec::new();
     loop {
         let line = tokio::time::timeout(Duration::from_secs(20), stream.next())
@@ -109,7 +112,10 @@ async fn stopping_a_stream_ends_it_and_its_reader() {
     #[cfg(not(windows))]
     let command = argv(&["sh", "-c", "while true; do echo tick; sleep 0.2; done"]);
 
-    let mut stream = Runner::Local.stream(&command).await.expect("stream should start");
+    let mut stream = Runner::Local
+        .stream(sevenshell_ssh::ChannelHolder::Logs, &command)
+        .await
+        .expect("stream should start");
     let first = tokio::time::timeout(Duration::from_secs(20), stream.next())
         .await
         .expect("the stream should produce a line");
