@@ -230,7 +230,7 @@ export function clampToWorkArea(rect: WorkbenchWindowRect, bounds: WorkbenchBoun
  */
 export function openWindow(list: readonly WorkbenchWindowState[], input: OpenWindowInput): WorkbenchWindowState[] {
   if (list.some((window) => window.id === input.id)) {
-    return showWindow(list, input.id);
+    return showWindow(list, input.id, input.bounds);
   }
   const wanted = input.remembered ?? {
     left: (finite(input.bounds.width, DEFAULT_WIDTH) - DEFAULT_WIDTH) / 2,
@@ -391,30 +391,37 @@ export function setMaximized(
 /**
  * Puts a window back to its remembered geometry.
  *
- * The remembered rectangle is applied exactly, not clamped against the desk as it is now: somebody
- * who maximised on a wide desk and restored after the window got narrower expects the window where
- * they left it, and silently rewriting it would make the memory a lie. The caller clamps when it
- * draws a window that no longer fits; this function's contract is the geometry it was told.
+ * The remembered rectangle is the desk's before it is the memory's: it comes back clamped into the
+ * work area as it is now, so a desk that shrank while the window was maximised cannot put the
+ * window back half off its edge. A rectangle that still fits comes back exactly where it was left
+ * — the clamp is only the desk's answer to a window that no longer fits, never a rearrangement.
  *
  * Restoring a minimised window is the same request as showing it — both mean "put it back on the
  * desk" — so it delegates rather than growing a second notion of restored-but-hidden. Restoring a
  * window that is already normal is a no-op, which is what makes the second click of a
  * maximise/restore button harmless.
  */
-export function restoreWindow(list: readonly WorkbenchWindowState[], id: string): WorkbenchWindowState[] {
+export function restoreWindow(
+  list: readonly WorkbenchWindowState[],
+  id: string,
+  bounds: WorkbenchBounds,
+): WorkbenchWindowState[] {
   const target = list.find((window) => window.id === id);
   if (target === undefined || target.mode === "normal") {
     return copyList(list);
   }
   if (target.mode === "min") {
-    return showWindow(list, id);
+    return showWindow(list, id, bounds);
   }
-  const restored = target.restore ?? {
-    left: target.left,
-    top: target.top,
-    width: target.width,
-    height: target.height,
-  };
+  const restored = clampToWorkArea(
+    target.restore ?? {
+      left: target.left,
+      top: target.top,
+      width: target.width,
+      height: target.height,
+    },
+    bounds,
+  );
   const z = topZ(list) + 1;
   return list.map((window) => {
     if (window.id !== id) {
@@ -470,11 +477,17 @@ export function minimizeWindow(list: readonly WorkbenchWindowState[], id: string
 /**
  * Brings a window back to the desk at its remembered geometry, with a fresh stacking value.
  *
- * A window that was not minimised is simply focused: "show" on something already visible is the
- * same request as "bring it forward", and refusing it would make the taskbar button of a visible
- * window dead.
+ * The geometry a minimised window was put away with belongs to the desk of that moment, so it comes
+ * back clamped into the work area as it is now — a desk that shrank while the window was hidden
+ * must not hand back a window hanging off its edge. A window that was not minimised is simply
+ * focused: "show" on something already visible is the same request as "bring it forward", and
+ * refusing it would make the taskbar button of a visible window dead.
  */
-export function showWindow(list: readonly WorkbenchWindowState[], id: string): WorkbenchWindowState[] {
+export function showWindow(
+  list: readonly WorkbenchWindowState[],
+  id: string,
+  bounds: WorkbenchBounds,
+): WorkbenchWindowState[] {
   const target = list.find((window) => window.id === id);
   if (target === undefined) {
     return copyList(list);
@@ -482,12 +495,16 @@ export function showWindow(list: readonly WorkbenchWindowState[], id: string): W
   if (target.mode !== "min") {
     return focusWindow(list, id);
   }
+  const rect = clampToWorkArea(
+    { left: target.left, top: target.top, width: target.width, height: target.height },
+    bounds,
+  );
   const z = topZ(list) + 1;
   return list.map((window) => {
     if (window.id !== id) {
       return { ...copyWindow(window), focused: false };
     }
-    return { ...copyWindow(window), mode: "normal", focused: true, z };
+    return { ...copyWindow(window), ...rect, mode: "normal", focused: true, z };
   });
 }
 
@@ -532,16 +549,21 @@ export function minimizeAll(list: readonly WorkbenchWindowState[]): WorkbenchWin
  *
  * The windows come back stacked in the order the list keeps them, each raise leaving the focus with
  * the last — the top of the pile is where the pointer goes next, and that is as good a guess as the
- * list offers. Windows that were never put away are untouched: "restore the desk" means bringing
- * back what was hidden, not rearranging what was never hidden.
+ * list offers. Each comes back through `showWindow`, so a desk that shrank while its windows were
+ * hidden clamps them in rather than handing them back half off its edge. Windows that were never
+ * put away are untouched: "restore the desk" means bringing back what was hidden, not rearranging
+ * what was never hidden.
  */
-export function restoreAll(list: readonly WorkbenchWindowState[]): WorkbenchWindowState[] {
+export function restoreAll(
+  list: readonly WorkbenchWindowState[],
+  bounds: WorkbenchBounds,
+): WorkbenchWindowState[] {
   const hidden = list.some((window) => window.mode === "min");
   if (!hidden) {
     return copyList(list);
   }
   return list.reduce(
-    (current, window) => (window.mode === "min" ? showWindow(current, window.id) : current),
+    (current, window) => (window.mode === "min" ? showWindow(current, window.id, bounds) : current),
     copyList(list),
   );
 }
