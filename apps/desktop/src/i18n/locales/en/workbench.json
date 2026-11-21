@@ -61,6 +61,7 @@
         "ended": "The stream ended.",
         "waiting": "Waiting for the first line…",
         "pausedNotice": "Paused. What is written to the file while paused is missed; following again reads the file's own tail from the top.",
+        "frequency": "Lines landing per second, the last minute of the follow",
         "count": "{count} lines",
         "hint": {
           "syslog": "Following the system log? Use /var/log/syslog — the file is written the moment anything happens, and the window keeps up.",
@@ -72,6 +73,7 @@
         "listTitle": "Forwards that are up",
         "refresh": "Refresh",
         "empty": "Nothing is being forwarded right now.",
+        "emptyAdd": "Add one below",
         "stop": "Stop forward",
         "stopTitle": "Stop forward",
         "stopMessage": "The forward on {bind} stops listening. Connections already carried are not broken, but nothing new gets through.",
@@ -114,6 +116,7 @@
         "listTitle": "Ports this machine is listening on",
         "refresh": "Refresh",
         "empty": "The host did not report any listening ports.",
+        "toForwards": "Open the forwards manager",
         "unnamed": "unnamed process",
         "openTunnel": "Open a tunnel",
         "openBrowser": "Open in browser",
@@ -300,7 +303,12 @@
     "system": {
       "title": "System panel",
       "refresh": "Read the machine again",
-      "reading": "Reading the machine…",
+      "servicesSummary": {
+        "running": "{count} running",
+        "failed": "{count} failed",
+        "inactive": "{count} inactive",
+        "filterHint": "Show the failed units only; press again to see every unit."
+      },
       "sections": {
         "services": "Services",
         "disks": "Disks",

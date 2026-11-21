@@ -8,6 +8,9 @@
  * opens a local forward from a free port here to the listener, narrowing a wide bind to the
  * loopback that actually answers; the browser button opens that tunnel and points this machine's
  * browser at the local end; and a refused open is an envelope sentence, not a console error.
+ * The window's three states are checked in their own describe: the skeleton only for a first
+ * read (a refresh never flashes it over live rows), the failure with its retry, and the empty
+ * state whose way out is the forwards manager.
  */
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
@@ -254,5 +257,102 @@ describe("the desktop's services window", () => {
       expect(windowBody().textContent).toContain("SESSION-CLOSED");
     });
     expect(rows().length).toBe(0);
+  });
+});
+
+describe("the services window's three states", () => {
+  it("draws the rows' skeleton for the first read, and nothing else — no empty state behind a promise", async () => {
+    // A host that has not answered yet: the shape of what is coming, and neither the empty state
+    // (which would claim the host has no listeners) nor blankness (which reads as broken).
+    await mount(new Promise<SystemOverview>(() => {}));
+
+    expect(document.querySelector("[data-workbench-services-skeleton]")).not.toBeNull();
+    expect(document.querySelector("[data-workbench-services-empty]")).toBeNull();
+    expect(rows().length).toBe(0);
+  });
+
+  it("the skeleton is only for the first read: a refresh over live rows keeps the rows on screen", async () => {
+    let arrive!: (overview: SystemOverview) => void;
+    await mount(
+      new Promise<SystemOverview>((resolve) => {
+        arrive = resolve;
+      }),
+    );
+    expect(document.querySelector("[data-workbench-services-skeleton]")).not.toBeNull();
+
+    // The answer lands and the skeleton steps aside in the same render — no flash between.
+    arrive(OVERVIEW);
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(document.querySelector("[data-workbench-services-skeleton]")).toBeNull();
+
+    // A second, slow read: the rows stay drawn, so nothing flashes over what was already there.
+    overviewMock.mockReturnValue(new Promise<SystemOverview>(() => {}));
+    button("Refresh")?.click();
+    await nextTick();
+    expect(document.querySelector("[data-workbench-services-skeleton]")).toBeNull();
+    expect(rows().length).toBe(2);
+  });
+
+  it("a failed read is the banner with the retry beside it, not the empty state", async () => {
+    await mount(
+      Promise.reject({
+        version: 1,
+        code: "SESSION-CLOSED",
+        messageKey: "errors.session.closed",
+        messageParams: {},
+        origin: { subsystem: "session" },
+        outcome: "failed",
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(windowBody().textContent).toContain("SESSION-CLOSED");
+    });
+
+    // A failed read is not an empty host: the empty state stays hidden, the retry stands.
+    expect(document.querySelector("[data-workbench-services-empty]")).toBeNull();
+    overviewMock.mockReturnValue(Promise.resolve(OVERVIEW));
+    button("Retry")?.click();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(windowBody().textContent).not.toContain("SESSION-CLOSED");
+  });
+
+  it("the empty state's way out is the forwards manager, and the window says so", async () => {
+    const { listeners: _omitted, ...withoutListeners } = OVERVIEW;
+    let openedForwards = 0;
+    app?.unmount();
+    host?.remove();
+
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    overviewMock.mockReturnValue(Promise.resolve(withoutListeners as SystemOverview));
+    host = document.createElement("div");
+    document.body.append(host);
+    app = createApp({
+      render: () =>
+        h(WorkbenchServicesWindow, {
+          sessionId: "session-1",
+          handle: "w1",
+          active: true,
+          onOpenForwards: () => {
+            openedForwards += 1;
+          },
+        }),
+    });
+    app.use(i18n);
+    app.use(pinia);
+    app.mount(host);
+    await vi.waitFor(() => {
+      expect(document.querySelector("[data-workbench-services-empty]")).not.toBeNull();
+    });
+
+    const wayOut = document.querySelector<HTMLButtonElement>("[data-workbench-services-open-forwards]");
+    expect(wayOut?.textContent?.trim()).toBe("Open the forwards manager");
+    wayOut?.click();
+    await nextTick();
+    expect(openedForwards).toBe(1);
   });
 });

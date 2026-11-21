@@ -4,14 +4,15 @@
  *
  * The row is deliberately quiet until it has something to say. A host that has not answered yet is
  * a name and an address — the honest state — rather than a spinner per row, which for ten hosts is
- * ten things that look like work happening everywhere at once.
+ * ten things that look like work happening everywhere at once. Its settled states draw as the
+ * desktop's status lights: hollow has not run, filled green succeeded, filled red failed.
  *
  * Output is folded away rather than shown: a batch is read by scanning exit codes, and the one
  * host that failed is the one whose output is worth unfolding. Standard error is kept apart from
  * standard output because they answer different questions — "what did it print" and "why did it
  * complain" — and merging them loses which is which.
  */
-import { Check, ChevronDown, ChevronRight, CircleAlert, LoaderCircle, MinusCircle, RotateCw } from "@lucide/vue";
+import { ChevronDown, ChevronRight, LoaderCircle, RotateCw } from "@lucide/vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -28,6 +29,23 @@ const open = ref(false);
 const failure = computed(() => (props.row.result?.outcome.kind === "failed" ? props.row.result.outcome.error : null));
 const ran = computed(() => (props.row.result?.outcome.kind === "ran" ? props.row.result.outcome : null));
 const failed = computed(() => rowFailed(props.row));
+
+/**
+ * The settled row's status light, in the dot vocabulary the desktop's lists share: filled and
+ * green is a host that answered and succeeded, filled and red is one that answered and failed,
+ * hollow is one that has not run — shape for "has it run", colour for "how did it go". A row
+ * still running keeps the spinner, because a static dot would claim a settled state the run
+ * does not have yet.
+ */
+const light = computed(() => {
+  if (failed.value) {
+    return "bg-destructive";
+  }
+  if (ran.value !== null && !failed.value) {
+    return "bg-success";
+  }
+  return "border border-muted-foreground/50";
+});
 
 /**
  * Why a host has nothing to show, in the active language.
@@ -59,9 +77,19 @@ const expandable = computed(() => hasOutput.value || described.value !== null);
     <div class="flex items-center gap-2 px-3 py-2 text-xs">
       <span class="grid size-5 shrink-0 place-items-center">
         <LoaderCircle v-if="row.status === 'running'" :size="13" class="animate-spin text-muted-foreground" />
-        <MinusCircle v-else-if="row.status === 'pending'" :size="13" class="text-muted-foreground/50" />
-        <CircleAlert v-else-if="failed" :size="13" class="text-destructive" />
-        <Check v-else :size="13" class="text-success" />
+        <!--
+          The settled light: hollow has not run, filled green succeeded, filled red failed. The
+          word and the number beside it carry the meaning for a reader; this is for the scan down
+          the column, in the same dot language every other list in the desktop draws.
+        -->
+        <span
+          v-else
+          aria-hidden="true"
+          class="size-2 shrink-0 rounded-full"
+          :class="light"
+          data-batch-row-light
+          :data-batch-state="failed ? 'failed' : ran ? 'success' : 'pending'"
+        ></span>
       </span>
 
       <button
@@ -92,12 +120,12 @@ const expandable = computed(() => hasOutput.value || described.value !== null);
       </span>
       <span
         v-else-if="ran"
-        class="shrink-0 font-mono text-[11px]"
+        class="nums shrink-0 text-[11px]"
         :class="failed ? 'text-destructive' : 'text-muted-foreground'"
       >
         {{ ran.exitCode === null ? t("batch.result.noStatus") : t("batch.result.exit", { code: ran.exitCode }) }}
       </span>
-      <span class="shrink-0 font-mono text-[11px] text-muted-foreground/70">{{ duration }}</span>
+      <span class="nums shrink-0 text-[11px] text-muted-foreground/70">{{ duration }}</span>
 
       <button
         v-if="row.status === 'done' && failed"

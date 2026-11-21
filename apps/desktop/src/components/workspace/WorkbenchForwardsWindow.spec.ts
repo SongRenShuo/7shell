@@ -6,7 +6,9 @@
  * window adds — that the list is the backend's own reading, that stopping a runtime forward is
  * asked about once and really asked for, that an added forward's answer (with the port actually
  * bound) joins the list, and that a session without a connection forwards can ride on is refused
- * in a sentence rather than drawn as an empty room.
+ * in a sentence rather than drawn as an empty room. The rows carry the desktop's status lights —
+ * filled green is a tunnel carrying a connection, hollow is up but idle — and the empty state's
+ * one action hands the caret to the add form, while a failed read offers the retry in its banner.
  */
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
@@ -505,5 +507,65 @@ describe("the desktop's forwards window", () => {
     await vi.waitFor(() => {
       expect(rows().length).toBe(1);
     });
+  });
+});
+
+describe("the forwards window's rows and empty state", () => {
+  it("wears the status light: filled green while carrying a connection, hollow while idle", async () => {
+    const idle = { ...tunnel("t3"), connections: 0 };
+    listMock.mockResolvedValue([tunnel("t1"), idle]);
+    await mount("linuxDesk");
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+
+    const lights = [...windowBody().querySelectorAll<HTMLElement>("[data-workbench-forwards-light]")];
+    expect(lights.length).toBe(2);
+    // The tunnel carrying two connections: filled, in the theme's success token.
+    expect(rows()[0]?.dataset.forwardCarrying).toBe("yes");
+    expect(lights[0]?.className).toContain("bg-success");
+    expect(lights[0]?.className).not.toContain("border");
+    // The tunnel up but carrying nothing: hollow, in the muted voice.
+    expect(rows()[1]?.dataset.forwardCarrying).toBe("no");
+    expect(lights[1]?.className).toContain("border");
+    expect(lights[1]?.className).not.toContain("bg-success");
+  });
+
+  it("the empty state's way out is the add form, and the failure banner carries the retry", async () => {
+    // Empty, and the action hands the caret to the form — the form is the way out.
+    await mount("linuxDesk");
+    await vi.waitFor(() => {
+      expect(windowBody().querySelector("[data-workbench-forwards-empty]")).not.toBeNull();
+    });
+    windowBody().querySelector<HTMLButtonElement>("[data-workbench-forwards-empty-add]")?.click();
+    await nextTick();
+    const firstField = windowBody().querySelector<HTMLInputElement>("[data-workbench-forwards-add] input");
+    expect(firstField).not.toBeNull();
+    expect(document.activeElement).toBe(firstField);
+
+    // A read that failed: the banner names it and offers the retry beside the dismiss.
+    listMock.mockReset().mockRejectedValue(
+      new ShellError({
+        version: 1,
+        code: "SESSION-CLOSED",
+        messageKey: "errors.session.closed",
+        messageParams: {},
+        origin: { subsystem: "terminal" },
+        outcome: "unknown",
+      }),
+    );
+    await mount("linuxDesk");
+    await vi.waitFor(() => {
+      expect(windowBody().textContent).toContain("SESSION-CLOSED");
+    });
+    expect(windowBody().querySelector("[data-workbench-forwards-empty]")).toBeNull();
+
+    // The retry is the same read again, now answered: the list arrives, the banner goes.
+    listMock.mockReset().mockResolvedValue([tunnel("t1")]);
+    button("Retry")?.click();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(1);
+    });
+    expect(windowBody().textContent).not.toContain("SESSION-CLOSED");
   });
 });

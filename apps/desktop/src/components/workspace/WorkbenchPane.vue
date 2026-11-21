@@ -1918,6 +1918,7 @@ function hostInBrowser(): void {
           :handle="tab.handle"
           :active="window.focused"
           class="h-full"
+          @open-forwards="openRecord('forwards', t('workbench.desktop.icons.forwards'), 'forwards')"
         />
         <WorkbenchTailWindow
           v-else-if="window.kind === 'tail'"

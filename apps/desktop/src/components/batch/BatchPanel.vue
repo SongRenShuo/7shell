@@ -80,6 +80,11 @@ const showVerdict = computed(() => batch.command.trim() !== "" && batch.risk !==
 const answered = computed(() => batch.rows.filter((row) => row.status === "done").length);
 const unfinished = computed(() => batch.failedIds.length);
 
+/** The empty state's one action: put the caret in the command box, where the next run starts. */
+function focusCommand(): void {
+  document.querySelector<HTMLTextAreaElement>("[data-batch-command]")?.focus();
+}
+
 const retrying = ref(false);
 
 /**
@@ -506,11 +511,22 @@ async function runAcknowledged(): Promise<void> {
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto">
-        <div v-if="batch.rows.length === 0" class="grid h-full place-items-center px-6 text-center">
-          <div class="max-w-sm space-y-1.5">
-            <ListChecks :size="20" class="mx-auto text-muted-foreground/60" />
-            <p class="text-xs text-muted-foreground">{{ t("batch.empty.hint") }}</p>
-          </div>
+        <!--
+          No run yet, which here has a way out: the command box is the one thing a first run needs
+          that the picker has not already answered, so the empty state's action hands the caret to
+          it rather than restating the hint as a dead end.
+        -->
+        <div v-if="batch.rows.length === 0" class="state-empty h-full px-6" data-batch-empty>
+          <ListChecks :size="20" aria-hidden="true" class="text-muted-foreground/60" />
+          <p>{{ t("batch.empty.hint") }}</p>
+          <button
+            type="button"
+            class="rounded-md border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-accent hover:text-foreground"
+            data-batch-empty-write
+            @click="focusCommand()"
+          >
+            {{ t("batch.empty.action") }}
+          </button>
         </div>
 
         <template v-else>

@@ -20,6 +20,11 @@
  *
  * The window reads through the desktop's own connection, which is why it needs the handle and why
  * a dropped connection is the pane's disconnected sentence rather than something drawn in here.
+ *
+ * Its three states are the desktop's own: the first read draws the rows' skeleton (and only the
+ * first read — a refresh keeps what was on screen, so nothing flashes); a host with no listeners
+ * is the empty state with the way out (the forwards manager, which the pane opens for it); a read
+ * that failed is the envelope's sentence with a retry beside it.
  */
 import { Cable, Globe, Radar, RefreshCw, X } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
@@ -40,6 +45,13 @@ const props = defineProps<{
   active: boolean;
 }>();
 
+/**
+ * The one thing this window asks of the pane: open the forwards manager. The empty state's way
+ * out is that window — a host with no listeners has nothing to reach from here, and the forwards
+ * manager is where a forward is made by hand.
+ */
+const emit = defineEmits<{ "open-forwards": [] }>();
+
 const { t } = useI18n();
 const { toast } = useToast();
 
@@ -48,6 +60,18 @@ const { toast } = useToast();
 const listeners = ref<readonly SystemListener[]>([]);
 const reading = ref(false);
 const failure = ref<ShellError | null>(null);
+
+/**
+ * Whether a read has landed at all — any outcome counts. The window's states hang off it: the
+ * skeleton is drawn only for the read that has not landed yet (the rows' shape is known before
+ * the host has answered), and the empty state only for a host that answered with nothing. Without
+ * it the first frame would draw the empty state — nothing has been read, so "no listeners" would
+ * be claimed before the host was ever asked.
+ */
+const readOnce = ref(false);
+
+/** The skeleton: the first read only. A refresh over live rows never flashes it over content. */
+const firstReading = computed(() => reading.value && !readOnce.value);
 
 async function refresh(): Promise<void> {
   if (reading.value) {
@@ -65,6 +89,7 @@ async function refresh(): Promise<void> {
     failure.value = asShellError(error, "system_overview");
   } finally {
     reading.value = false;
+    readOnce.value = true;
   }
 }
 
@@ -184,6 +209,14 @@ async function openBrowser(listener: SystemListener): Promise<void> {
       </span>
       <button
         type="button"
+        class="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        :disabled="reading"
+        @click="refresh()"
+      >
+        {{ t("common.action.retry") }}
+      </button>
+      <button
+        type="button"
         class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         :aria-label="t('common.action.close')"
         @click="failure = null"
@@ -194,13 +227,41 @@ async function openBrowser(listener: SystemListener): Promise<void> {
 
     <!-- What the host is listening on. -->
     <div class="min-h-0 flex-1 overflow-auto" data-workbench-services-rows>
-      <p
-        v-if="listeners.length === 0 && !reading"
-        class="px-4 py-4 text-center text-xs text-muted-foreground"
+      <!--
+        The first read: the rows' shape, before the host has answered. It is drawn only while
+        nothing has arrived yet — a refresh over live rows, or a retry after a failure, keeps what
+        was already on screen, so the skeleton never flickers over content.
+      -->
+      <ul v-if="firstReading" class="space-y-2 p-3" data-workbench-services-skeleton aria-hidden="true">
+        <li v-for="row in 6" :key="row" class="flex items-center gap-2">
+          <div class="skeleton size-5 rounded-full"></div>
+          <div class="skeleton h-3 w-44"></div>
+          <span class="min-w-2 flex-1"></span>
+          <div class="skeleton h-6 w-20 rounded-md"></div>
+          <div class="skeleton h-6 w-24 rounded-md"></div>
+        </li>
+      </ul>
+      <!--
+        A host that answered with nothing. The sentence says what an empty list means here, and
+        the action is the way out: the forwards manager, where a forward is made by hand when
+        there is no listener to reach from this row. A read that failed is not an empty host —
+        the banner above says what happened and carries the retry.
+      -->
+      <div
+        v-else-if="readOnce && listeners.length === 0 && !reading && failure === null"
+        class="state-empty h-full"
         data-workbench-services-empty
       >
-        {{ t("workbench.desktop.services.empty") }}
-      </p>
+        <p>{{ t("workbench.desktop.services.empty") }}</p>
+        <button
+          type="button"
+          class="rounded-md border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-accent hover:text-foreground"
+          data-workbench-services-open-forwards
+          @click="emit('open-forwards')"
+        >
+          {{ t("workbench.desktop.services.toForwards") }}
+        </button>
+      </div>
       <ul v-else class="py-1">
         <li
           v-for="listener in listeners"
@@ -212,7 +273,9 @@ async function openBrowser(listener: SystemListener): Promise<void> {
           <Radar :size="13" class="shrink-0 text-muted-foreground" />
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-1.5 font-mono text-[11px]">
-              <span class="shrink-0">{{ listener.address }}:{{ listener.port }}</span>
+              <span class="shrink-0"
+                >{{ listener.address }}:<span class="nums">{{ listener.port }}</span></span
+              >
               <span class="min-w-0 truncate font-sans text-[10px] text-muted-foreground">{{
                 processOf(listener)
               }}</span>

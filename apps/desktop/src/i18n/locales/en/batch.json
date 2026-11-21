@@ -43,7 +43,8 @@
       "approval": "Nothing has run: this command needs your approval first."
     },
     "empty": {
-      "hint": "Pick the hosts on the left, write one command, and read the verdict before running it."
+      "hint": "Pick the hosts on the left, write one command, and read the verdict before running it.",
+      "action": "Write the command"
     },
     "summary": {
       "line": "{done} of {total} answered in {duration}"

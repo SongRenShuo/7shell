@@ -311,3 +311,66 @@ describe("the desktop's tail window", () => {
     expect(closeMock).toHaveBeenCalledWith("tail-1");
   });
 });
+
+describe("the tail window's line frequency", () => {
+  /** The microtasks a click's async trail needs before the store has settled, on fake timers. */
+  async function settle(): Promise<void> {
+    for (let turn = 0; turn < 6; turn += 1) {
+      await Promise.resolve();
+    }
+    await nextTick();
+  }
+
+  async function followAbsolutePath(): Promise<void> {
+    pathInput().value = "/var/log/app.log";
+    pathInput().dispatchEvent(new Event("input"));
+    await nextTick();
+    followButton().click();
+    await settle();
+  }
+
+  // The sampling is a one-second schedule, so the test drives the schedule itself: the assertions
+  // are on what was asked to happen per tick, never on how long anything took.
+  it("samples once a second while following, stops when paused, and empties for a fresh ask", async () => {
+    vi.useFakeTimers();
+    try {
+      openMock.mockResolvedValue("tail-1");
+      await mount(windowProps());
+      await followAbsolutePath();
+      expect(windowBody().querySelector("[data-workbench-tail-lines]")).not.toBeNull();
+
+      // Nothing is drawn before the first second has answered.
+      expect(windowBody().querySelector("[data-workbench-tail-frequency]")).toBeNull();
+
+      emitLine("tail-1", "line one");
+      emitLine("tail-1", "line two");
+      await nextTick();
+
+      // The first tick closes the first interval: two lines landed in it.
+      vi.advanceTimersByTime(1000);
+      await nextTick();
+      expect(windowBody().querySelector("[data-workbench-tail-frequency]")).not.toBeNull();
+
+      // A quiet second is a sample of zero — the bar keeps its width, the line stays honest.
+      vi.advanceTimersByTime(1000);
+      await nextTick();
+      const bars = windowBody().querySelectorAll("[data-workbench-tail-frequency] span");
+      expect(bars.length).toBe(2);
+
+      // Paused: the schedule stops; ticks pass and no third sample is taken.
+      followButton().click();
+      await settle();
+      vi.advanceTimersByTime(5000);
+      await nextTick();
+      expect(windowBody().querySelectorAll("[data-workbench-tail-frequency] span").length).toBe(2);
+
+      // Stop for good: the window is the ask again, and a fresh ask starts from an empty bar.
+      const stop = [...windowBody().querySelectorAll("button")].find((entry) => entry.textContent?.trim() === "Stop");
+      stop?.click();
+      await settle();
+      expect(windowBody().querySelector("[data-workbench-tail-frequency]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

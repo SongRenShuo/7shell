@@ -12,26 +12,23 @@
  *
  * 1. **One read on open, then a refresh somebody asks for.** Nothing here is a live meter, and a
  *    panel that re-read five remote commands on a clock would be a cost paid by the machine for a
- *    page that is mostly not being looked at.
+ *    page that is mostly not being looked at. The first read draws the shape the content will
+ *    take — a skeleton, and only then — because a structure that is known before its data is the
+ *    one case a skeleton is honest about.
  * 2. **A section the host could not answer is empty with a sentence, never a zero.** A container
  *    without systemd has no services and no journal; saying so is the honest reading.
  * 3. **The journal can be asked for more, and asks once each time.** It is a tail of fixed size,
  *    and the button that grows it is a person's decision rather than a stream.
+ *
+ * The services section opens onto a summary — how many units run, how many failed, how many are
+ * neither — with the failed count the one that acts, narrowing the table to the failures. The
+ * machine's own facts (distribution, kernel, uptime, timezone) draw on a line of their own under
+ * the tabs and wrap rather than truncate: a timezone cut at the margin is a fact the panel was
+ * showing and hiding at once.
  */
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  Boxes,
-  CalendarClock,
-  HardDrive,
-  History,
-  LoaderCircle,
-  Network,
-  RefreshCw,
-  ScrollText,
-  Users,
-  X,
-} from "@lucide/vue";
+import { Boxes, CalendarClock, HardDrive, History, Network, RefreshCw, ScrollText, Users, X } from "@lucide/vue";
 
 import { describeShellError } from "@/i18n/errors";
 import { useToast } from "@/composables/useToast";
@@ -144,6 +141,44 @@ const services = computed(() => {
     return rank(left) - rank(right) || left.name.localeCompare(right.name);
   });
 });
+
+/**
+ * The summary a first screen reads instead of the whole table: how many units are running, how
+ * many failed, how many are in neither state. The failed count is the one that can act — pressing
+ * it narrows the table to the failures, which is the only subset worth a click.
+ */
+const servicesRunning = computed(() => services.value.filter((service) => service.active === "active").length);
+const servicesFailed = computed(() => services.value.filter((service) => service.active === "failed").length);
+const servicesInactive = computed(() => services.value.length - servicesRunning.value - servicesFailed.value);
+
+const failedOnly = ref(false);
+
+/** The filter stands only while there is something to narrow to: a refresh that clears every
+ * failure widens the table back rather than drawing an empty room behind a pressed button. */
+const failedFilterOn = computed(() => failedOnly.value && servicesFailed.value > 0);
+
+const shownServices = computed(() =>
+  failedFilterOn.value ? services.value.filter((service) => service.active === "failed") : services.value,
+);
+
+function toggleFailedFilter(): void {
+  failedOnly.value = !failedOnly.value;
+}
+
+/**
+ * The row's status light, in the shape-and-colour pair the desktop's lists share: a hollow dot is
+ * a unit that is not running, a filled one is — and the fill's tone says whether that is fine.
+ * The word beside it already says the state; the dot is for the scan down the column.
+ */
+function lightFor(service: ServiceEntry): string {
+  if (service.active === "failed") {
+    return "bg-destructive";
+  }
+  if (service.active === "active") {
+    return "bg-success";
+  }
+  return "border border-muted-foreground/60";
+}
 
 const accounts = computed(() => {
   const list = overview.value?.accounts ?? [];
@@ -300,8 +335,19 @@ watch(
       </button>
     </header>
 
-    <p v-if="readable" class="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5 text-[11px]">
-      {{ readable }}
+    <p
+      v-if="readable"
+      class="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5 text-[11px]"
+    >
+      <span class="min-w-0 flex-1">{{ readable }}</span>
+      <button
+        type="button"
+        class="shrink-0 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        :disabled="reading"
+        @click="read()"
+      >
+        {{ t("common.action.retry") }}
+      </button>
     </p>
 
     <nav class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1" data-workbench-system-tabs>
@@ -320,132 +366,182 @@ watch(
         <component :is="entry.icon" :size="11" />
         {{ entry.label }}
       </button>
-      <span class="min-w-2 flex-1" />
-      <span
-        v-for="fact in facts"
-        :key="fact.label"
-        class="hidden shrink-0 truncate whitespace-nowrap text-[11px] text-muted-foreground lg:inline"
-      >
-        {{ fact.label }} <span class="text-foreground/80">{{ fact.value }}</span>
-      </span>
     </nav>
 
+    <!--
+      The machine's own facts, on a line of their own under the tabs. They used to share the tab
+      row's tail, and a long value — a timezone like `Asia/Shanghai` — was truncated to keep the row
+      on one line, which hid exactly the fact it was standing for. Here the row wraps instead:
+      nothing is cut, and a narrow window pushes a fact to the next line rather than out of the
+      panel.
+    -->
+    <p
+      v-if="facts.length > 0"
+      class="flex flex-wrap items-center gap-x-4 gap-y-0.5 shrink-0 border-b border-border px-3 py-1 text-[11px] text-muted-foreground"
+      data-workbench-system-facts
+    >
+      <span v-for="fact in facts" :key="fact.label" class="whitespace-nowrap">
+        {{ fact.label }} <span class="text-foreground/80">{{ fact.value }}</span>
+      </span>
+    </p>
+
     <div class="min-h-0 flex-1 overflow-auto px-3 py-2">
-      <div
-        v-if="reading && !overview"
-        class="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground"
-      >
-        <LoaderCircle :size="14" class="animate-spin" />
-        {{ t("workbench.system.reading") }}
+      <!--
+        The first read, drawn as the shape it is about to become: a summary line and a table, the
+        form the panel opens onto. A skeleton is the promise of a structure that is known before
+        its data is — which is the first read of this panel and nothing else — and it steps aside
+        the moment the overview lands, in the same render, so nothing flashes between.
+      -->
+      <div v-if="reading && !overview" class="space-y-2" data-workbench-system-skeleton aria-hidden="true">
+        <div class="skeleton h-3 w-56"></div>
+        <div class="skeleton h-4 w-full"></div>
+        <div v-for="row in 9" :key="row" class="skeleton h-7 w-full"></div>
       </div>
 
       <!-- Services: what is running, what failed, and what is not running at all. -->
-      <table
-        v-else-if="section === 'services'"
-        :class="TABLE.page.table"
-        :aria-label="t('workbench.system.sections.services')"
-      >
-        <thead :class="TABLE.page.head">
-          <tr :class="TABLE.page.headRow">
-            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.services.name") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.load") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.active") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.sub") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-24 text-left')">{{ t("workbench.system.services.boot") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.services.description") }}</th>
-            <th :class="cn(TABLE.page.headCell, 'w-32 text-right')">{{ t("workbench.system.services.actions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="service in services" :key="service.name" :class="rowClass('page')">
-            <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')" :title="service.name">
-              {{ service.name }}
-            </td>
-            <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ service.load }}</td>
-            <td
-              :class="
-                cn(
-                  TABLE.page.cell,
-                  service.active === 'failed'
-                    ? 'text-destructive'
-                    : service.active === 'active'
-                      ? 'text-foreground'
-                      : 'text-muted-foreground',
-                )
-              "
-            >
-              {{ service.active }}
-            </td>
-            <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ service.sub }}</td>
-            <td :class="cn(TABLE.page.cell, 'whitespace-nowrap')">
-              <button
-                v-if="canToggleBoot(service)"
-                type="button"
-                role="switch"
-                :aria-checked="bootOn(service)"
-                :aria-label="t('workbench.system.services.boot')"
-                :title="
-                  bootOn(service)
-                    ? t('workbench.system.serviceActions.disable')
-                    : t('workbench.system.serviceActions.enable')
+      <div v-else-if="section === 'services'" class="flex flex-col gap-2">
+        <!--
+          The summary the first screen reads instead of the whole table. The failed count is the
+          one that acts: pressing it narrows the table to the failures, and it wears the
+          destructive tone exactly while there is a failure to press about.
+        -->
+        <p
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
+          data-workbench-system-summary
+        >
+          <span class="nums">{{ t("workbench.system.servicesSummary.running", { count: servicesRunning }) }}</span>
+          <button
+            type="button"
+            class="nums inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            :class="servicesFailed > 0 ? 'text-destructive' : ''"
+            :aria-pressed="failedFilterOn"
+            :title="t('workbench.system.servicesSummary.filterHint')"
+            :disabled="servicesFailed === 0"
+            data-workbench-system-failed-filter
+            @click="toggleFailedFilter()"
+          >
+            <span
+              aria-hidden="true"
+              class="size-1.5 shrink-0 rounded-full"
+              :class="servicesFailed > 0 ? 'bg-destructive' : 'border border-muted-foreground/60'"
+            ></span>
+            {{ t("workbench.system.servicesSummary.failed", { count: servicesFailed }) }}
+          </button>
+          <span class="nums">{{ t("workbench.system.servicesSummary.inactive", { count: servicesInactive }) }}</span>
+        </p>
+
+        <table :class="TABLE.page.table" :aria-label="t('workbench.system.sections.services')">
+          <thead :class="TABLE.page.head">
+            <tr :class="TABLE.page.headRow">
+              <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.services.name") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.load") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.active") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-20 text-left')">{{ t("workbench.system.services.sub") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-24 text-left')">{{ t("workbench.system.services.boot") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'text-left')">{{ t("workbench.system.services.description") }}</th>
+              <th :class="cn(TABLE.page.headCell, 'w-32 text-right')">{{ t("workbench.system.services.actions") }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="service in shownServices" :key="service.name" :class="rowClass('page')">
+              <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')" :title="service.name">
+                {{ service.name }}
+              </td>
+              <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ service.load }}</td>
+              <td
+                :class="
+                  cn(
+                    TABLE.page.cell,
+                    service.active === 'failed'
+                      ? 'text-destructive'
+                      : service.active === 'active'
+                        ? 'text-foreground'
+                        : 'text-muted-foreground',
+                  )
                 "
-                :disabled="busyUnit === service.name"
-                class="inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                :class="bootOn(service) ? 'bg-emerald-500/80' : 'bg-accent'"
-                @click="act(service.name, bootOn(service) ? 'disable' : 'enable')"
               >
-                <span
-                  class="size-3 rounded-full bg-white shadow-sm transition-transform"
-                  :class="bootOn(service) ? 'translate-x-3' : 'translate-x-0'"
-                />
-              </button>
-              <span v-else class="font-mono text-[11px] text-muted-foreground" :title="service.enabled ?? ''">
-                {{ service.enabled ?? "-" }}
-              </span>
-            </td>
-            <td :class="cn(TABLE.page.cell, 'truncate text-muted-foreground')" :title="service.description">
-              {{ service.description }}
-            </td>
-            <td :class="cn(TABLE.page.cell, 'whitespace-nowrap text-right')">
-              <span class="inline-flex items-center gap-1">
+                <span class="flex items-center gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    class="size-1.5 shrink-0 rounded-full"
+                    :class="lightFor(service)"
+                    data-workbench-system-service-light
+                    :data-service-state="service.active"
+                  ></span>
+                  {{ service.active }}
+                </span>
+              </td>
+              <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ service.sub }}</td>
+              <td :class="cn(TABLE.page.cell, 'whitespace-nowrap')">
                 <button
+                  v-if="canToggleBoot(service)"
                   type="button"
-                  class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                  :disabled="busyUnit === service.name || service.active === 'active'"
-                  :title="t('workbench.system.serviceActions.start')"
-                  @click="act(service.name, 'start')"
+                  role="switch"
+                  :aria-checked="bootOn(service)"
+                  :aria-label="t('workbench.system.services.boot')"
+                  :title="
+                    bootOn(service)
+                      ? t('workbench.system.serviceActions.disable')
+                      : t('workbench.system.serviceActions.enable')
+                  "
+                  :disabled="busyUnit === service.name"
+                  class="inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  :class="bootOn(service) ? 'bg-emerald-500/80' : 'bg-accent'"
+                  @click="act(service.name, bootOn(service) ? 'disable' : 'enable')"
                 >
-                  {{ t("workbench.system.serviceActions.start") }}
+                  <span
+                    class="size-3 rounded-full bg-white shadow-sm transition-transform"
+                    :class="bootOn(service) ? 'translate-x-3' : 'translate-x-0'"
+                  />
                 </button>
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                  :disabled="busyUnit === service.name || service.active !== 'active'"
-                  :title="t('workbench.system.serviceActions.restart')"
-                  @click="act(service.name, 'restart')"
-                >
-                  {{ t("workbench.system.serviceActions.restart") }}
-                </button>
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
-                  :disabled="busyUnit === service.name || service.active !== 'active'"
-                  :title="t('workbench.system.serviceActions.stop')"
-                  @click="act(service.name, 'stop')"
-                >
-                  {{ t("workbench.system.serviceActions.stop") }}
-                </button>
-              </span>
-            </td>
-          </tr>
-          <tr v-if="services.length === 0">
-            <td :colspan="7" :class="TABLE.page.emptyCell">{{ t("workbench.system.services.empty") }}</td>
-          </tr>
-        </tbody>
-      </table>
+                <span v-else class="font-mono text-[11px] text-muted-foreground" :title="service.enabled ?? ''">
+                  {{ service.enabled ?? "-" }}
+                </span>
+              </td>
+              <td :class="cn(TABLE.page.cell, 'truncate text-muted-foreground')" :title="service.description">
+                {{ service.description }}
+              </td>
+              <td :class="cn(TABLE.page.cell, 'whitespace-nowrap text-right')">
+                <span class="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    :disabled="busyUnit === service.name || service.active === 'active'"
+                    :title="t('workbench.system.serviceActions.start')"
+                    @click="act(service.name, 'start')"
+                  >
+                    {{ t("workbench.system.serviceActions.start") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    :disabled="busyUnit === service.name || service.active !== 'active'"
+                    :title="t('workbench.system.serviceActions.restart')"
+                    @click="act(service.name, 'restart')"
+                  >
+                    {{ t("workbench.system.serviceActions.restart") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-md px-1.5 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    :disabled="busyUnit === service.name || service.active !== 'active'"
+                    :title="t('workbench.system.serviceActions.stop')"
+                    @click="act(service.name, 'stop')"
+                  >
+                    {{ t("workbench.system.serviceActions.stop") }}
+                  </button>
+                </span>
+              </td>
+            </tr>
+            <tr v-if="services.length === 0">
+              <td :colspan="7" :class="TABLE.page.emptyCell">{{ t("workbench.system.services.empty") }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <!-- Disks: the mount usage a person actually watches, then the whole block-device tree. -->
-      <div v-else-if="section === 'disks'" class="flex flex-col gap-3">
+      <div v-else-if="section === 'disks'" class="flex flex-col gap-2">
         <div v-if="ringMounts.length > 0" class="flex flex-wrap gap-x-4 gap-y-2" data-workbench-system-mounts>
           <figure
             v-for="mount in ringMounts"
@@ -479,7 +575,7 @@ watch(
               <td :class="cn(TABLE.page.cell, 'font-mono text-[11px]')">
                 <span :style="{ paddingLeft: `${row.depth * 14}px` }">{{ row.device.name }}</span>
               </td>
-              <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px]')">{{ row.device.size }}</td>
+              <td :class="cn(TABLE.page.cell, 'nums text-right text-[11px]')">{{ row.device.size }}</td>
               <td :class="cn(TABLE.page.cell, 'text-muted-foreground')">{{ row.device.kind }}</td>
               <td :class="cn(TABLE.page.cell, 'font-mono text-[11px] text-muted-foreground')">
                 {{ row.device.filesystem ?? "-" }}
@@ -522,10 +618,10 @@ watch(
                 >root</span
               >
             </td>
-            <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px] text-muted-foreground')">
+            <td :class="cn(TABLE.page.cell, 'nums text-right text-[11px] text-muted-foreground')">
               {{ account.uid }}
             </td>
-            <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px] text-muted-foreground')">
+            <td :class="cn(TABLE.page.cell, 'nums text-right text-[11px] text-muted-foreground')">
               {{ account.gid }}
             </td>
             <td :class="cn(TABLE.page.cell, 'truncate font-mono text-[11px]')">{{ account.home }}</td>
@@ -543,7 +639,7 @@ watch(
       </table>
 
       <!-- Network: interfaces with their addresses, then routes, then resolvers. -->
-      <div v-else-if="section === 'network'" class="flex flex-col gap-4">
+      <div v-else-if="section === 'network'" class="flex flex-col gap-5">
         <div>
           <h3 class="mb-1 text-[11px] font-medium text-muted-foreground">
             {{ t("workbench.system.network.interfaces") }}
@@ -569,7 +665,7 @@ watch(
                     {{ address.address }}/{{ address.prefix }}
                   </span>
                 </td>
-                <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px] text-muted-foreground')">
+                <td :class="cn(TABLE.page.cell, 'nums text-right text-[11px] text-muted-foreground')">
                   ↑{{ formatSize(iface.txBytes) }} ↓{{ formatSize(iface.rxBytes) }}
                 </td>
               </tr>

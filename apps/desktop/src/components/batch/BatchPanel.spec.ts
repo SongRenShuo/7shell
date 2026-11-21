@@ -178,3 +178,21 @@ describe("the batch panel's host picker", () => {
     expect(document.querySelector("[data-batch-new-session]")).not.toBeNull();
   });
 });
+
+describe("the batch panel's results empty state", () => {
+  it("no run yet draws the empty state, and its way out is the command box", async () => {
+    await render();
+    const empty = document.querySelector("[data-batch-empty]");
+    if (!empty) throw new Error("the results area drew no empty state");
+    expect(empty.textContent).toContain("Pick the hosts on the left");
+
+    // The one act that starts a run the picker has not already answered: write the command.
+    const write = document.querySelector<HTMLElement>("[data-batch-empty-write]");
+    if (!write) throw new Error("the empty state offers no way to the command box");
+    write.click();
+    await nextTick();
+    const field = document.querySelector<HTMLTextAreaElement>("[data-batch-command]");
+    expect(field, "the command box is on screen").not.toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+});

@@ -24,6 +24,10 @@
  *
  * The window is hosted by a session that has a connection forwards can ride on — SSH, or the
  * desktop's own session. Anything else is refused in a sentence, not drawn as an empty room.
+ *
+ * Each row carries the desktop's status light: filled and green while the tunnel is carrying a
+ * connection, hollow while it is up but idle — the same shape-and-colour pair every list in the
+ * desktop draws. The empty state's action is the window's own answer: the add form, focused.
  */
 import { ArrowRight, Network, Plus, RotateCw, X } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
@@ -133,6 +137,35 @@ function translate(key: string, params?: Record<string, string>): string {
 }
 
 const describedFailure = computed(() => (failure.value ? describeShellError(translate, failure.value) : null));
+
+// -- the row's light -------------------------------------------------------------
+
+/**
+ * Whether a forward is carrying anything right now, which is what its light says. Every row in
+ * this list is up — the list is what is up — so "active" here means the narrower thing: a tunnel
+ * with at least one connection through it. The light is the shape-and-colour pair the desktop's
+ * lists share: filled and green is carrying, hollow and muted is up but idle.
+ */
+function isCarrying(tunnel: OpenTunnel): boolean {
+  return tunnel.connections > 0;
+}
+
+/** The row light's classes, per the two states it names. */
+function lightClass(tunnel: OpenTunnel): string {
+  return isCarrying(tunnel) ? "bg-success" : "border border-muted-foreground/60";
+}
+
+// -- the empty state's way out -----------------------------------------------------
+
+/** The add form, which is where an empty list's answer lives. */
+const addForm = ref<HTMLFormElement | null>(null);
+
+/** The empty state's one action: put the caret in the form, since the form is the way out. */
+function focusAddForm(): void {
+  const field = addForm.value?.querySelector<HTMLInputElement>("input");
+  field?.focus();
+  field?.scrollIntoView({ block: "nearest" });
+}
 
 // -- adding one -----------------------------------------------------------------
 
@@ -282,6 +315,14 @@ function dropOpen(): void {
         </span>
         <button
           type="button"
+          class="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="refreshing"
+          @click="refresh()"
+        >
+          {{ t("common.action.retry") }}
+        </button>
+        <button
+          type="button"
           class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           :aria-label="t('common.action.close')"
           @click="failure = null"
@@ -292,9 +333,27 @@ function dropOpen(): void {
 
       <!-- What is up. -->
       <div class="min-h-0 flex-1 overflow-auto" data-workbench-forwards-rows>
-        <p v-if="tunnels.length === 0 && !refreshing" class="px-4 py-4 text-center text-xs text-muted-foreground">
-          {{ t("workbench.desktop.forwards.empty") }}
-        </p>
+        <!--
+          Nothing is being forwarded, which here has a way out rather than only a sentence: the
+          add form is the reason this window exists, and the empty state's action hands the caret
+          to it. A read that failed is not an empty list — the banner above says so, with the
+          retry.
+        -->
+        <div
+          v-if="tunnels.length === 0 && !refreshing && failure === null"
+          class="state-empty h-full"
+          data-workbench-forwards-empty
+        >
+          <p>{{ t("workbench.desktop.forwards.empty") }}</p>
+          <button
+            type="button"
+            class="rounded-md border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-accent hover:text-foreground"
+            data-workbench-forwards-empty-add
+            @click="focusAddForm()"
+          >
+            {{ t("workbench.desktop.forwards.emptyAdd") }}
+          </button>
+        </div>
         <ul v-else class="py-1">
           <li
             v-for="tunnel in tunnels"
@@ -302,7 +361,15 @@ function dropOpen(): void {
             class="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-accent/50"
             data-workbench-forwards-row
             :data-forward-mode="tunnel.mode"
+            :data-forward-carrying="isCarrying(tunnel) ? 'yes' : 'no'"
           >
+            <!-- The light: filled green is carrying a connection, hollow is up but idle. -->
+            <span
+              aria-hidden="true"
+              class="size-1.5 shrink-0 rounded-full"
+              :class="lightClass(tunnel)"
+              data-workbench-forwards-light
+            ></span>
             <Network :size="13" class="shrink-0 text-muted-foreground" />
             <span class="min-w-0 flex-1">
               <span class="flex items-center gap-1 font-mono text-[11px]">
@@ -316,7 +383,9 @@ function dropOpen(): void {
                   class="shrink-0 font-sans text-[10px] uppercase tracking-wide text-muted-foreground"
                   >{{ t("workbench.desktop.forwards.modeRemoteTag") }}</span
                 >
-                <span class="min-w-0 truncate">{{ tunnel.bindHost }}:{{ tunnel.bindPort }}</span>
+                <span class="min-w-0 truncate"
+                  >{{ tunnel.bindHost }}:<span class="nums">{{ tunnel.bindPort }}</span></span
+                >
                 <ArrowRight
                   :size="11"
                   class="shrink-0 text-muted-foreground"
@@ -331,9 +400,11 @@ function dropOpen(): void {
                   "
                 />
                 <span v-if="tunnel.mode === 'dynamic'" class="min-w-0 truncate">SOCKS5</span>
-                <span v-else class="min-w-0 truncate">{{ tunnel.targetHost }}:{{ tunnel.targetPort }}</span>
+                <span v-else class="min-w-0 truncate"
+                  >{{ tunnel.targetHost }}:<span class="nums">{{ tunnel.targetPort }}</span></span
+                >
               </span>
-              <span class="block text-[10px] text-muted-foreground">
+              <span class="nums block text-[10px] text-muted-foreground">
                 {{ t("terminal.tunnels.connections", { count: tunnel.connections }, tunnel.connections) }}
               </span>
             </span>
@@ -350,8 +421,17 @@ function dropOpen(): void {
         </ul>
       </div>
 
-      <!-- Adding one, in the scene the feature actually serves. -->
-      <form class="space-y-2.5 border-t border-border px-3 py-3" data-workbench-forwards-add @submit.prevent="add()">
+      <!--
+        Adding one, in the scene the feature actually serves. The form's own rhythm is the group
+        step the desktop's density rule fixes: eight pixels inside the form, the fields and their
+        labels a group within it.
+      -->
+      <form
+        ref="addForm"
+        class="space-y-2 border-t border-border px-3 py-3"
+        data-workbench-forwards-add
+        @submit.prevent="add()"
+      >
         <div class="flex items-center gap-2 text-xs">
           <span class="shrink-0 text-muted-foreground">{{ t("workbench.desktop.forwards.modeLabel") }}</span>
           <Select
@@ -363,7 +443,7 @@ function dropOpen(): void {
           />
         </div>
 
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-2 text-xs">
           <label class="flex items-center gap-1.5">
             <span class="text-muted-foreground">{{
               t(mode === "remote" ? "workbench.desktop.forwards.bindHostServer" : "workbench.desktop.forwards.bindHost")
