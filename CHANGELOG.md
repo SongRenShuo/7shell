@@ -8,6 +8,24 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- A terminal's connection can no longer be driven out of channels by its own monitor: a command
+  whose channel is abandoned on timeout or refusal now sends Close, so the server frees the
+  session slot instead of holding it until the whole connection dies — the outage where
+  everything on one host answered "无法打开或使用 SSH 通道" came from slots held exactly this
+  way (3dce0a6).
+- The monitor backs off instead of hammering: a host that starts refusing channels is sampled
+  again after a pause that doubles from 10s to a minute's cap, one sample at a time per
+  connection, and the pause's error says why and how long (3dce0a6).
+- A host whose fresh connections keep failing is not re-dialled at the rate the pages poll:
+  reconnects pause with exponential backoff and jitter, capped at 30s, answered immediately
+  with the failure count and the seconds left, and a success forgives the history (3dce0a6).
+- A server refusing a channel open is reported as "the connection's session slots are in use"
+  with its own error code (SSH-CHANNEL-REFUSED), so the interface can say what is wrong instead
+  of a generic channel failure (3dce0a6).
+- The desk widgets skip a tick while the previous sample is still on its way, so a sample slower
+  than the 2s interval no longer stacks a command per tick on the terminal's connection
+  (3dce0a6).
+
 - The Docker manager's create action sits on the containers page's own toolbar; the empty pane
   header that carried it alone, and the second create button beside it, are gone (container).
 

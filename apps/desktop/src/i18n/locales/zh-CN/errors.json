@@ -17,6 +17,8 @@
       "unreachable": "无法连接到 {host}:{port}。",
       "timeout": "{host}:{port} 在 {seconds} 秒内没有响应。",
       "channelFailed": "无法在 {host}:{port} 上打开或使用 SSH 通道。",
+      "channelRefused": "{host}:{port} 拒绝打开通道：该连接的会话名额已被占满。{detail}",
+      "backoff": "到 {host}:{port} 的连接因连续失败而暂停，{seconds} 秒后才会再次尝试。",
       "keyInvalid": "无法读取该密钥。如果它带口令，口令也需要检查。",
       "keyUnsupported": "当前版本无法使用这种类型的密钥。",
       "configUnsupported": "本机 OpenSSH 配置使用了 {directive}，当前版本无法按它连接。未发送任何内容。",
@@ -180,7 +182,8 @@
       "notReady": "应用仍在启动中。",
       "noTransport": "{operation} 需要在桌面应用中使用。",
       "unsupported": "{what} 在当前版本中还没有实现。",
-      "internal": "应用内部出现了错误。"
+      "internal": "应用内部出现了错误。",
+      "busy": "它正被另一个操作使用，等该操作结束后再试。"
     },
     "browser": {
       "hostUnavailable": "把桌面交给浏览器需要在桌面应用中进行：内嵌宿主在那里。"

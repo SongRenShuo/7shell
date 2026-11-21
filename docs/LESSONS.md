@@ -172,6 +172,9 @@ Rust 侧 `skip_serializing_if = "Vec::is_empty"` 让空数组不上线，TS 镜�
 **A3 给浮层加一层定位包装时，包装自己要会「透传点击」**
 把 `inert`/`display:none` 的面板套进一个全屏定位 div 以获得层叠顺序，那个 div 仍是透明的实心矩形：它盖住底下的全部可点区域，把每一次点击都吃掉。面板自己是 inert 的，所以控制台干净、DOM 看着也对，只有用户发现「什么都点不动」。全屏包装一律 `pointer-events-none`，需要点的子层再 `pointer-events:auto`；回归用例查的是**命中测试**（`elementFromPoint` 落在目标上）而不是「元素在不在 DOM」。证据：7shell `5fb0c12`（桌面图标全部点击无效，包装层 212×732 压住桌面）。Seen 1。
 
+**A4 复用底层「丢弃即结束」的假设前，先查它丢弃时到底发不发什么**
+russh 的 `Channel` 丢弃时**不发** SSH_MSG_CLOSE（`ChannelCloseOnDrop` 只包在 `into_stream` 的读半边里），所以「channel 变量出了作用域连接就干净」是假象：超时/截断/请求被拒这类早退分支把通道丢掉后，服务器占着 session 名额直到整条连接断开。共享连接（终端自己的那条）上的采样循环每 2s 撞一次，`MaxSessions 10` 被 10 个泄漏名额占满后，该主机一切要开通道的操作全部报「无法打开或使用 SSH 通道」，且对端 sshd 随后被高频重连撞 MaxStartups。正例：通道的产生点集中封装（`exec_capture`/`open_exec_stream`…），每个「服务端没说 Close 就结束」的分支确定性发 EOF+Close（`3dce0a6`）；反例：在调用方各自记得「用完关一下」。证据：7shell `3dce0a6`，真机 sshd 日志 `error: no more sessions`×5 + `kex_exchange_identification: Connection reset by peer`×N（103.36.220.245，2026-11-21 排障）；同型兄弟审计了 exec/pty/stream/sftp/forward 五条开通道路径。Seen 1。
+
 ## 升级记录
 
 | 日期 | 条目 | 去向 |

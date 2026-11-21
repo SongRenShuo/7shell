@@ -184,32 +184,41 @@ impl Core {
     /// the registry with the same answer as a handle that never existed, which is the right one —
     /// there is nothing to ask.
     pub async fn sample_host(&self, handle: &str) -> Result<HostMetrics, ShellError> {
-        let session = self.registry.session_of(handle).await?;
-        let outcome = session.exec(&snapshot_command(), SAMPLE_TIMEOUT).await?;
+        self.one_read(handle, async {
+            let session = self.registry.session_of(handle).await?;
+            let outcome = session.exec(&snapshot_command(), SAMPLE_TIMEOUT).await?;
 
-        Ok(parse_snapshot(&outcome.stdout, now_millis(), outcome.duration))
+            Ok(parse_snapshot(&outcome.stdout, now_millis(), outcome.duration))
+        })
+        .await
     }
 
     /// The process list for the page of that name, ordered by what was asked for.
     ///
     /// A command and a call of its own rather than part of the sample, because the two are asked
     /// at different rates by different things: the panel wants five rows beside a terminal, and a
-    /// page somebody has opened wants a list they can read — and pays for it only while it is the
-    /// page on screen.
+    /// page somebody has opened wants a list they can read — and pays for it only while it is
+    /// the page on screen.
     pub async fn list_processes(&self, handle: &str, limit: usize) -> Result<ProcessPage, ShellError> {
         let limit = clamp_process_limit(limit);
-        let session = self.registry.session_of(handle).await?;
-        let outcome = session.exec(&process_page_command(limit), SAMPLE_TIMEOUT).await?;
+        self.one_read(handle, async {
+            let session = self.registry.session_of(handle).await?;
+            let outcome = session.exec(&process_page_command(limit), SAMPLE_TIMEOUT).await?;
 
-        Ok(process_page(&outcome.stdout, limit))
+            Ok(process_page(&outcome.stdout, limit))
+        })
+        .await
     }
 
     /// One process, looked at closely: how it was started, from where, and with what environment.
     pub async fn process_detail(&self, handle: &str, pid: u32) -> Result<ProcessDetail, ShellError> {
-        let session = self.registry.session_of(handle).await?;
-        let outcome = session.exec(&process_detail_command(pid), SAMPLE_TIMEOUT).await?;
+        self.one_read(handle, async {
+            let session = self.registry.session_of(handle).await?;
+            let outcome = session.exec(&process_detail_command(pid), SAMPLE_TIMEOUT).await?;
 
-        Ok(process_detail(&outcome.stdout, pid))
+            Ok(process_detail(&outcome.stdout, pid))
+        })
+        .await
     }
 
     /// The host's sockets, for the page of that name.
@@ -218,10 +227,36 @@ impl Core {
     /// established connection every two seconds beside a terminal, and the page that shows it is
     /// the only thing that pays for it.
     pub async fn list_sockets(&self, handle: &str) -> Result<Vec<SocketRow>, ShellError> {
-        let session = self.registry.session_of(handle).await?;
-        let outcome = session.exec(SOCKET_COMMAND, SAMPLE_TIMEOUT).await?;
+        self.one_read(handle, async {
+            let session = self.registry.session_of(handle).await?;
+            let outcome = session.exec(SOCKET_COMMAND, SAMPLE_TIMEOUT).await?;
 
-        Ok(sockets(&outcome.stdout))
+            Ok(sockets(&outcome.stdout))
+        })
+        .await
+    }
+
+    /// One command read on one connection, under the sampling throttle.
+    ///
+    /// The connection a monitor read rides is the terminal's own, so a read is one of its session
+    /// channels. The throttle holds that to one at a time — two overlapping reads are two
+    /// channels for nothing — and, when the server starts refusing channels, pauses the reads
+    /// with an answer that says so rather than knocking again every tick. Every read on this
+    /// module's doors goes through here, which is what keeps the panel, the process page and the
+    /// network page from stacking their timers on the same connection.
+    async fn one_read<T>(
+        &self,
+        handle: &str,
+        read: impl std::future::Future<Output = Result<T, ShellError>>,
+    ) -> Result<T, ShellError> {
+        // The session is looked up first: it is the answer for a handle that is gone, and its
+        // address is what the throttle's refusals are named by.
+        let session = self.registry.session_of(handle).await?;
+        let permit = self.sampling.enter(handle, session.peer())?;
+        let outcome = read.await;
+        self.sampling.leave(handle, &outcome);
+        drop(permit);
+        outcome
     }
 }
 

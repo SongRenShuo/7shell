@@ -15,6 +15,7 @@ use sevenshell_error::ShellError;
 use tokio::time::Instant;
 
 use crate::SshSession;
+use crate::session::close_channel_quietly;
 
 /// How much output one command may produce before it is stopped.
 ///
@@ -76,6 +77,11 @@ impl SshSession {
     ///
     /// The ceiling is checked as the streams arrive rather than after they have been collected: a
     /// caller that asks for a completion's worth of text must not pay for megabytes first.
+    ///
+    /// The channel is this side's to close whenever the read ends without the server having said
+    /// Close itself. This is the path every monitor sample, probe and completion read takes, and
+    /// a channel abandoned on a timeout would keep its session slot on the server until the whole
+    /// connection dies — the way a sampling loop fills a server's `MaxSessions`.
     pub async fn exec_capture(
         &self,
         command: &str,
@@ -85,15 +91,19 @@ impl SshSession {
         let started = Instant::now();
         let mut channel = self.open_command_channel().await?;
 
-        channel
-            .exec(true, command.to_owned())
-            .await
-            .map_err(|error| self.channel_failure(&format!("`{command}` could not be started"), &error))?;
+        if let Err(error) = channel.exec(true, command.to_owned()).await {
+            let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
+            close_channel_quietly(&mut channel).await;
+            return Err(error);
+        }
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let mut exit_code = None;
         let mut truncated = false;
+        // Set only when the server said Close itself: the one end of this read that leaves no
+        // channel behind.
+        let mut server_closed = false;
 
         let collect = async {
             // Read until the channel closes. An `Eof` arrives before the exit status often enough
@@ -104,7 +114,10 @@ impl SshSession {
                     // Stream 1 is stderr; the others are nothing this talks to.
                     ChannelMsg::ExtendedData { data, ext: 1 } => stderr.extend_from_slice(&data),
                     ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
-                    ChannelMsg::Close => break,
+                    ChannelMsg::Close => {
+                        server_closed = true;
+                        break;
+                    }
                     _ => {}
                 }
 
@@ -115,13 +128,20 @@ impl SshSession {
             }
         };
 
-        match tokio::time::timeout(timeout, collect).await {
-            Ok(()) => {}
-            Err(_) => {
-                // The channel is abandoned rather than closed politely: whatever is running on the
-                // other side is not going to answer, and waiting for it is what the timeout is for.
-                return Err(ShellError::ssh_timeout(&self.host, self.port, whole_seconds(timeout)));
-            }
+        let timed_out = tokio::time::timeout(timeout, collect).await.is_err();
+
+        if !server_closed {
+            // A timeout leaves the command running on the far side, and a full ceiling leaves it
+            // mid-write. The channel is closed rather than abandoned so the server's session slot
+            // goes with it.
+            close_channel_quietly(&mut channel).await;
+        }
+
+        if timed_out {
+            // The channel has been told Close above; the command's outcome is a timeout, because
+            // whatever is running on the other side is not going to answer, and waiting for it is
+            // what the timeout is for.
+            return Err(ShellError::ssh_timeout(&self.host, self.port, whole_seconds(timeout)));
         }
 
         Ok(ExecCapture {

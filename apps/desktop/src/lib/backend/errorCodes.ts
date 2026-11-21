@@ -27,6 +27,8 @@ export const ERROR_CATALOG = {
   "SSH-UNREACHABLE": "errors.ssh.unreachable",
   "SSH-TIMEOUT": "errors.ssh.timeout",
   "SSH-CHANNEL-FAILED": "errors.ssh.channelFailed",
+  "SSH-CHANNEL-REFUSED": "errors.ssh.channelRefused",
+  "SSH-BACKOFF": "errors.ssh.backoff",
   "SSH-KEY-INVALID": "errors.ssh.keyInvalid",
   "SSH-KEY-UNSUPPORTED": "errors.ssh.keyUnsupported",
   // RDP
@@ -160,6 +162,7 @@ export const ERROR_CATALOG = {
   "BROWSER-HOST-UNAVAILABLE": "errors.browser.hostUnavailable",
   "APP-UNSUPPORTED": "errors.app.unsupported",
   "APP-INTERNAL": "errors.app.internal",
+  "APP-BUSY": "errors.app.busy",
 } as const satisfies Record<string, string>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;
