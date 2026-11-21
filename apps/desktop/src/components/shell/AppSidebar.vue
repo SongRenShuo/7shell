@@ -857,15 +857,21 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
         the list, the row refuses selection — it holds controls and the gap between them, nothing
         anybody reads — which is also what keeps a double-click on that gap from finding a word of
         somebody else's.
+
+        Nothing on the row is ever truncated. The panel's one action keeps its label whole — it
+        does not shrink, and the words do not fold into an ellipsis — and when the row is too
+        narrow for the button and the six controls beside it, the controls wrap to a line of their
+        own rather than squeezing the words: a label cut to "新…" is a button nobody can read, and
+        a second line is a row that still says everything it did at full width.
       -->
-      <header class="mb-2 flex shrink-0 select-none items-center gap-1">
+      <header class="mb-2 flex shrink-0 flex-wrap select-none items-center gap-1">
         <!--
           Picking rows out replaces the panel's own controls with the ones that act on what is
           picked: a toolbar that still offered "new session" while a selection is being built would
           be answering a question nobody asked, and the count is the thing to look at instead.
         -->
         <template v-if="library.selecting">
-          <span class="min-w-0 truncate text-sm font-medium text-muted-foreground">
+          <span class="whitespace-nowrap text-sm font-medium text-muted-foreground">
             {{ t("shell.sidebar.sessions") }}
           </span>
           <span class="shrink-0 text-[11px] font-normal text-muted-foreground/80" data-session-selected-count>
@@ -929,12 +935,12 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
         <template v-else>
           <button
             type="button"
-            class="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-primary px-3 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+            class="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
             :title="t('sessions.list.add')"
             @click="startNew()"
           >
             <Plus :size="14" class="shrink-0" />
-            <span class="min-w-0 truncate">{{ t("sessions.list.add") }}</span>
+            <span>{{ t("sessions.list.add") }}</span>
           </button>
 
           <span class="min-w-0 flex-1"></span>
@@ -1007,8 +1013,15 @@ function openTunnelMenu(event: MouseEvent, tunnel: OpenTunnel): void {
         how a session authenticates. Both live in the store, so the rows, the hit-testing of a drag
         and anything else that asks "what is drawn" get the same answer.
       -->
-      <div class="relative mb-2 flex shrink-0 items-center gap-1">
-        <div class="relative flex min-w-0 flex-1 items-center">
+      <div class="relative mb-2 flex shrink-0 flex-wrap items-center gap-1">
+        <!--
+          The field keeps a width a placeholder can be read in — wide enough for the whole sentence
+          in either language, minus nothing for the controls that live in its padding. When the
+          panel is too narrow for the field and the three buttons beside it, the buttons wrap
+          underneath and the field takes the line: a search box narrowed to "搜索会…" is one
+          nobody can tell what it searches.
+        -->
+        <div class="relative flex min-w-44 flex-1 items-center">
           <Search
             :size="12"
             class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"

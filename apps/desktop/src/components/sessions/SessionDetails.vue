@@ -11,9 +11,14 @@
  * leaves. The reference draws it the same way, and the pointer is what makes it read as "about
  * *this* row" rather than as a panel that happened to appear.
  *
- * It is centred on the row rather than hung from its top, which is what puts the pointer on the row
- * instead of in the middle of a list of eight fields: the reference centres it the same way, and the
- * pointer is the whole reason somebody can tell which row the bubble is about.
+ * It hangs from the row's top edge rather than being centred on it. Centring is what puts the
+ * pointer on the row instead of in the middle of a list of eight fields — but a card centred on a
+ * row near the top of the list reaches *upwards*, and the first thing above the list on the right
+ * is the workspace's tab toolbar, which the card then covers. Hung from the top it only ever grows
+ * downward, into the space the list owns; the pointer rides just under that top edge, still on the
+ * row, which is the whole reason somebody can tell which row the bubble is about. When the card
+ * would leave the viewport at the bottom the popper shifts it back inside, and an overflow on the
+ * right flips it over the list — clamped, never over the toolbar.
  *
  * Only what is already known is shown. A server's version, its banner and how long a connection
  * took are facts about a connection, and this is about a saved session — a card that showed them
@@ -123,7 +128,7 @@ const rows = computed(() => {
   <HoverCardPortal>
     <HoverCardContent
       side="right"
-      align="center"
+      align="start"
       :side-offset="8"
       :collision-padding="8"
       class="relative z-50 w-max min-w-40 max-w-[min(28rem,calc(100vw-24px))] rounded-md border border-border bg-card p-2 shadow-lg outline-none"
@@ -144,10 +149,12 @@ const rows = computed(() => {
         The pointer: a small square turned 45°, wearing the two borders that face out of the bubble
         and the bubble's own colour, so what shows is a tip. Drawn by hand rather than with the
         library's arrow, which is an open SVG path — filling it would draw the edge that sits on the
-        bubble's own border as well, and the reference's is this square.
+        bubble's own border as well, and the reference's is this square. It sits just under the top
+        edge — the edge the bubble hangs from — because that edge is the row it is about; centred on
+        a tall bubble it would point into the rows below the one that raised it.
       -->
       <span
-        class="absolute top-1/2 -left-1.25 size-2.5 -translate-y-1/2 rotate-45 rounded-[2px] border-b border-l border-border bg-card"
+        class="absolute top-3 -left-1.25 size-2.5 rotate-45 rounded-[2px] border-b border-l border-border bg-card"
         aria-hidden="true"
       ></span>
     </HoverCardContent>
