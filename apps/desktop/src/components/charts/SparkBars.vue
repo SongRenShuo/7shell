@@ -2,16 +2,21 @@
 /**
  * A row of bars, one per sample, for a value that has no meaning on its own.
  *
- * The bars share one scale, and the scale is the largest value across every series rather than
- * within each: two series drawn against their own maxima would cross each other the moment the
- * quieter one moved, which is a picture of nothing. What the reader gets instead is what the
- * numbers are — a busy series is visibly taller than a quiet one.
+ * This is the monitor panel's chart, moved into the vocabulary layer every page's charts are
+ * drawn from. Its two rulings came with it:
  *
- * Bars rather than a line, because a line implies the values between the samples were measured and
- * they were not: the monitor samples on a timer, and a bar says "this is what the interval was".
+ * - **The bars share one scale, and the scale is the largest value across every series** rather
+ *   than within each: two series drawn against their own maxima would cross each other the moment
+ *   the quieter one moved, which is a picture of nothing. What the reader gets instead is what the
+ *   numbers are — a busy series is visibly taller than a quiet one.
+ * - **Bars rather than a line**, because a line implies the values between the samples were
+ *   measured and they were not: the monitor samples on a timer, and a bar says "this is what the
+ *   interval was".
  *
  * Nothing is drawn for an empty history, and nothing pretends to be a chart of zeroes: the row
- * keeps its height so the panel does not jump when the first sample arrives.
+ * keeps its height so the panel does not jump when the first sample arrives. The colours are the
+ * panel's to choose — the `class` each series carries is whatever Tailwind name says what that
+ * series means there; this component paints no colour of its own.
  */
 import { computed } from "vue";
 
