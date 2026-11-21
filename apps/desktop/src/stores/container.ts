@@ -455,8 +455,14 @@ export function splitLogLine(line: string): { timestamp: string; message: string
   return { timestamp: match[1] ?? "", message: match[2] ?? "" };
 }
 
-/** Appends a line to a bounded buffer, dropping the oldest once it is full. */
-export function appendLogLine(buffer: string[], line: string, limit = LOG_LINE_LIMIT): void {
+/**
+ * Appends a line to a bounded buffer, dropping the oldest once it is full.
+ *
+ * The buffer's entries are whatever the view holds — a lone stream's lines, or a merged view's
+ * lines each carrying the container they came from — because the bound is on memory, and memory
+ * does not care what the entries say.
+ */
+export function appendLogLine<T>(buffer: T[], line: T, limit = LOG_LINE_LIMIT): void {
   buffer.push(line);
   if (buffer.length > limit) {
     buffer.splice(0, buffer.length - limit);

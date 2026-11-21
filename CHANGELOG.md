@@ -19,6 +19,21 @@ All notable changes to 7Shell are documented in this file. The format is
   engine is not well with the sentence still on its tooltip — each pressing through to the page it
   counts as before, and the three charts titled with their series' newest reading, unit and all;
   the single container's monitor draws the same titles (2050664).
+- A container's log view answers a search: a query read as a literal or as a regular expression,
+  every hit drawn as a mark, the count read n of m beside the field, and a step back or forward
+  that wraps around and scrolls to the line it lands on — the streams never restart for it, the
+  lines that arrive while it runs are matched as they land, and a pattern the engine refuses is
+  said beside the field instead of thrown (7384f70).
+- The log view can read more than one container at once: the merge picker joins up to four
+  containers of the same session into one view, every line prefixed by the container that wrote
+  it in a colour per source, the prefixes switchable, and a guest whose stream ends marked ended
+  while the others keep coming (7384f70).
+- The log view's copy-all and download hand out exactly what is on screen — the received lines
+  only, filtered the way the view shows them, each merged line carrying its prefix — and the
+  download is named for the containers it came from and the day (7384f70).
+- The Compose page's log window filters by service: the services read out of the lines' own
+  `name |` prefixes into a dropdown, the prefixes wearing a colour per service, and a service
+  with nothing left to say is said so rather than drawn as a blank (7384f70).
 - The monitor window opens on how the host is doing now: a status band of readings under the
   host's name, CPU and memory trend charts drawn from the store's own history with the memory
   line wearing the tier its reading earns, the processors' share as one bar per column, disk
