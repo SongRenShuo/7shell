@@ -180,8 +180,6 @@ const canRestore = computed(() => props.state === "max");
 
 function onTitlePointerDown(event: PointerEvent): void {
   if (event.button !== 0 || props.state !== "normal" || props.closing) {
-    // TEMPORARY probe: only the refusal path speaks, so a passing run is timed as before.
-    console.log("[probe] title press refused", { button: event.button, state: props.state, closing: props.closing });
     return;
   }
   // A press on one of the three buttons is a press on that button, not the start of a move. The
@@ -222,8 +220,6 @@ function onTitleDoubleClick(): void {
 
 function onTitlePointerMove(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] title move ignored", { noDrag: drag === null, pointerId: event.pointerId });
     return;
   }
   const nextTop = drag.top + (event.clientY - drag.startY);
@@ -250,8 +246,6 @@ function onTitlePointerMove(event: PointerEvent): void {
 
 function onTitlePointerUp(event: PointerEvent): void {
   if (drag === null || event.pointerId !== drag.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] title up ignored", { noDrag: drag === null, pointerId: event.pointerId });
     return;
   }
   // The drag ended with the pointer let go — the moment a pending snap, if the pane saw one, is
@@ -274,13 +268,6 @@ function endDrag(pointerId: number): void {
  */
 function beginResize(event: PointerEvent, dir: ResizeDirection, element: HTMLElement | null): void {
   if (event.button !== 0 || props.state !== "normal" || props.closing) {
-    // TEMPORARY probe.
-    console.log("[probe] resize press refused", {
-      button: event.button,
-      state: props.state,
-      closing: props.closing,
-      dir,
-    });
     return;
   }
   // A resize is not inside the title bar, so it cannot start a move; stopping the event keeps it
@@ -326,8 +313,6 @@ function proposedRect(dir: ResizeDirection, dx: number, dy: number): WorkbenchWi
 
 function onResizePointerMove(event: PointerEvent): void {
   if (resize === null || event.pointerId !== resize.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] resize move ignored", { noResize: resize === null, pointerId: event.pointerId });
     return;
   }
   const dx = event.clientX - resize.startX;
@@ -346,8 +331,6 @@ function onResizePointerMove(event: PointerEvent): void {
 
 function onResizePointerUp(event: PointerEvent): void {
   if (resize === null || event.pointerId !== resize.pointerId) {
-    // TEMPORARY probe.
-    console.log("[probe] resize up ignored", { noResize: resize === null, pointerId: event.pointerId });
     return;
   }
   if (resize.element !== null) {
