@@ -505,8 +505,8 @@ enum Step {
     Entry {
         path: PathBuf,
         relative: String,
-        // Boxed because `Metadata` is large on Unix: unboxed, this variant alone exceeded
-        // clippy's size-difference limit against a `Close` that carries nothing.
+        // Boxed because `Close` carries nothing: the metadata is large on the Unix targets CI
+        // builds, and clippy refuses the size difference between the two variants.
         metadata: Box<std::fs::Metadata>,
     },
     /// The end of the directory whose entries have all been sent.

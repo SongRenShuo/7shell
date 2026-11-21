@@ -44,7 +44,14 @@ const draft: Session = {
   port: 22,
   user: "root",
   auth: { method: "password", hasSecret: false },
-  terminal: { terminalType: "xterm-256color", keepaliveSeconds: 30, forwardAgent: false, record: false },
+  terminal: {
+    terminalType: "xterm-256color",
+    keepaliveSeconds: 30,
+    encoding: "utf-8",
+    backspace: "del",
+    forwardAgent: false,
+    record: false,
+  },
   updatedAt: 1_700_000_000,
 };
 
@@ -502,6 +509,41 @@ describe("moving a session between groups", () => {
     expect(worked).toBe(false);
     expect(store.failure?.code).toBe("STORE-IO");
     expect(store.sessions[0]?.groupId).toBeUndefined();
+  });
+
+  it("renumbers the sessions a reorder moves and draws them in the new arrangement", async () => {
+    const web = { ...draft, id: "session-1", name: "web", groupId: work.id, order: 0 };
+    const db = { ...draft, id: "session-2", name: "db", groupId: work.id, order: 1 };
+    const cache = { ...draft, id: "session-3", name: "cache", groupId: work.id, order: 2 };
+    sessionsListMock.mockResolvedValue([web, db, cache]);
+    groupsListMock.mockResolvedValue([work]);
+
+    const store = useSessionsStore();
+    await store.load();
+    const worked = await store.placeSession(cache.id, { kind: "session", id: web.id }, "before");
+
+    expect(worked).toBe(true);
+    expect(shape(store)).toEqual(["Work", "  cache", "  web", "  db"]);
+    expect(sessionSaveMock.mock.calls.map(([written]) => [written?.id, written?.order])).toEqual([
+      ["session-3", 0],
+      ["session-1", 1],
+      ["session-2", 2],
+    ]);
+  });
+
+  it("keeps the neighbours' timestamps when a reorder only renumbers them", async () => {
+    const web = { ...draft, id: "session-1", name: "web", groupId: work.id, order: 0 };
+    const db = { ...draft, id: "session-2", name: "db", groupId: work.id, order: 1 };
+    sessionsListMock.mockResolvedValue([web, db]);
+    groupsListMock.mockResolvedValue([work]);
+
+    const store = useSessionsStore();
+    await store.load();
+    await store.placeSession(db.id, { kind: "session", id: web.id }, "before");
+
+    const written = sessionSaveMock.mock.calls.map(([session]) => session);
+    expect(written.find((session) => session?.id === "session-1")?.updatedAt).toBe(draft.updatedAt);
+    expect(written.find((session) => session?.id === "session-2")?.updatedAt).toBeGreaterThan(draft.updatedAt);
   });
 });
 

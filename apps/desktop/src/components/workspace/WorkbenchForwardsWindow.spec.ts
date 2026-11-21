@@ -62,7 +62,14 @@ function session(protocol: Session["protocol"]): Session {
     port: 22,
     user: "root",
     auth: { method: "password", hasSecret: true },
-    terminal: { terminalType: "xterm-256color", keepaliveSeconds: 0, forwardAgent: false, record: false },
+    terminal: {
+      terminalType: "xterm-256color",
+      keepaliveSeconds: 0,
+      encoding: "utf-8",
+      backspace: "del",
+      forwardAgent: false,
+      record: false,
+    },
     updatedAt: 0,
   };
 }

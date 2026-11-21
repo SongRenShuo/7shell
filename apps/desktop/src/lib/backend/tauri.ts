@@ -74,6 +74,7 @@ import type {
 import type { HostMetrics, ProcessDetail, ProcessPage, SocketRow } from "@/types/monitor";
 import type { JournalTail, SystemOverview } from "@/types/sysinfo";
 import type { HostSystem } from "@/types/system";
+import type { HostLocationKind, HostLocationView, VmInfo, VmPowerAction, VmStatus } from "@/types/vmware";
 import type { UpdateCheck, UpdateProgress } from "@/types/update";
 import type {
   CommandHistoryEntry,
@@ -84,6 +85,7 @@ import type {
   SnippetGroup,
 } from "@/types/snippet";
 import type {
+  ConnectionTestOutcome,
   CreatedKey,
   DownloadFolderView,
   KeyAlgorithm,
@@ -103,6 +105,7 @@ import type {
   SessionImportOutcome,
   SessionImportSummary,
   SftpListing,
+  SshConfigHost,
   SftpOutcome,
   SftpPasteOutcome,
   TrashEmptyOutcome,
@@ -111,11 +114,13 @@ import type {
   TrashMoveRequest,
   TerminalClosed,
   TerminalData,
+  TerminalEncoding,
   TransferInfo,
   UploadAnswer,
   UploadOutcome,
   WorkbenchPowerOutcome,
   VaultArchive,
+  VaultKeychainStatus,
   VaultState,
   ZmodemEvent,
 } from "@/types/session";
@@ -619,6 +624,21 @@ export function vaultLock(): Promise<VaultState> {
   return invoke<VaultState>("vault_lock");
 }
 
+/** Whether the system store can keep the unlock key, and whether it does for the open vault. */
+export function vaultKeychainStatus(): Promise<VaultKeychainStatus> {
+  return invoke<VaultKeychainStatus>("vault_keychain_status");
+}
+
+/** Seals the open vault's derived key in the system store. */
+export function vaultKeychainEnroll(): Promise<VaultKeychainStatus> {
+  return invoke<VaultKeychainStatus>("vault_keychain_enroll");
+}
+
+/** Removes the sealed key; the vault and its password are untouched. */
+export function vaultKeychainForget(): Promise<VaultKeychainStatus> {
+  return invoke<VaultKeychainStatus>("vault_keychain_forget");
+}
+
 export function vaultChangePassword(current: string, next: string): Promise<void> {
   return invoke<void>("vault_change_password", { current, next });
 }
@@ -659,6 +679,11 @@ export function sessionsList(): Promise<Session[]> {
   return invoke<Session[]>("sessions_list");
 }
 
+/** The aliases this machine's OpenSSH configuration names, for the picker. */
+export function sshConfigHosts(): Promise<SshConfigHost[]> {
+  return invoke<SshConfigHost[]>("ssh_config_hosts");
+}
+
 /** Saves a session. `secret` absent means "leave the stored one alone". */
 export function sessionSave(session: Session, secret?: SecretInput): Promise<Session> {
   return invoke<Session>("session_save", { session, secret: secret ?? null });
@@ -666,6 +691,11 @@ export function sessionSave(session: Session, secret?: SecretInput): Promise<Ses
 
 export function sessionDelete(id: string): Promise<void> {
   return invoke<void>("session_delete", { id });
+}
+
+/** Tests a draft's connection. `secret` is the password typed into the editor, when there is one. */
+export function sessionTest(session: Session, secret?: SecretInput): Promise<ConnectionTestOutcome> {
+  return invoke<ConnectionTestOutcome>("session_test", { session, secret: secret ?? null });
 }
 
 export function groupsList(): Promise<SessionGroup[]> {
@@ -903,6 +933,10 @@ export function sessionSystem(handle: string): Promise<HostSystem> {
 
 export function terminalWrite(handle: string, base64: string): Promise<void> {
   return invoke<void>("terminal_write", { handle, base64 });
+}
+
+export function terminalWriteText(handle: string, text: string, encoding: TerminalEncoding): Promise<void> {
+  return invoke<void>("terminal_write_text", { handle, text, encoding });
 }
 
 export function terminalResize(handle: string, columns: number, rows: number): Promise<void> {
@@ -1674,4 +1708,47 @@ export async function onK8sStreamEnd(listener: (payload: K8sStreamEnd) => void):
 
 export async function onK8sWatch(listener: (payload: K8sWatchEvent) => void): Promise<Unlisten> {
   return listen<K8sWatchEvent>("k8s:watch", (event) => listener(event.payload));
+}
+
+/** Every virtual machine this machine's Workstation can act on. */
+export function vmwareScan(): Promise<VmInfo[]> {
+  return invoke<VmInfo[]>("vmware_scan", {});
+}
+
+export function vmwareStatus(vmId: string): Promise<VmStatus> {
+  return invoke<VmStatus>("vmware_status", { vmId });
+}
+
+export function vmwarePower(vmId: string, action: VmPowerAction, acknowledged: boolean): Promise<void> {
+  return invoke<void>("vmware_power", { vmId, action, acknowledged });
+}
+
+/** Removes a stale lock from a machine that is not running; answers `acknowledged`. */
+export function vmwareTakeOwnership(vmId: string, acknowledged: boolean): Promise<void> {
+  return invoke<void>("vmware_take_ownership", { vmId, acknowledged });
+}
+
+export function hostLocationsList(): Promise<HostLocationView[]> {
+  return invoke<HostLocationView[]>("host_locations_list", {});
+}
+
+/** Opens the native picker; `null` is the picker being closed without a choice. */
+export function hostLocationChoose(kind: HostLocationKind, title: string): Promise<HostLocationView | null> {
+  return invoke<HostLocationView | null>("host_location_choose", { kind, title }).then((value) => value ?? null);
+}
+
+export function hostLocationForget(token: string): Promise<boolean> {
+  return invoke<boolean>("host_location_forget", { token });
+}
+
+export function vmrestConfigSet(user: string, password: string): Promise<void> {
+  return invoke<void>("vmrest_config_set", { user, password });
+}
+
+export function vmrestStatus(): Promise<void> {
+  return invoke<void>("vmrest_status", {});
+}
+
+export function vmrestStart(): Promise<void> {
+  return invoke<void>("vmrest_start", {});
 }

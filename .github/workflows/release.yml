@@ -245,11 +245,37 @@ jobs:
                -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.sig' \) \
             -exec cp {} release-artifacts/ \;
 
+          # The macOS updater archive is the one bundle artifact whose name carries no arch: both
+          # legs bundle a `7Shell.app.tar.gz`, and the release ends up holding a single merged copy
+          # of whichever leg finished last while each leg's manifest entry still carries its own
+          # signature — which is how 0.4.0 offered Apple Silicon an x86_64 archive under a
+          # signature that could never match it (issue #15). Name the archive the way the dmg
+          # beside it is named, so two legs can never arrive under one name again.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            version="$(node -p "require('./version.json').app")"
+            case "${{ matrix.platform }}" in
+              darwin-x86_64) arch="x64" ;;
+              *)             arch="aarch64" ;;
+            esac
+            for suffix in .app.tar.gz .app.tar.gz.sig; do
+              if [ -f "release-artifacts/7Shell$suffix" ]; then
+                mv "release-artifacts/7Shell$suffix" "release-artifacts/7Shell_${version}_${arch}$suffix"
+              fi
+            done
+          fi
+
           if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
             # Named per platform: the six builds' outputs are downloaded into one directory at the
             # end, and a file every job calls the same thing would leave the last platform standing.
+            # On macOS the entry describes the renamed release directory rather than the bundler's
+            # tree, because the manifest must name the file that is actually attached — the same
+            # reason the Windows portable step re-runs this command over the directory below.
+            bundle="target"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              bundle="release-artifacts"
+            fi
             node scripts/update-manifest.mjs platform \
-              --bundle target \
+              --bundle "$bundle" \
               --platform "${{ matrix.platform }}" \
               --tag "$TAG" \
               --repository "${{ github.repository }}" \
@@ -334,6 +360,18 @@ jobs:
             } else {
               pnpm tauri signer sign $zip
             }
+
+            # This platform's manifest entry is rebuilt over the directory as it will be published:
+            # the portable archive did not exist when the first pass ran, and a manifest that cannot
+            # name it is a portable update nobody is offered. Reading the release directory rather
+            # than the bundler's tree also keeps the offline installer, which replaced the normal
+            # one there, out of the entry.
+            node scripts/update-manifest.mjs platform `
+              --bundle release-artifacts `
+              --platform "${{ matrix.platform }}" `
+              --tag "${{ inputs.tag || github.ref_name }}" `
+              --repository "${{ github.repository }}" `
+              --out "release-artifacts/updater-${{ matrix.platform }}.json"
           }
 
           ls -l release-artifacts
@@ -418,13 +456,15 @@ jobs:
           if compgen -G "artifacts/updater-*.json" > /dev/null; then
             mkdir -p updater
             cp artifacts/updater-*.json updater/
-            node scripts/release-notes.mjs "$TAG" > release-body.md
+            # Both languages: the application chooses by its interface language. The GitHub body
+            # below is the Chinese part alone, so a release page stays short.
+            node scripts/release-notes.mjs "$TAG" > update-notes.md
             node scripts/update-manifest.mjs merge \
               --releases updater \
               --version "${TAG#v}" \
               --tag "$TAG" \
               --repository "${{ github.repository }}" \
-              --notes release-body.md \
+              --notes update-notes.md \
               --date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --out latest.json
             # Attached to this release like everything else, and picked up by the promotion step when
@@ -451,13 +491,14 @@ jobs:
       - name: The release body
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           {
-            node scripts/release-notes.mjs "$TAG"
+            node scripts/release-notes.mjs "$TAG" --lang zh
             echo ""
             echo "---"
             echo ""
-            echo "### Files and checksums"
+            echo "### 文件与校验和"
             echo ""
             echo '```'
             # From the files themselves rather than from a table somebody typed: these lines are the
@@ -465,15 +506,17 @@ jobs:
             (cd release && sha256sum $(cat ../release-assets.txt | xargs -n1 basename)) || true
             echo '```'
             echo ""
-            echo "### Installing"
+            echo "### 安装"
             echo ""
-            echo "- **Windows:** run the \`.exe\` or \`.msi\`. The installer is not code-signed yet, so Windows warns before running it. The \`-offline-setup.exe\` carries the WebView2 runtime; the \`-portable.zip\` keeps its vault and settings in a \`data\` folder beside the executable."
-            echo "- **macOS:** open the \`.dmg\` and drag the application across. The build is not notarized yet, so Gatekeeper warns."
-            echo "- **Linux:** the AppImage runs after \`chmod +x\`; the \`.deb\` and \`.rpm\` install with the system's package manager."
+            echo "- **Windows：** 运行 \`.exe\` 或 \`.msi\`。安装包尚未代码签名，Windows 会在运行前给出警告。\`-offline-setup.exe\` 自带 WebView2 运行时；\`-portable.zip\` 把保险库和设置保存在可执行文件旁的 \`data\` 文件夹里。"
+            echo "- **macOS：** 打开 \`.dmg\`，把应用拖到 Applications。构建尚未公证，Gatekeeper 会给出警告。"
+            echo "- **Linux：** AppImage 需要先 \`chmod +x\` 再运行；\`.deb\` 和 \`.rpm\` 用系统的包管理器安装。"
             echo ""
-            echo "Package manager manifests for Winget, Scoop and Homebrew are attached as \`packaging-manifests.zip\`."
+            echo "Winget、Scoop 和 Homebrew 的清单以 \`packaging-manifests.zip\` 附上。"
             echo ""
-            echo "Nothing in this project has had a security review. Read SECURITY.md before putting production credentials in it."
+            echo "本项目尚未经过安全审计。在生产环境中放入凭据前，请先阅读 SECURITY.md。"
+            echo ""
+            echo "英文更新日志（English changelog）：https://github.com/${REPOSITORY}/blob/${TAG}/CHANGELOG.md"
           } > body.md
           cat body.md
 

@@ -10,6 +10,23 @@ import type { ContainerSettings } from "@/types/container";
 import type { AuthMethod, Protocol } from "@/types/generated/protocols";
 import type { KubernetesSettings } from "@/types/k8s";
 
+/**
+ * One host this machine's OpenSSH configuration names.
+ *
+ * The alias is what a saved session stores; the resolved values are shown beside it. No identity
+ * path is here: the connection reads those in the process that owns them.
+ */
+export interface SshConfigHost {
+  readonly alias: string;
+  readonly host: string;
+  readonly user?: string;
+  readonly port?: number;
+  /** Directives this build cannot honour; selecting one would make a session that refuses. */
+  readonly unsupported: readonly string[];
+  /** The `ProxyJump` value as written, when this alias connects through a jump host. */
+  readonly proxyJump?: string;
+}
+
 /** What the interface may know about an imported key. */
 export interface KeyInfo {
   /** The handle the vault knows the material by. */
@@ -47,11 +64,17 @@ export interface SessionAuth {
   readonly method: AuthMethod;
   readonly key?: KeyInfo;
   readonly hasSecret: boolean;
+  /** The host, account and identity come from this machine's ~/.ssh/config; `host` holds the alias. */
+  readonly sshConfig?: boolean;
 }
 
 export interface TerminalSettings {
   readonly terminalType: string;
   readonly keepaliveSeconds: number;
+  /** The encoding the far side prints and expects. */
+  readonly encoding: TerminalEncoding;
+  /** What the Backspace key sends to this host. */
+  readonly backspace: BackspaceMode;
   /**
    * Whether the far side may use the key agent on this machine while the session lasts.
    *
@@ -103,6 +126,14 @@ export interface Session {
   readonly id: string;
   readonly name: string;
   readonly groupId?: string;
+  /**
+   * Where the session sits among the sessions of its group, lowest first.
+   *
+   * Absent is "nobody has placed this one": it is drawn level with order zero, so it stays where
+   * it was created relative to the sessions that were never dragged. A reorder writes a number
+   * for every session it moves, which is how the arrangement survives a restart.
+   */
+  readonly order?: number;
   readonly protocol: Protocol;
   readonly host: string;
   readonly port: number;
@@ -127,6 +158,8 @@ export interface Session {
   readonly kubernetes?: KubernetesSettings;
   /** The HTTP folder a WebDAV browser opens. Absent on every other protocol. */
   readonly webdav?: WebDavSettings;
+  /** Which virtual machine this session stands for, and how to reach its guest. */
+  readonly vmware?: VmwareSettings;
   /** Whether an FTP session asks for TLS before login. Absent on every other protocol. */
   readonly ftp?: FtpSettings;
   /** Saved sessions to reach this one through, in order: the first is connected to directly. */
@@ -170,6 +203,9 @@ export type EnterMode = "crlf" | "cr" | "lf";
 /** What the Backspace key puts on the wire: what an xterm sends, or the older Ctrl+H. */
 export type BackspaceMode = "del" | "ctrlH";
 
+/** The encoding a terminal session speaks. */
+export type TerminalEncoding = "utf-8" | "gbk" | "gb18030";
+
 /** How a serial frame checks itself. */
 export type SerialParity = "none" | "even" | "odd";
 
@@ -183,6 +219,7 @@ export type SerialFlowControl = "none" | "rtsCts" | "xonXoff";
 export interface TelnetSettings {
   readonly enter: EnterMode;
   readonly backspace: BackspaceMode;
+  readonly encoding: TerminalEncoding;
 }
 
 /** A serial port and the line parameters it was chosen with. */
@@ -223,6 +260,24 @@ export interface WebDavSettings {
 export interface FtpSettings {
   /** Explicit FTPS: negotiate TLS before the login is sent. */
   readonly secure: boolean;
+}
+
+/**
+ * What a virtual-machine session remembers.
+ *
+ * `vmId` is the token a scan answered with, not the `.vmx` path: the host resolves it against its
+ * inventory, so the saved session keeps working after a machine is renamed or moved. The SSH and
+ * RDP halves are the ports and accounts the workspace uses when it makes a session that reaches
+ * the guest; the references name the sessions it made, once it made them.
+ */
+export interface VmwareSettings {
+  readonly vmId: string;
+  readonly sshUser?: string;
+  readonly sshPort: number;
+  readonly rdpUser?: string;
+  readonly rdpPort: number;
+  readonly sshSession?: string;
+  readonly rdpSession?: string;
 }
 
 /** One shell this machine can start, as the picker sees it. */
@@ -306,7 +361,37 @@ export type OpenOutcome =
       readonly tunnelFailures: readonly TunnelFailure[];
     };
 
+/**
+ * What testing a connection answered.
+ *
+ * `connected` with `authenticated: false` is a transport that has no login — Telnet and a raw TCP
+ * console — where reachability is the whole question. The two host key variants mean the same as
+ * they do for an open: an unknown key is a question, a changed key is a stop.
+ */
+export type ConnectionTestOutcome =
+  | {
+      readonly kind: "connected";
+      readonly latencyMs: number;
+      readonly authenticated: boolean;
+      readonly fingerprint?: string;
+    }
+  | { readonly kind: "hostKeyUnknown"; readonly key: PresentedHostKey }
+  | { readonly kind: "hostKeyMismatch"; readonly key: PresentedHostKey; readonly trusted: KnownHostEntry };
+
 export type VaultState = "missing" | "locked" | "unlocked";
+
+/**
+ * Whether this machine can keep the vault's unlock key in the system's own store.
+ *
+ * `enrolled` is about the open vault: while the application is locked the status is reported as
+ * not enrolled, because drawing the unlock screen must not ask the keychain a question that can
+ * turn into a system prompt. The settings page, which is where this is acted on, is only reachable
+ * with the vault open.
+ */
+export interface VaultKeychainStatus {
+  readonly available: boolean;
+  readonly enrolled: boolean;
+}
 
 /**
  * One archived vault file that sits beside the live one.

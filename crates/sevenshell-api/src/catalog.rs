@@ -15,6 +15,7 @@ pub enum CatalogCategory {
     Files,
     Containers,
     Kubernetes,
+    VirtualMachines,
     External,
 }
 
@@ -90,6 +91,91 @@ pub const BUILTIN_CATALOG: &[CatalogEntry] = &[
         category: CatalogCategory::Kubernetes,
         risk: ToolRisk::Read,
     },
+    CatalogEntry {
+        name: "sshell_vms_list",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_status",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_power",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::CommandGraded,
+    },
+    CatalogEntry {
+        name: "sshell_vm_snapshots",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_snapshot_change",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::CommandGraded,
+    },
+    CatalogEntry {
+        name: "sshell_vm_guest_read",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_guest_write",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::CommandGraded,
+    },
+    CatalogEntry {
+        name: "sshell_vm_send_key",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Write,
+    },
+    CatalogEntry {
+        name: "sshell_vm_config_read",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_config_write",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::CommandGraded,
+    },
+    CatalogEntry {
+        name: "sshell_vm_host_read",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_host_write",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Write,
+    },
+    CatalogEntry {
+        name: "sshell_vm_image",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Write,
+    },
+    CatalogEntry {
+        name: "sshell_host_locations_list",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vm_screenshot",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Write,
+    },
+    CatalogEntry {
+        name: "sshell_vmrest_read",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Read,
+    },
+    CatalogEntry {
+        name: "sshell_vmrest_network_create",
+        category: CatalogCategory::VirtualMachines,
+        risk: ToolRisk::Write,
+    },
 ];
 
 pub fn catalog_entry(name: &str) -> Option<&'static CatalogEntry> {
@@ -107,11 +193,7 @@ mod tests {
         let mut unique = names.clone();
         unique.dedup();
         assert_eq!(names, unique, "a name may not appear twice");
-        assert_eq!(
-            BUILTIN_CATALOG.len(),
-            10,
-            "the settings page expects the first wave's ten tools"
-        );
+        assert_eq!(BUILTIN_CATALOG.len(), 27, "every registered tool has a catalogue entry");
     }
 
     #[test]

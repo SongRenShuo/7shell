@@ -28,6 +28,9 @@ pub enum Subsystem {
     Terminal,
     /// Docker, Podman, nerdctl and WSLC, reached through their command lines.
     Container,
+    /// VMware Workstation, reached through its `vmrun` command line: the machines are local, so a
+    /// failure here is not a network failure.
+    Vmware,
     /// A Kubernetes API server and the kubeconfig used to reach it.
     K8s,
     /// The desktop workbench a `linuxDesk` session opens onto.
@@ -50,6 +53,7 @@ impl Subsystem {
             Self::Workbench => "workbench",
             Self::Terminal => "terminal",
             Self::Container => "container",
+            Self::Vmware => "vmware",
             Self::K8s => "k8s",
             Self::Fs => "fs",
             Self::Store => "store",
@@ -276,6 +280,17 @@ impl ShellError {
         Self::new(ErrorCode::VaultCorrupt, Origin::new(Subsystem::Vault)).with_detail(detail)
     }
 
+    /// This platform has nowhere to keep the unlock material outside the vault.
+    pub fn vault_keychain_unavailable() -> Self {
+        Self::new(ErrorCode::VaultKeychainUnavailable, Origin::new(Subsystem::Vault))
+            .with_outcome(OperationOutcome::Rejected)
+    }
+
+    /// The system store was reachable but refused. The detail names the operation, never the bytes.
+    pub fn vault_keychain_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VaultKeychainFailed, Origin::new(Subsystem::Vault)).with_detail(detail)
+    }
+
     // -- SSH ---------------------------------------------------------------
 
     pub fn ssh_host_key_unknown(host: &str, port: u16, key_type: &str) -> Self {
@@ -291,6 +306,59 @@ impl ShellError {
             .with_param("host", host)
             .with_param("port", port.to_string())
             .with_diagnostic("keyType", key_type)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    /// The system's own record has a different key. Unlike the vault's record, there is no replace
+    /// action: this build never writes the person's `~/.ssh/known_hosts`. The message therefore
+    /// carries the presented fingerprint and the exact `ssh-keygen -R` line, so a person whose
+    /// server was legitimately rebuilt can clear the stale record and go through the normal
+    /// unknown-key trust flow instead of being stuck at a refusal with no next step.
+    pub fn ssh_host_key_system_mismatch(host: &str, port: u16, key_type: &str, fingerprint: &str) -> Self {
+        let target = if port == 22 {
+            host.to_owned()
+        } else {
+            format!("[{host}]:{port}")
+        };
+        Self::new(ErrorCode::SshHostKeySystemMismatch, ssh_origin(host, port))
+            .with_param("host", host)
+            .with_param("port", port.to_string())
+            .with_param("keyType", key_type)
+            .with_param("fingerprint", fingerprint)
+            .with_param("command", format!("ssh-keygen -R \"{target}\""))
+            .with_diagnostic("keyType", key_type)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    /// An OpenSSH directive that changes where a connection goes, which this build will not guess at.
+    pub fn ssh_config_unsupported(directive: &str) -> Self {
+        Self::new(ErrorCode::SshConfigUnsupported, Origin::new(Subsystem::Ssh))
+            .with_param("directive", directive)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn ssh_config_unknown_alias(alias: &str) -> Self {
+        Self::new(ErrorCode::SshConfigUnknownAlias, Origin::new(Subsystem::Ssh))
+            .with_param("alias", alias)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn ssh_config_key_passphrase(key: &str) -> Self {
+        Self::new(ErrorCode::SshConfigKeyPassphrase, Origin::new(Subsystem::Ssh))
+            .with_param("key", key)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn ssh_config_no_key(alias: &str) -> Self {
+        Self::new(ErrorCode::SshConfigNoKey, Origin::new(Subsystem::Ssh))
+            .with_param("alias", alias)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    /// A `ProxyJump` chain that cannot be followed: a loop, a malformed hop, or one too deep.
+    pub fn ssh_config_proxy_chain(chain: &str) -> Self {
+        Self::new(ErrorCode::SshConfigProxyChain, Origin::new(Subsystem::Ssh))
+            .with_param("chain", chain)
             .with_outcome(OperationOutcome::NotSent)
     }
 
@@ -867,6 +935,15 @@ impl ShellError {
             .with_detail(detail)
     }
 
+    /// A portable copy found a newer release but the manifest names no archive for it.
+    ///
+    /// Not an install failure: nothing was downloaded. The answer is to take the new archive from
+    /// the release page by hand, which is what the message for this code says.
+    pub fn update_portable_unavailable() -> Self {
+        Self::new(ErrorCode::UpdatePortableUnavailable, Origin::new(Subsystem::App))
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
     // -- Application -------------------------------------------------------
 
     pub fn app_not_ready() -> Self {
@@ -940,6 +1017,43 @@ impl ShellError {
     pub fn image_manifest_unavailable(reference: &str) -> Self {
         Self::new(ErrorCode::ImageManifestUnavailable, Origin::new(Subsystem::Container))
             .with_param("image", reference)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn vmware_unavailable(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VmwareUnavailable, Origin::new(Subsystem::Vmware))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn vmware_command_failed(operation: &str, detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VmwareCommandFailed, Origin::new(Subsystem::Vmware))
+            .with_param("operation", operation)
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::Unknown)
+    }
+
+    pub fn vmware_guest_credentials(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VmwareGuestCredentials, Origin::new(Subsystem::Vmware))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn vmrest_unavailable(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VmrestUnavailable, Origin::new(Subsystem::Vmware))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::NotSent)
+    }
+
+    pub fn vmrest_unauthorized(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::VmrestUnauthorized, Origin::new(Subsystem::Vmware))
+            .with_detail(detail)
+            .with_outcome(OperationOutcome::Sent)
+    }
+
+    pub fn host_location_unknown(detail: impl AsRef<str>) -> Self {
+        Self::new(ErrorCode::HostLocationUnknown, Origin::new(Subsystem::App))
+            .with_detail(detail)
             .with_outcome(OperationOutcome::NotSent)
     }
 

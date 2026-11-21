@@ -21,6 +21,10 @@ export const MENU_TITLES = {
   /** The whole session library — exporting it, importing into it — rather than any one row. */
   library: "menu.library",
   tunnel: "menu.tunnel",
+  /** The four positions of the file panel beside a terminal. */
+  panelPlacement: "menu.panelPlacement",
+  /** The three docked positions of the commands half. */
+  commandPanelPlacement: "menu.commandPanelPlacement",
   process: "menu.process",
   disk: "menu.disk",
   socket: "menu.socket",

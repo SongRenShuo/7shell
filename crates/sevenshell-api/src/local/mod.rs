@@ -21,6 +21,8 @@ mod files;
 mod gate;
 mod k8s;
 mod sessions;
+mod vmware;
+mod vmware_admin;
 
 use std::sync::Arc;
 
@@ -34,6 +36,10 @@ pub use exec::{BatchExecInput, ExecRunInput};
 pub use files::{SftpListInput, SftpReadTextInput, SftpWriteTextInput};
 pub use k8s::K8sGetInput;
 pub use sessions::{SessionOpenInput, SessionsListInput, SessionsListKind};
+pub use vmware::{
+    GuestReadAction, GuestWriteAction, SnapshotChange, VmGuestReadInput, VmGuestWriteInput, VmPowerInput,
+    VmSendKeyInput, VmSnapshotChangeInput, VmSnapshotsInput, VmStatusInput, VmsListInput,
+};
 
 /// Every tool this build declares.
 pub fn register(registry: &mut ToolRegistry) -> Result<(), ApiError> {
@@ -47,6 +53,23 @@ pub fn register(registry: &mut ToolRegistry) -> Result<(), ApiError> {
     registry.register(Arc::new(containers::ContainersListTool))?;
     registry.register(Arc::new(containers::ContainerActionTool))?;
     registry.register(Arc::new(k8s::K8sGetTool))?;
+    registry.register(Arc::new(vmware::VmsListTool))?;
+    registry.register(Arc::new(vmware::VmStatusTool))?;
+    registry.register(Arc::new(vmware::VmPowerTool))?;
+    registry.register(Arc::new(vmware::VmSnapshotsTool))?;
+    registry.register(Arc::new(vmware::VmSnapshotChangeTool))?;
+    registry.register(Arc::new(vmware::VmGuestReadTool))?;
+    registry.register(Arc::new(vmware::VmGuestWriteTool))?;
+    registry.register(Arc::new(vmware::VmSendKeyTool))?;
+    registry.register(Arc::new(vmware_admin::VmConfigReadTool))?;
+    registry.register(Arc::new(vmware_admin::VmConfigWriteTool))?;
+    registry.register(Arc::new(vmware_admin::VmHostReadTool))?;
+    registry.register(Arc::new(vmware_admin::VmHostWriteTool))?;
+    registry.register(Arc::new(vmware_admin::VmImageTool))?;
+    registry.register(Arc::new(vmware_admin::HostLocationsListTool))?;
+    registry.register(Arc::new(vmware_admin::VmScreenshotTool))?;
+    registry.register(Arc::new(vmware_admin::VmrestReadTool))?;
+    registry.register(Arc::new(vmware_admin::VmrestNetworkCreateTool))?;
     Ok(())
 }
 

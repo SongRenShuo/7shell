@@ -14,7 +14,10 @@ import {
   CircleX,
   Copy,
   ExternalLink,
+  PanelBottom,
+  PanelLeft,
   PanelLeftClose,
+  PanelRight,
   PanelRightClose,
   Plug,
   Power,
@@ -23,11 +26,22 @@ import {
   X,
 } from "@lucide/vue";
 
+import type { DockedPanelPlacement, TerminalPanelPlacement } from "@/types/app";
+
 import type { MenuEntry } from "./types";
 
 export interface TabMenuState {
   /** Which half of the workspace this is: neither page has a stream to reconnect. */
-  readonly kind: "terminal" | "files" | "workbench" | "inspect" | "settings" | "batch" | "container" | "kubernetes";
+  readonly kind:
+    | "terminal"
+    | "files"
+    | "workbench"
+    | "inspect"
+    | "settings"
+    | "batch"
+    | "container"
+    | "kubernetes"
+    | "vmware";
   /** `null` for a page, which has no stream of its own to have ended. */
   readonly status: "open" | "ended" | "failed" | null;
   /** Whether it is already drawing a browser: one with a handle must not be opened a second time. */
@@ -76,6 +90,85 @@ export function canReconnect(state: TabMenuState): boolean {
     return false;
   }
   return state.status !== "open";
+}
+
+/** Where the file panel may sit, as one menu with a tick on the remembered answer. */
+export interface PanelPlacementActions {
+  readonly choose: (placement: TerminalPanelPlacement) => void;
+}
+
+export function panelPlacementMenu(current: TerminalPanelPlacement, actions: PanelPlacementActions): MenuEntry[] {
+  return [
+    {
+      kind: "action",
+      id: "panel-bottom",
+      labelKey: "terminal.panel.placeBottom",
+      icon: PanelBottom,
+      checked: current === "bottom",
+      run: () => actions.choose("bottom"),
+    },
+    {
+      kind: "action",
+      id: "panel-left",
+      labelKey: "terminal.panel.placeLeft",
+      icon: PanelLeft,
+      checked: current === "left",
+      run: () => actions.choose("left"),
+    },
+    {
+      kind: "action",
+      id: "panel-right",
+      labelKey: "terminal.panel.placeRight",
+      icon: PanelRight,
+      checked: current === "right",
+      run: () => actions.choose("right"),
+    },
+    {
+      kind: "action",
+      id: "panel-tab",
+      labelKey: "terminal.panel.placeTab",
+      icon: ExternalLink,
+      checked: current === "tab",
+      run: () => actions.choose("tab"),
+    },
+  ];
+}
+
+/** The commands half moves the same way, but has no standalone tab to move to. */
+export interface CommandPanelPlacementActions {
+  readonly choose: (placement: DockedPanelPlacement) => void;
+}
+
+export function commandPanelPlacementMenu(
+  current: DockedPanelPlacement,
+  actions: CommandPanelPlacementActions,
+): MenuEntry[] {
+  return [
+    {
+      kind: "action",
+      id: "command-panel-bottom",
+      labelKey: "terminal.panel.placeBottom",
+      icon: PanelBottom,
+      checked: current === "bottom",
+      run: () => actions.choose("bottom"),
+    },
+    {
+      kind: "action",
+      id: "command-panel-left",
+      labelKey: "terminal.panel.placeLeft",
+      icon: PanelLeft,
+      checked: current === "left",
+      run: () => actions.choose("left"),
+    },
+    {
+      kind: "action",
+      id: "command-panel-right",
+      labelKey: "terminal.panel.placeRight",
+      icon: PanelRight,
+      checked: current === "right",
+      run: () => actions.choose("right"),
+    },
+  ];
 }
 
 export function tabMenu(state: TabMenuState, actions: TabMenuActions): MenuEntry[] {

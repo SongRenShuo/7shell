@@ -324,6 +324,7 @@ mod tests {
             id: id.to_owned(),
             name: id.to_owned(),
             group_id: None,
+            order: None,
             protocol,
             host: "127.0.0.1".to_owned(),
             // Port 1 is where a connect to this machine fails at once: a test that gets past the
@@ -342,6 +343,7 @@ mod tests {
             kubernetes: KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 0,

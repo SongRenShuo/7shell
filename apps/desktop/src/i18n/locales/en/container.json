@@ -184,6 +184,7 @@
     },
     "filters": {
       "text": "Filter by name, image or ID",
+      "clear": "Clear the filter",
       "runningOnly": "Running only",
       "state": "State",
       "allStates": "All states",
@@ -407,6 +408,7 @@
     },
     "images": {
       "filter": "Filter by repository, tag or ID",
+      "clear": "Clear the filter",
       "none": "No image matches this filter.",
       "related": "Show the containers using {name}",
       "run": "New container from {name}",

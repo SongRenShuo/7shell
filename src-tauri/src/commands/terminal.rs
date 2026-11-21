@@ -16,7 +16,10 @@ use sevenshell_core::Core;
 use sevenshell_error::ShellError;
 use sevenshell_session::OpenTerminal;
 use sevenshell_term::zmodem::{Detector, DetectorEvent, Direction, EndReason, FileInfo, ReceiveEvent};
-use sevenshell_types::{HostSystem, LocalForward, LocalShell, OpenOutcome, OpenTunnel, SerialPortInfo};
+use sevenshell_types::{
+    ConnectionTestOutcome, HostSystem, LocalForward, LocalShell, OpenOutcome, OpenTunnel, SecretInput, SerialPortInfo,
+    Session, TerminalEncoding,
+};
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::io::AsyncWriteExt;
@@ -71,6 +74,19 @@ pub async fn session_open_cancel(state: State<'_, ShellState>, session_id: Strin
     Ok(state.core().cancel_open(&session_id).await)
 }
 
+/// Tests a connection without opening a terminal.
+///
+/// The session is the editor's draft, so a password typed into the dialog can be tested before it
+/// is saved. A typed secret travels only this once: nothing here stores it.
+#[tauri::command]
+pub async fn session_test(
+    state: State<'_, ShellState>,
+    session: Session,
+    secret: Option<SecretInput>,
+) -> Result<ConnectionTestOutcome, ShellError> {
+    state.core().test_session(&session, secret).await
+}
+
 /// Sends keystrokes or pasted text, base64-encoded.
 #[tauri::command]
 pub async fn terminal_write(state: State<'_, ShellState>, handle: String, base64: String) -> Result<(), ShellError> {
@@ -79,6 +95,17 @@ pub async fn terminal_write(state: State<'_, ShellState>, handle: String, base64
         .map_err(|error| ShellError::app_internal(format!("the terminal input was not valid base64: {error}")))?;
 
     state.core().write(&handle, &data).await
+}
+
+/// Sends text in a session's encoding; the interface uses this when UTF-8 is not the session's.
+#[tauri::command]
+pub async fn terminal_write_text(
+    state: State<'_, ShellState>,
+    handle: String,
+    text: String,
+    encoding: TerminalEncoding,
+) -> Result<(), ShellError> {
+    state.core().write_text(&handle, &text, encoding).await
 }
 
 #[tauri::command]

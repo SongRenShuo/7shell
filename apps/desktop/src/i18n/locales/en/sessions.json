@@ -1,14 +1,23 @@
 {
   "sessions": {
+    "newTab": {
+      "title": "New tab",
+      "search": "Search sessions…",
+      "empty": "No sessions match.",
+      "newSession": "New session…"
+    },
     "list": {
       "empty": "No sessions yet. Add one to keep its address, user and credentials together.",
       "add": "New session",
       "open": "Open terminal",
+      "newTerminal": "New terminal",
+      "testConnection": "Test the connection to {name}",
       "openDesktop": "Open remote desktop",
       "openHint": "Open a terminal for {name}",
       "openDesktopHint": "Open the remote desktop for {name}",
       "openWebdavHint": "Open the WebDAV folder for {name}",
       "openFtpHint": "Open the FTP folder for {name}",
+      "openVmHint": "Open the virtual machine {name}",
       "desktopLaunched": "Opened in Windows Remote Desktop.",
       "connecting": "Connecting to {name}…",
       "system": "Remote system: {name}",
@@ -50,8 +59,8 @@
       "importPassphrase": "Passphrase",
       "importPassphrasePlaceholder": "Enter the passphrase",
       "importPassphraseConfirm": "Import",
-      "dropOutOfGroups": "Move it out of every group",
       "importExport": "Import / Export",
+      "importVmware": "Import from VMware",
       "collapseAll": "Collapse all",
       "connectCancelled": "Connection cancelled: {name}",
       "connectFailed": "Could not connect to {name}: {reason}",
@@ -109,6 +118,19 @@
       "jump": "Jump hosts",
       "forwards": "Forwards"
     },
+    "connectionTest": {
+      "action": "Test connection",
+      "testing": "Testing…",
+      "signedIn": "Signed in, in {ms} ms.",
+      "reachable": "The address answered, in {ms} ms.",
+      "fingerprint": "Host key {value}",
+      "unknownTitle": "This host key has never been seen",
+      "trust": "Trust this key and test again",
+      "mismatchTitle": "The host key changed",
+      "mismatchBody": "A changed key is a stop, not a question: do not trust it unless you know why it changed.",
+      "trustedFingerprint": "Trusted: {value}",
+      "presentedFingerprint": "Presented: {value}"
+    },
     "editor": {
       "titleNew": "New session",
       "titleEdit": "Edit session",
@@ -122,6 +144,7 @@
         "files": "File services",
         "desktop": "Desktop",
         "containers": "Containers & clusters",
+        "virtualization": "Virtual machines",
         "other": "Other"
       },
       "desktop": {
@@ -129,7 +152,7 @@
       },
       "telnet": {
         "note": "Telnet is cleartext: what is typed here, passwords included, crosses the network unencrypted. It is for old devices on networks you trust.",
-        "title": "Keyboard",
+        "title": "Keyboard and encoding",
         "enter": "Enter key",
         "enterCrlf": "CRLF (carriage return + line feed)",
         "enterCr": "CR (carriage return only)",
@@ -137,6 +160,12 @@
         "backspace": "Backspace key",
         "backspaceDel": "DEL (0x7F)",
         "backspaceCtrlH": "Ctrl+H (0x08)"
+      },
+      "encoding": {
+        "label": "Encoding",
+        "utf8": "UTF-8",
+        "gbk": "GBK (legacy Simplified Chinese)",
+        "gb18030": "GB18030 (full Simplified Chinese)"
       },
       "rawTcp": {
         "note": "Raw TCP negotiates nothing: bytes are sent and shown exactly as they are. The connection is cleartext, which suits a device's own line protocol."
@@ -250,6 +279,20 @@
         "viaSshNone": "Connect directly",
         "viaSshHint": "Optional. When a session is chosen, the API server is reached through it, with that session's credentials and route."
       },
+      "vmware": {
+        "title": "VMware",
+        "machine": "Virtual machine",
+        "machinePick": "Choose a machine from the scan",
+        "machineHint": "Imported from Workstation's inventory. The session keeps the machine's identity, so renaming or moving it in Workstation does not break this entry.",
+        "unknownMachine": "A machine that is no longer in the inventory",
+        "sshUser": "SSH user",
+        "sshUserPlaceholder": "Guest account",
+        "sshPort": "SSH port",
+        "rdpUser": "Desktop user",
+        "rdpUserPlaceholder": "Leave empty to let the client ask",
+        "rdpPort": "RDP port",
+        "hint": "The workspace makes an ordinary SSH or remote-desktop session the first time it connects, and keeps its address up to date. Passwords are stored on that session, not here."
+      },
       "group": "Group",
       "groupNone": "No group",
       "method": "Authentication",
@@ -278,6 +321,22 @@
         "forget": "Forget key",
         "forgetMessage": "Forget “{name}”? The key is deleted from the vault, and a session that used it will ask for it again.",
         "none": "No key attached yet."
+      },
+      "openssh": {
+        "title": "OpenSSH configuration",
+        "useConfig": "Host and identity come from ~/.ssh/config",
+        "note": "The alias is saved instead of a copy of the address. Host, account, port and identity are resolved again on every connection; a key named by the configuration is used first, then the default ~/.ssh/id_* files. A ProxyJump route in the file is followed, with the same host-key checks on every hop.",
+        "pick": "From OpenSSH config…",
+        "dialogTitle": "Hosts in ~/.ssh/config",
+        "dialogDescription": "Choose an alias. The address and account are shown as this machine resolves them; nothing is copied until you save.",
+        "loading": "Reading ~/.ssh/config…",
+        "filterPlaceholder": "Filter by alias, address, or account…",
+        "empty": "No hosts yet. Add a Host block to ~/.ssh/config and open this again.",
+        "noMatch": "No hosts match this filter.",
+        "viaProxy": "via {route}",
+        "unsupported": "Not supported yet: {directives}",
+        "close": "Close",
+        "keyNote": "The identity is read from ~/.ssh/config or the default ~/.ssh/id_* files when connecting; no key needs to be imported here."
       },
       "jumps": {
         "title": "Jump hosts",
@@ -321,6 +380,7 @@
         "webdavUrl": "Enter a WebDAV address beginning with http:// or https://.",
         "user": "Enter the user to log in as.",
         "port": "The port must be a number between 1 and 65535.",
+        "vmwareId": "Choose a virtual machine from the scan.",
         "key": "Attach a key file for public-key authentication.",
         "serialPort": "Choose a serial port.",
         "serialBaud": "The baud rate must be a whole number between 50 and 4000000.",
@@ -331,18 +391,118 @@
       "cancel": "Cancel",
       "terminal": {
         "title": "Terminal",
+        "encoding": "Encoding",
+        "backspace": "Backspace",
         "forwardAgent": "Let this server use the key agent on this machine",
         "forwardAgentNote": "While the session is open, anything running on that server can ask for signatures. Leave it off unless the server needs it.",
         "record": "Write this session down",
         "recordNote": "A recording is a plain file holding everything the terminal shows, in asciicast format for players such as asciinema. It is kept in the recordings folder beside the settings."
       }
     },
+    "vmware": {
+      "endpoint": "VMware",
+      "stateLabel": "Power",
+      "systemLabel": "System",
+      "state": {
+        "running": "Running",
+        "suspended": "Suspended",
+        "stopped": "Stopped",
+        "checking": "Checking…"
+      },
+      "toolsLabel": "VMware Tools",
+      "tools": {
+        "running": "Running",
+        "installed": "Installed",
+        "notInstalled": "Not installed",
+        "notRunning": "Not running",
+        "unknown": "Not reported"
+      },
+      "addressLabel": "Address",
+      "addressNone": "Not reported yet",
+      "refresh": "Refresh",
+      "start": "Start",
+      "resume": "Resume",
+      "stop": "Stop",
+      "suspend": "Suspend",
+      "stopTitle": "Stop {name}?",
+      "stopMessage": "The guest is asked to shut down through VMware Tools. Anything it had not saved is lost if the guest cannot answer in time.",
+      "sshTitle": "Terminal",
+      "rdpTitle": "Desktop",
+      "user": "User",
+      "port": "Port",
+      "sshUserPlaceholder": "Guest account",
+      "rdpUserPlaceholder": "Leave empty to let the client ask",
+      "openSsh": "Open SSH",
+      "openRdp": "Open RDP",
+      "hint": "The first open makes an ordinary saved session that reaches the guest; this button keeps its address current. Its password and key are edited there, not here.",
+      "lock": {
+        "hint": "A lock from an unfinished run is still here. Starting will offer to take ownership.",
+        "title": "Take ownership of {name}?",
+        "message": "The machine is not running, but its lock directory is still there — usually left by a run that did not shut down cleanly. Taking ownership removes the lock. Only do this if no Workstation window or other machine is using it: a live machine's lock is what keeps two hypervisors from writing the same disks.",
+        "confirm": "Take ownership and start"
+      },
+      "vmrest": {
+        "title": "VMware REST",
+        "user": "User",
+        "password": "Password",
+        "save": "Save",
+        "start": "Start",
+        "saved": "Saved.",
+        "started": "vmrest is answering."
+      },
+      "locations": {
+        "title": "Host locations",
+        "folder": "Folder",
+        "file": "File",
+        "chooseFolder": "Choose a host folder",
+        "chooseFile": "Choose a host file",
+        "forget": "Remove"
+      },
+      "password": {
+        "title": "Password",
+        "description": "Signing in to {target} over SSH needs a password.",
+        "label": "Password",
+        "placeholder": "Password",
+        "hint": "Stored with that saved session in the vault, so a reconnect does not ask again.",
+        "connect": "Connect"
+      },
+      "connect": {
+        "powerOnFirst": "Start the virtual machine, or resume it, before opening a connection to it.",
+        "noAddress": "The guest has not reported an address yet. Wait for it to boot and VMware Tools to start, then refresh.",
+        "userRequired": "Enter the guest account an SSH connection signs in as."
+      }
+    },
+    "vmwareScan": {
+      "title": "Import from VMware",
+      "description": "Machines in this account's Workstation inventory become saved sessions. Each one opens a workspace with its power state and the two ways to reach the guest.",
+      "rescan": "Scan again",
+      "scanning": "Scanning Workstation…",
+      "empty": "No virtual machines were found in this account's inventory.",
+      "selectAll": "Select all",
+      "machine": "Machine",
+      "guest": "Guest",
+      "address": "Address",
+      "addressPending": "Not reported yet",
+      "addressOff": "—",
+      "state": "State",
+      "running": "Running",
+      "stopped": "Stopped",
+      "alreadyImported": "Already in the list",
+      "group": "Group",
+      "groupDefault": "VMware",
+      "groupName": "New group name",
+      "groupAdd": "New group",
+      "groupCreate": "Create group",
+      "import": "Import",
+      "importCount": "Import {count}",
+      "imported": "Imported {count} virtual machines."
+    },
     "reopen": {
       "title": "Open in a new tab",
       "message": "“{name}” is already open in the workspace. Open a new tab?",
       "confirm": "Open in a new tab",
       "remember": "Remember my choice",
-      "rememberNote": "It applies to the menu's own “Open terminal” only, and can be changed later in “Settings - Workspace”."
+      "rememberNote": "It applies to “Open terminal” in the session menu and the new-tab picker, and can be changed later in “Settings - Workspace”."
     },
     "hostKey": {
       "opening": "Opening {name}",

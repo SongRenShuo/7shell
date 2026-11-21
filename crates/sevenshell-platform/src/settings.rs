@@ -24,10 +24,11 @@ use sevenshell_types::{
     McpServerTransport, SessionLayout, SessionReopen, SnippetProvider, TERMINAL_CUSTOM_SCHEME_LIMIT,
     TERMINAL_HIGHLIGHT_RULE_LIMIT, TERMINAL_SCHEME_PROFILE_LIMIT, TabGroupMode, TabLayout, TabMaxWidth, TabPlacement,
     TabSortMode, TerminalCursorInactiveStyle, TerminalCursorStyle, TerminalCustomScheme, TerminalHighlightMode,
-    TerminalHighlightRule, TerminalSchemeBackground, TerminalSchemeProfile, TerminalSchemeSource, ThemeMode,
-    ThemePalette, ai_context_enabled_default, ai_context_lines_default, ai_max_output_tokens_default,
-    ai_session_retention_days_default, background_blur_default, background_transparency_default, command_completion_on,
-    default_terminal_highlight_rules, is_valid_mcp_server_id, mcp_approval_timeout_seconds_default,
+    TerminalHighlightRule, TerminalPanelPlacement, TerminalSchemeBackground, TerminalSchemeProfile,
+    TerminalSchemeSource, ThemeMode, ThemePalette, ai_context_enabled_default, ai_context_lines_default,
+    ai_max_output_tokens_default, ai_session_retention_days_default, background_blur_default,
+    background_transparency_default, command_completion_on, default_terminal_highlight_rules,
+    files_columns_hidden_by_default, files_tree_on, is_valid_mcp_server_id, mcp_approval_timeout_seconds_default,
     mcp_audit_retention_days_default, mcp_max_result_bytes_default, mcp_server_enabled_default,
     mcp_server_tool_timeout_seconds_default, monitor_on, normalize_ai_context_lines,
     normalize_ai_session_retention_days, normalize_mcp_approval_timeout_seconds, normalize_mcp_audit_retention_days,
@@ -214,6 +215,17 @@ impl StoredMcpServerConfig {
     }
 }
 
+/// A stored text colour, or nothing when it is not the `#rrggbb` the terminal can draw.
+///
+/// A hand-edited value that is not a colour is dropped rather than repaired: the answer it falls
+/// back to — the palette's own text colour — is the one that is always readable in the theme it is
+/// used in, which a guessed replacement would not be.
+fn hex_colour(value: Option<String>) -> Option<String> {
+    value.map(|colour| colour.trim().to_ascii_lowercase()).filter(|colour| {
+        colour.len() == 7 && colour.starts_with('#') && colour[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
+}
+
 /// One saved answer to "which terminal colours", as the file holds it.
 ///
 /// The three enums are strings for the reason every other stored enum is: a profile written by a
@@ -235,6 +247,10 @@ struct StoredTerminalSchemeProfile {
     scheme_light: Option<String>,
     #[serde(default)]
     scheme_background: String,
+    #[serde(default)]
+    foreground_dark: Option<String>,
+    #[serde(default)]
+    foreground_light: Option<String>,
 }
 
 impl StoredTerminalSchemeProfile {
@@ -247,6 +263,8 @@ impl StoredTerminalSchemeProfile {
             scheme_dark: profile.scheme_dark.clone(),
             scheme_light: profile.scheme_light.clone(),
             scheme_background: profile.scheme_background.as_str().to_owned(),
+            foreground_dark: profile.foreground_dark.clone(),
+            foreground_light: profile.foreground_light.clone(),
         }
     }
 
@@ -273,6 +291,8 @@ impl StoredTerminalSchemeProfile {
                 .filter(|id| !id.trim().is_empty())
                 .map(str::to_owned),
             scheme_background: TerminalSchemeBackground::from_id(&self.scheme_background).unwrap_or_default(),
+            foreground_dark: hex_colour(self.foreground_dark.clone()),
+            foreground_light: hex_colour(self.foreground_light.clone()),
         })
     }
 }
@@ -305,6 +325,13 @@ struct StoredSettings {
     /// the default this build ships with.
     #[serde(default)]
     files_delete_mode: String,
+    /// Absent in a file written before the tree could be folded away, which reads as shown.
+    #[serde(default = "files_tree_on")]
+    files_tree_visible: bool,
+    /// Absent in a file written before columns could be folded away, which reads as the three
+    /// columns the reference list draws.
+    #[serde(default = "files_columns_hidden_by_default")]
+    files_hidden_columns: Vec<String>,
     /// Absent in a file written before a session could open as two halves, which reads as the
     /// default — the split — rather than as the terminal alone.
     #[serde(default)]
@@ -313,6 +340,15 @@ struct StoredSettings {
     /// that is already open, which reads as the default — asking.
     #[serde(default)]
     session_reopen: String,
+    /// Absent in a file written before the file panel could move, which reads as the bottom.
+    #[serde(default)]
+    terminal_panel_placement: String,
+    /// Absent in a file written before the commands panel could move, which reads as the bottom.
+    #[serde(default)]
+    terminal_command_panel_placement: String,
+    /// Absent in a file written before the panel could sit beside the terminal.
+    #[serde(default)]
+    terminal_panel_width: Option<u32>,
     /// Absent in a file written before the terminal had a file panel, which reads as "the divider
     /// has never been moved".
     #[serde(default)]
@@ -445,6 +481,12 @@ struct StoredSettings {
     terminal_scheme_dark: Option<String>,
     #[serde(default)]
     terminal_scheme_light: Option<String>,
+    /// The terminal's own text colour, absent until somebody changes it — the palette's text is
+    /// the answer otherwise.
+    #[serde(default)]
+    terminal_foreground_dark: Option<String>,
+    #[serde(default)]
+    terminal_foreground_light: Option<String>,
     #[serde(default)]
     terminal_scheme_background: String,
     #[serde(default)]
@@ -568,8 +610,13 @@ impl StoredSettings {
             terminal_theme: settings.terminal_theme.as_str().to_owned(),
             files_layout: settings.files_layout.as_str().to_owned(),
             files_delete_mode: settings.files_delete_mode.as_str().to_owned(),
+            files_tree_visible: settings.files_tree_visible,
+            files_hidden_columns: settings.files_hidden_columns.clone(),
             session_layout: settings.session_layout.as_str().to_owned(),
             session_reopen: settings.session_reopen.as_str().to_owned(),
+            terminal_panel_placement: settings.terminal_panel_placement.as_str().to_owned(),
+            terminal_command_panel_placement: settings.terminal_command_panel_placement.as_str().to_owned(),
+            terminal_panel_width: settings.terminal_panel_width,
             terminal_panel_height: settings.terminal_panel_height,
             sidebar_width: settings.sidebar_width,
             files_tree_width: settings.files_tree_width,
@@ -610,6 +657,8 @@ impl StoredSettings {
             terminal_scheme_source: settings.terminal_scheme_source.as_str().to_owned(),
             terminal_scheme_dark: settings.terminal_scheme_dark.clone(),
             terminal_scheme_light: settings.terminal_scheme_light.clone(),
+            terminal_foreground_dark: settings.terminal_foreground_dark.clone(),
+            terminal_foreground_light: settings.terminal_foreground_light.clone(),
             terminal_scheme_background: settings.terminal_scheme_background.as_str().to_owned(),
             terminal_custom_schemes: settings.terminal_custom_schemes.clone(),
             terminal_scheme_profiles: settings
@@ -730,8 +779,15 @@ impl StoredSettings {
             terminal_theme: ThemeMode::from_id(&self.terminal_theme).unwrap_or_default(),
             files_layout: FilesLayout::from_id(&self.files_layout).unwrap_or_default(),
             files_delete_mode: FilesDeleteMode::from_id(&self.files_delete_mode).unwrap_or_default(),
+            files_tree_visible: self.files_tree_visible,
+            files_hidden_columns: self.files_hidden_columns.clone(),
             session_layout: SessionLayout::from_id(&self.session_layout).unwrap_or_default(),
             session_reopen: SessionReopen::from_id(&self.session_reopen).unwrap_or_default(),
+            terminal_panel_placement: TerminalPanelPlacement::from_id(&self.terminal_panel_placement)
+                .unwrap_or_default(),
+            terminal_command_panel_placement: TerminalPanelPlacement::from_id(&self.terminal_command_panel_placement)
+                .unwrap_or_default(),
+            terminal_panel_width: self.terminal_panel_width,
             terminal_panel_height: self.terminal_panel_height,
             sidebar_width: self.sidebar_width,
             files_tree_width: self.files_tree_width,
@@ -781,6 +837,10 @@ impl StoredSettings {
             terminal_scheme_source: TerminalSchemeSource::from_id(&self.terminal_scheme_source).unwrap_or_default(),
             terminal_scheme_dark: self.terminal_scheme_dark.filter(|id| !id.trim().is_empty()),
             terminal_scheme_light: self.terminal_scheme_light.filter(|id| !id.trim().is_empty()),
+            // A number the colour picker cannot have produced is not a colour this build can draw;
+            // it reads as the palette's own text, which is the answer that is always available.
+            terminal_foreground_dark: hex_colour(self.terminal_foreground_dark),
+            terminal_foreground_light: hex_colour(self.terminal_foreground_light),
             terminal_scheme_background: TerminalSchemeBackground::from_id(&self.terminal_scheme_background)
                 .unwrap_or_default(),
             // An imported scheme that cannot be drawn is dropped whole, and the first one with an id
@@ -961,8 +1021,13 @@ mod tests {
             terminal_theme,
             files_layout: FilesLayout::default(),
             files_delete_mode: FilesDeleteMode::default(),
+            files_tree_visible: files_tree_on(),
+            files_hidden_columns: files_columns_hidden_by_default(),
             session_layout: SessionLayout::default(),
             session_reopen: SessionReopen::default(),
+            terminal_panel_placement: TerminalPanelPlacement::default(),
+            terminal_command_panel_placement: TerminalPanelPlacement::default(),
+            terminal_panel_width: None,
             terminal_panel_height: None,
             sidebar_width: None,
             files_tree_width: None,
@@ -1005,6 +1070,8 @@ mod tests {
             terminal_scheme_source: TerminalSchemeSource::default(),
             terminal_scheme_dark: None,
             terminal_scheme_light: None,
+            terminal_foreground_dark: None,
+            terminal_foreground_light: None,
             terminal_scheme_background: TerminalSchemeBackground::default(),
             terminal_custom_schemes: Vec::new(),
             terminal_scheme_profiles: Vec::new(),
@@ -1584,6 +1651,8 @@ mod tests {
             terminal_scheme_source: TerminalSchemeSource::Custom,
             terminal_scheme_dark: Some("dracula".to_owned()),
             terminal_scheme_light: Some("solarized-light".to_owned()),
+            terminal_foreground_dark: Some("#c0ffee".to_owned()),
+            terminal_foreground_light: Some("#102030".to_owned()),
             terminal_scheme_background: TerminalSchemeBackground::Host,
             terminal_custom_schemes: vec![TerminalCustomScheme {
                 id: "imported".to_owned(),
@@ -1602,6 +1671,8 @@ mod tests {
                 scheme_dark: Some("dracula".to_owned()),
                 scheme_light: Some("solarized-light".to_owned()),
                 scheme_background: TerminalSchemeBackground::Scheme,
+                foreground_dark: Some("#d0d0d0".to_owned()),
+                foreground_light: None,
             }],
             terminal_highlight_rules: vec![TerminalHighlightRule {
                 id: "timeout".to_owned(),
@@ -1624,7 +1695,8 @@ mod tests {
                 "terminalLineHeight":0.2,"terminalLetterSpacing":-99,"terminalPaddingX":90,
                 "terminalPaddingY":40,"terminalCursorStyle":"diamond","terminalCursorInactiveStyle":"sparkle",
                 "terminalMinContrast":99,"terminalSchemeSource":"rainbow","terminalSchemeDark":"",
-                "terminalSchemeLight":"  ","terminalSchemeBackground":"glass"}"#,
+                "terminalSchemeLight":"  ","terminalSchemeBackground":"glass",
+                "terminalForegroundDark":"not-a-colour","terminalForegroundLight":"12345"}"#,
         )
         .expect("write");
         let loaded = load_from(&path).expect("a hand-edited file is not a hard failure");
@@ -1643,6 +1715,10 @@ mod tests {
         assert_eq!(loaded.terminal_scheme_source, TerminalSchemeSource::default());
         assert_eq!(loaded.terminal_scheme_dark, None);
         assert_eq!(loaded.terminal_scheme_light, None);
+        // A value the colour picker could not have produced is not repaired into a colour: the
+        // palette's own text is the answer that is always readable.
+        assert_eq!(loaded.terminal_foreground_dark, None);
+        assert_eq!(loaded.terminal_foreground_light, None);
         assert_eq!(loaded.terminal_scheme_background, TerminalSchemeBackground::default());
     }
 
