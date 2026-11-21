@@ -35,6 +35,7 @@ import {
 
 import { describeShellError } from "@/i18n/errors";
 import { useToast } from "@/composables/useToast";
+import RingGauge from "@/components/charts/RingGauge.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import { backend } from "@/lib/backend/api";
 import { asShellError, type ShellError } from "@/lib/backend/errors";
@@ -175,9 +176,6 @@ function bootOn(service: ServiceEntry): boolean {
  * container runtime that is a dozen rings with the same numbers — noise around the two that mean
  * something. The wire still carries every row; this is only what the page draws.
  */
-const RING_RADIUS = 18;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
 const ringMounts = computed<DiskUsage[]>(() =>
   (overview.value?.mounts ?? []).filter((mount) => mount.mountPoint === "/" || mount.filesystem.startsWith("/dev/")),
 );
@@ -188,11 +186,6 @@ function usedPercent(mount: DiskUsage): number {
   }
   const used = mount.sizeBytes - Math.min(mount.availableBytes, mount.sizeBytes);
   return Math.round((used / mount.sizeBytes) * 100);
-}
-
-function ringDash(mount: DiskUsage): string {
-  const drawn = (usedPercent(mount) / 100) * RING_CIRCUMFERENCE;
-  return `${drawn} ${RING_CIRCUMFERENCE}`;
 }
 
 /**
@@ -459,31 +452,10 @@ watch(
             :key="`${mount.filesystem}-${mount.mountPoint}`"
             class="flex items-center gap-2"
           >
-            <svg viewBox="0 0 44 44" class="size-11 -rotate-90" aria-hidden="true">
-              <circle
-                cx="22"
-                cy="22"
-                :r="RING_RADIUS"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="4"
-                class="text-accent"
-              />
-              <circle
-                cx="22"
-                cy="22"
-                :r="RING_RADIUS"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="4"
-                stroke-linecap="round"
-                :stroke-dasharray="ringDash(mount)"
-                :class="usedPercent(mount) >= 90 ? 'text-destructive' : 'text-emerald-500'"
-              />
-            </svg>
+            <RingGauge :percent="usedPercent(mount)" />
             <figcaption class="text-[11px] leading-tight">
               <span class="block font-mono" :title="mount.filesystem">{{ mount.mountPoint }}</span>
-              <span class="text-muted-foreground">
+              <span class="nums text-muted-foreground">
                 {{ formatSize(mount.sizeBytes - mount.availableBytes) }} / {{ formatSize(mount.sizeBytes) }} ·
                 {{ usedPercent(mount) }}%
               </span>
