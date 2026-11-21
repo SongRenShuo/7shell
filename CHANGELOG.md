@@ -8,6 +8,13 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- The scrollbar is the application's own everywhere: thin, translucent and inside the panel's
+  borders, on every surface that scrolls (8205762, 35bf33d, 48360a3).
+- A selected row in the file tree leaves the panel's border visible instead of painting over it
+  (35bf33d).
+- The sidebar keeps every label whole, and a session's hover card opens under the workspace toolbar
+  instead of covering it (48360a3).
+
 - The VMware inventory's Windows-style separators are understood on every platform, so a machine's
   name falls back correctly wherever the host runs (7e020e3).
 
