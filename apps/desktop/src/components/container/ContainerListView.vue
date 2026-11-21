@@ -49,6 +49,7 @@ import {
   containerStateLabel,
   containerStateStyle,
 } from "@/components/container/containerStates";
+import MiniBar from "@/components/charts/MiniBar.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
 import WbEmpty from "@/components/ui/WbEmpty.vue";
@@ -931,7 +932,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             <th class="w-[22%]" :class="TABLE.page.headCell">{{ t("container.col.image") }}</th>
             <th class="w-[8%]" :class="TABLE.page.headCell">{{ t("container.col.id") }}</th>
             <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.state") }}</th>
-            <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.memory") }}</th>
+            <th class="w-[12%]" :class="TABLE.page.headCell">{{ t("container.col.memory") }}</th>
             <th class="w-[13%]" :class="TABLE.page.headCell">{{ t("container.col.ports") }}</th>
             <th class="w-[11%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
             <th class="w-[10rem]" :class="TABLE.page.headCell">{{ t("container.col.actions") }}</th>
@@ -986,9 +987,13 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             </td>
             <td :class="TABLE.page.cell">
               <!-- The engine answers stats for the whole connection in one call; between samples
-                   the column holds its last answer rather than flashing empty. -->
-              <span v-if="statsFor(container)" class="block font-mono text-[11px] text-muted-foreground">
-                {{ statsFor(container)!.memoryPercent.toFixed(1) }}%
+                   the column holds its last answer rather than flashing empty. The bar and the
+                   number read together, the way the reference manager draws a memory share. -->
+              <span v-if="statsFor(container)" class="flex items-center gap-1.5">
+                <MiniBar :percent="statsFor(container)!.memoryPercent" class="w-16 shrink-0" />
+                <span class="nums font-mono text-[11px] text-muted-foreground">
+                  {{ statsFor(container)!.memoryPercent.toFixed(1) }}%
+                </span>
               </span>
               <span v-else class="block text-[11px] text-muted-foreground">—</span>
             </td>
