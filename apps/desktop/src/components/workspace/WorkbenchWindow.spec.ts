@@ -81,7 +81,7 @@ const Host = defineComponent({
 let app: App | undefined;
 let host: HTMLDivElement;
 
-beforeEach(() => {
+beforeEach(async () => {
   mode.value = "normal";
   focused.value = true;
   left.value = 100;
@@ -103,6 +103,13 @@ beforeEach(() => {
   document.body.append(host);
   app = createApp(Host);
   app.mount(host);
+  // The window listens for focus in the capture phase and for the gesture in the target phase, and
+  // Vue stamps every listener with the millisecond it was attached, then ignores an event whose
+  // stamp is not later than that (`runtime-dom`'s invoker guard). The focus listener runs first and
+  // stamps the press, so a press dispatched in the same millisecond as the mount is swallowed and
+  // the gesture never starts — a race that CI runners hit and local machines rarely do. Let the
+  // clock move past the attach time before any test drives a pointer.
+  await new Promise((resolve) => setTimeout(resolve, 2));
 });
 
 afterEach(() => {
@@ -152,21 +159,7 @@ function pointer(type: string, clientX: number, clientY: number): PointerEvent {
 
 /** A whole press: down on the title bar at the given point. */
 function pressTitle(clientX = 200, clientY = 100): void {
-  const event = pointer("pointerdown", clientX, clientY);
-  titleBar().dispatchEvent(event);
-  // TEMPORARY probe: a press the component refused leaves the later assertion to fail for a reason
-  // that belongs here. It speaks only on that path, so a passing run is timed as before.
-  if (!event.defaultPrevented) {
-    const root = document.querySelector("[data-workbench-window]");
-    console.log("[probe] title press not accepted from the test", {
-      at: `${clientX},${clientY}`,
-      state: root?.getAttribute("data-window-state"),
-      ariaHidden: root?.getAttribute("aria-hidden"),
-      headers: document.querySelectorAll("[data-workbench-window-title]").length,
-      roots: document.querySelectorAll("[data-workbench-window]").length,
-      focus: calls.focus,
-    });
-  }
+  titleBar().dispatchEvent(pointer("pointerdown", clientX, clientY));
 }
 
 describe("the chrome", () => {
@@ -449,17 +442,7 @@ describe("resizing from the edge zones", () => {
   });
 
   it("keeps the grip's own contract: the bottom-right grip still asks for a size", () => {
-    const down = pointer("pointerdown", 300, 300);
-    grip().dispatchEvent(down);
-    // TEMPORARY probe: speaks only when the press was refused.
-    if (!down.defaultPrevented) {
-      const root = document.querySelector("[data-workbench-window]");
-      console.log("[probe] grip press not accepted", {
-        state: root?.getAttribute("data-window-state"),
-        ariaHidden: root?.getAttribute("aria-hidden"),
-        roots: document.querySelectorAll("[data-workbench-window]").length,
-      });
-    }
+    grip().dispatchEvent(pointer("pointerdown", 300, 300));
     grip().dispatchEvent(pointer("pointermove", 350, 340));
 
     expect(resizes).toEqual([{ width: 716, height: 462 }]);
