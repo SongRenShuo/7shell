@@ -455,4 +455,99 @@ describe("the log window", () => {
     await settle();
     expect(body()).toContain("kept while paused");
   });
+
+  it("narrows to the service the filter names, colours the prefixes apart, and lets the lot back", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await runMenuEntry("web-app", "logs");
+    await vi.waitFor(() => {
+      expect(streamListener).not.toBeNull();
+    });
+
+    streamListener?.({ streamId: "log-1", line: "web-app-web-1 | listening on 80" });
+    streamListener?.({ streamId: "log-1", line: "web-app-db-1 | db ready" });
+    streamListener?.({ streamId: "log-1", line: "web-app-web-1 | second line from web" });
+    await settle();
+
+    // The prefix wears the service's colour, and the two services are told apart by it.
+    const webLine = document.querySelector('[data-compose-logs-prefix="web-app-web-1"]');
+    const dbLine = document.querySelector('[data-compose-logs-prefix="web-app-db-1"]');
+    expect(webLine?.getAttribute("style")).toContain("--log-source");
+    expect(dbLine?.getAttribute("style")).toContain("--log-source");
+    expect(webLine?.getAttribute("style")).not.toBe(dbLine?.getAttribute("style"));
+
+    // The filter is the page's own dropdown; picking "web" leaves only its lines.
+    await openServiceFilter();
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (candidate) => candidate.textContent?.trim() === "web",
+    );
+    if (!option) {
+      const seen = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((candidate) =>
+        candidate.textContent?.trim(),
+      );
+      throw new Error(`the filter has no web entry; it offered ${seen.join(", ")}`);
+    }
+    option.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse" }));
+    await settle();
+
+    expect(body()).toContain("listening on 80");
+    expect(body()).toContain("second line from web");
+    expect(body(), "another service's lines are not drawn").not.toContain("db ready");
+
+    // A service the buffer has heard of but a clear has emptied is said so, not drawn as blank.
+    streamListener?.({ streamId: "log-1", line: "web-app-idle-1 | passing through" });
+    await settle();
+    await openServiceFilter();
+    const idleOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (candidate) => candidate.textContent?.trim() === "idle",
+    );
+    if (!idleOption) {
+      throw new Error("the filter has no idle entry");
+    }
+    idleOption.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse" }));
+    await settle();
+    expect(body()).toContain("passing through");
+
+    const clearButton = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (candidate) => candidate.textContent?.trim() === "Clear",
+    );
+    if (!clearButton) {
+      throw new Error("the log window drew no clear button");
+    }
+    clearButton.click();
+    await settle();
+    expect(document.querySelector("[data-compose-logs-service-empty]")?.textContent).toContain(
+      "No line comes from this service yet.",
+    );
+
+    // "All services" is the way back.
+    await openServiceFilter();
+    const all = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (candidate) => candidate.textContent?.trim() === "All services",
+    );
+    if (!all) {
+      throw new Error("the filter has no all-services entry");
+    }
+    all.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse" }));
+    await settle();
+    expect(body(), "the cleared buffer is empty for every service").not.toContain("db ready");
+    expect(body()).not.toContain("listening on 80");
+  });
 });
+
+/**
+ * Opens the service filter, which is the interface's own control: its list is teleported to the
+ * body and reka-ui opens it on a pointer going down rather than on a click.
+ */
+async function openServiceFilter(): Promise<void> {
+  const trigger = document.querySelector<HTMLElement>("[data-compose-logs-service]");
+  if (!trigger) {
+    throw new Error("the log window drew no service filter");
+  }
+  trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+  trigger.click();
+  await nextTick();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}

@@ -58,6 +58,16 @@
   --completion-path: oklch(0.62 0.12 200);
   --completion-option: oklch(0.62 0.16 30);
   --completion-argument: oklch(0.58 0.08 220);
+  /*
+   * The sources a merged log draws prefixes for, one colour each, in the order the sources join.
+   * Colour is the only thing telling the prefixes apart inside one buffer — which container or
+   * which Compose service a line came from — so each has to be readable at a glance, and none of
+   * them may read as a status: these name "where the line came from", never "how it went".
+   */
+  --log-source-1: oklch(0.55 0.17 255);
+  --log-source-2: oklch(0.6 0.15 152);
+  --log-source-3: oklch(0.62 0.15 70);
+  --log-source-4: oklch(0.55 0.2 295);
   --ring: oklch(0.709 0 0);
   /*
    * What stands between the window and a dialog. A dark scrim in the light theme; in the dark one it
@@ -172,6 +182,10 @@
   --completion-path: oklch(0.78 0.1 200);
   --completion-option: oklch(0.76 0.15 35);
   --completion-argument: oklch(0.72 0.09 220);
+  --log-source-1: oklch(0.75 0.12 250);
+  --log-source-2: oklch(0.75 0.16 150);
+  --log-source-3: oklch(0.8 0.15 85);
+  --log-source-4: oklch(0.72 0.16 300);
   --ring: oklch(0.6208 0.0075 277.1);
   --overlay: color-mix(in oklch, var(--background) 70%, transparent);
 }
