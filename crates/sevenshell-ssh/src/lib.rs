@@ -21,6 +21,7 @@ mod credential;
 mod hostkey;
 mod keygen;
 pub mod openssh;
+mod pool;
 mod session;
 
 mod agent;
@@ -40,6 +41,7 @@ pub use credential::{Credential, KeyDescription, describe_key};
 pub use exec::{ExecCapture, ExecOutcome, MAX_OUTPUT_BYTES};
 pub use hostkey::{fingerprint, probe_host_key, probe_host_key_via};
 pub use keygen::{GeneratedKey, generate, public_line};
+pub use pool::{CarrierPool, ConnectFactory, DEFAULT_POOL_SIZE, PoolSnapshot};
 pub use route::{BoxedStream, LocalForward, RemoteDial, RemoteDialer, Route, TcpDialer, TunnelHandle, TunnelStream};
 pub use scp::{ByteProgress, TransferOptions, TransferReport, TransferredEntry};
 pub use scp_listing::{ListingFormat, ShellCapabilities, ShellEntry, ShellListing};

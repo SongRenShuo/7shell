@@ -10,17 +10,18 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use russh::client::{self, Config, DisconnectReason, Handle, KeyboardInteractiveAuthResponse, Msg};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect, Preferred, SshId, kex};
-use sevenshell_error::ShellError;
+use sevenshell_error::{ErrorCode, ShellError};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::Purpose;
 use crate::budget::{ChannelHolder, ChannelLedger, HeldChannel, HeldChannels, YieldHook};
+use crate::pool::PoolInner;
 use crate::route::{BoxedStream, Route, TunnelStream};
 use sevenshell_types::PRODUCT_NAME;
 use tokio::sync::Mutex as AsyncMutex;
@@ -96,6 +97,13 @@ pub struct SshSession {
     /// open. Every session channel this side opens is counted here, and an open that would cross
     /// the ceiling is refused before the server ever sees it.
     ledger: Arc<ChannelLedger>,
+    /// The carrier pool this connection belongs to, when it was born into one.
+    ///
+    /// Held as a weak link: the pool owns its carriers, and a session outliving its pool — a
+    /// consumer's last handle, a carrier the pool closed — must not hold the pool open behind
+    /// it. Every channel open consults the link; when it answers, the open is placed on the
+    /// carrier of that pool with the most room rather than on this connection by default.
+    pool: Mutex<Weak<PoolInner>>,
     /// The slot the terminal's own channel holds, when this connection opened as a terminal. The
     /// ledger counts it like any other, and it is released when the connection ends.
     _terminal_held: Option<HeldChannel>,
@@ -113,6 +121,23 @@ impl SshSession {
     /// this first and opens as many as there is room for, instead of walking into refusals.
     pub fn channel_budget(&self) -> HeldChannels {
         self.ledger.snapshot()
+    }
+
+    /// Joins the connection to a carrier pool: from here on, its channel opens are placed on
+    /// whichever carrier of that pool has the most room — including another connection entirely.
+    ///
+    /// Called by the pool itself, once, on the connection it just opened. The events stream
+    /// stays out of the arrangement by the routing's own rule: it is placed on the connection it
+    /// was asked on, whatever the pool says, and the pool never grows for one.
+    pub(crate) fn join_pool(&self, pool: &Arc<PoolInner>) {
+        if let Ok(mut slot) = self.pool.lock() {
+            *slot = Arc::downgrade(pool);
+        }
+    }
+
+    /// The pool this connection belongs to, when it was born into one and it is still alive.
+    pub(crate) fn joined_pool(&self) -> Option<Arc<PoolInner>> {
+        self.pool.lock().ok().and_then(|pool| pool.upgrade())
     }
 
     /// Registers the connection's events stream yield hook, or clears it.
@@ -236,19 +261,68 @@ impl SshSession {
     /// command; the channel itself is the same, so it is opened in one place. The budget slot is
     /// taken before the open is sent — a refusal here never reaches the server — and handed back
     /// beside the channel, because the slot is held exactly as long as the channel is.
+    ///
+    /// Where the channel goes is the routing's decision, not this connection's by default. A
+    /// connection that joined a pool has its asks placed on the carrier of that pool with the
+    /// most room, which is how one connection's channel ceiling stops being the ceiling of the
+    /// features behind it. An events ask never moves, whatever the pool says.
     pub(crate) async fn open_session_channel_for(
         &self,
         what: &str,
         holder: ChannelHolder,
-    ) -> Result<(Channel<Msg>, HeldChannel), ShellError> {
-        let held = self.acquire_channel(holder, &format!("a channel for {what}")).await?;
-        let channel = match self.handle.channel_open_session().await {
-            Ok(channel) => channel,
-            Err(error) => {
-                return Err(self.channel_failure(&format!("a channel for {what} could not be opened"), &error));
-            }
+    ) -> Result<OpenedChannel, ShellError> {
+        let what = &format!("a channel for {what}");
+        let (carrier, held) = match self.choose_carrier(holder, what).await? {
+            CarrierChoice::Here(held) => (None, held),
+            CarrierChoice::Routed(session, held) => (Some(session), held),
         };
-        Ok((channel, held))
+        let target = carrier.as_deref().unwrap_or(self);
+        match open_session_channel_on(target, what).await {
+            Ok(channel) => Ok(OpenedChannel { channel, held }),
+            Err(error) => {
+                // The slot goes with the failed open — the drop releases it — and the ask is
+                // placed again where the routing now says.
+                drop(held);
+                // The server's own refusal is about slots, and sending the open again meets the
+                // same answer. Anything else means the connection itself is gone: a carrier of
+                // the pool is marked down so routing stops choosing it, and the ask is placed
+                // once more — on a live sibling, or on the connection the pool refills the dead
+                // slot with. A connection outside a pool has nowhere else to go.
+                if error.code() == ErrorCode::SshChannelRefused {
+                    return Err(error);
+                }
+                let Some(pool) = target.joined_pool() else {
+                    return Err(error);
+                };
+                pool.mark_down(target);
+                match self.choose_carrier(holder, what).await? {
+                    CarrierChoice::Routed(session, held) => {
+                        let channel = open_session_channel_on(&session, what).await?;
+                        Ok(OpenedChannel { channel, held })
+                    }
+                    // The retry landed back here — the pool had no other carrier and no refill
+                    // came off within the ask. The first failure is the honest answer.
+                    CarrierChoice::Here(_) => Err(error),
+                }
+            }
+        }
+    }
+
+    /// Where a channel this connection is asked for goes: on this connection, or on a sibling
+    /// carrier the pool picks.
+    async fn choose_carrier(&self, holder: ChannelHolder, what: &str) -> Result<CarrierChoice, ShellError> {
+        // The events stream never leaves the connection it was asked on, and the pool neither
+        // routes it nor grows for it: at most one events stream rides each carrier, its yield
+        // hook and its slot live on the same ledger, and a pool does not multiply events
+        // streams by spreading them. Every other channel a pooled connection takes is placed by
+        // the pool — on this connection when it has the room, on the sibling with more room
+        // when it does not, on a fresh connection when none of them does.
+        let Some(pool) = (holder != ChannelHolder::Events).then(|| self.joined_pool()).flatten() else {
+            let held = self.ledger.acquire(holder, &self.host, self.port, what).await?;
+            return Ok(CarrierChoice::Here(held));
+        };
+        let (session, held) = PoolInner::acquire(&pool, holder, what).await?;
+        Ok(CarrierChoice::Routed(session, held))
     }
 
     /// Opens a subsystem channel — `sftp`, in practice — and hands it over as a byte stream.
@@ -258,7 +332,7 @@ impl SshSession {
     /// seeing the other's traffic. A request that is refused closes the channel before the error
     /// travels, because the stream the caller would have held is the thing that closes it.
     pub async fn open_subsystem_stream(&self, name: &str) -> Result<BoxedStream, ShellError> {
-        let (mut channel, held) = self.open_session_channel_for(name, ChannelHolder::Exec).await?;
+        let OpenedChannel { mut channel, held } = self.open_session_channel_for(name, ChannelHolder::Exec).await?;
 
         // A reply is asked for so a server without the subsystem says so, instead of the caller
         // waiting for output that will never come.
@@ -285,7 +359,7 @@ impl SshSession {
     /// The `holder` names the feature that will hold the channel for its life — a log follow, the
     /// engine's events, a tar listing — because the budget's diagnostics speak in those words.
     pub async fn open_exec_stream(&self, command: &str, holder: ChannelHolder) -> Result<BoxedStream, ShellError> {
-        let (mut channel, held) = self.open_session_channel_for("a command", holder).await?;
+        let OpenedChannel { mut channel, held } = self.open_session_channel_for("a command", holder).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
@@ -341,6 +415,35 @@ impl SshSession {
     pub(crate) fn channel_failure(&self, what: &str, error: &russh::Error) -> ShellError {
         channel_failure(&self.host, self.port, what, error)
     }
+}
+
+/// Where a channel ask was placed: on the connection that took it, or on a sibling carrier.
+enum CarrierChoice {
+    /// This connection holds the slot. The ask either arrived on a connection outside a pool,
+    /// or was an events ask — which never leaves the connection it was asked on.
+    Here(HeldChannel),
+    /// A carrier of the pool holds the slot, and the channel opens there. The `Arc` is the
+    /// pool's own handle to the carrier, which may be this connection.
+    Routed(Arc<SshSession>, HeldChannel),
+}
+
+/// A session channel that is open, with the budget slot riding on it.
+///
+/// The carrier the channel was placed on is part of the answer only as the slot is: everything
+/// else about the channel behaves the same whichever connection opened it, and the peer in its
+/// errors is the pool's shared host and port — a pool is one `host:port:auth` by definition.
+pub(crate) struct OpenedChannel {
+    pub channel: Channel<Msg>,
+    pub held: HeldChannel,
+}
+
+/// Opens the session channel itself, on whichever carrier the routing chose.
+async fn open_session_channel_on(carrier: &SshSession, what: &str) -> Result<Channel<Msg>, ShellError> {
+    carrier
+        .handle
+        .channel_open_session()
+        .await
+        .map_err(|error| carrier.channel_failure(&format!("a channel for {what} could not be opened"), &error))
 }
 
 /// Opens the connection and its terminal, in the order the security model requires.
@@ -460,6 +563,7 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
         upstream,
         remote_accepts,
         ledger,
+        pool: Mutex::new(Weak::new()),
         _terminal_held: terminal_held,
     })
 }
@@ -1594,7 +1698,8 @@ impl SshSession {
         columns: u32,
         rows: u32,
     ) -> Result<PtyExecChannel, ShellError> {
-        let (mut channel, held) = self.open_session_channel_for("a command", ChannelHolder::Pty).await?;
+        let OpenedChannel { mut channel, held } =
+            self.open_session_channel_for("a command", ChannelHolder::Pty).await?;
 
         let early = match self
             .start_pty_command(&mut channel, command, terminal_type, columns, rows)
@@ -1671,7 +1776,10 @@ impl SshSession {
         max_output_bytes: usize,
     ) -> Result<crate::ExecCapture, ShellError> {
         let started = Instant::now();
-        let (mut channel, _held) = self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
+        let OpenedChannel {
+            mut channel,
+            held: _held,
+        } = self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
@@ -1769,7 +1877,8 @@ impl SshSession {
     /// The exit status and the command's own complaints are kept by the reader task, because they
     /// arrive after the last byte and are the only account of why a stream ended early.
     pub async fn open_exec_command(&self, command: &str) -> Result<ExecCommand, ShellError> {
-        let (mut channel, held) = self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
+        let OpenedChannel { mut channel, held } =
+            self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
