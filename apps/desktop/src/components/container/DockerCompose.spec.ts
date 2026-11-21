@@ -1,11 +1,12 @@
 /**
  * The desktop Compose page, as a person uses it: the project list with its folded counts, the
  * wizard that writes the file and starts the project, the verbs that keep the workspace's gate,
- * and the log window on the shared stream channel.
+ * the YAML editor with its diff and its rebuild gate, the export that hands the file back, and
+ * the log window on the shared stream channel.
  *
  * What is checked is what a wrongly wired page would do — read again without a hand on the
  * refresh, send a file the form had marked invalid, start a project before the file was written,
- * or leave a stream running after its window closed.
+ * apply a rebuild nobody acknowledged, or leave a stream running after its window closed.
  */
 import { createPinia, setActivePinia } from "pinia";
 import { type App, createApp, h, nextTick } from "vue";
@@ -22,6 +23,15 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerStreamStop: vi.fn(async () => {}),
   onContainerStreamLine: vi.fn(async () => () => {}),
   onContainerStreamEnd: vi.fn(async () => () => {}),
+  filesOpen: vi.fn(async () => ({
+    kind: "opened",
+    handle: "f-1",
+    sessionId: "s",
+    listing: { path: "/", entries: [] },
+    packed: false,
+  })),
+  filesReadText: vi.fn(async () => ""),
+  filesClose: vi.fn(async () => {}),
 }));
 
 import DockerCompose from "@/components/container/DockerCompose.vue";
@@ -35,6 +45,9 @@ import {
   composeUp,
   composeWriteYaml,
   containerStreamStop,
+  filesClose,
+  filesOpen,
+  filesReadText,
   onContainerStreamLine,
 } from "@/lib/backend/tauri";
 import type { ContainerSession } from "@/stores/container";
@@ -48,10 +61,14 @@ const restartMock = vi.mocked(composeRestart);
 const logsStartMock = vi.mocked(composeLogsStart);
 const writeYamlMock = vi.mocked(composeWriteYaml);
 const streamStopMock = vi.mocked(containerStreamStop);
+const filesOpenMock = vi.mocked(filesOpen);
+const readTextMock = vi.mocked(filesReadText);
+const filesCloseMock = vi.mocked(filesClose);
 
 /** The stream listener the page registers; the spec feeds it lines the way the backend would. */
 let streamListener: ((payload: { streamId: string; line: string }) => void) | null = null;
 
+const WEB_YML = "services:\n  web:\n    image: nginx:1.25\n";
 const WEB: ComposeProject = {
   name: "web-app",
   status: "running(2)",
@@ -69,6 +86,8 @@ const DB: ComposeProject = {
 
 let app: App | undefined;
 let host: HTMLDivElement | undefined;
+/** The running counts the page handed up; the rail's badge draws the last one. */
+const runningCounts: (number | null)[] = [];
 
 function tab(): ContainerTab {
   return {
@@ -119,8 +138,14 @@ async function mount(): Promise<void> {
   const engine = tab();
   const pinia = createPinia();
   setActivePinia(pinia);
+  runningCounts.length = 0;
   app = createApp({
-    render: () => h(DockerCompose, { tab: engine, session: session() }),
+    render: () =>
+      h(DockerCompose, {
+        tab: engine,
+        session: session(),
+        onRunningCount: (count: number | null) => runningCounts.push(count),
+      }),
   });
   app.use(i18n);
   app.use(pinia);
@@ -182,6 +207,17 @@ beforeEach(() => {
   logsStartMock.mockReset().mockResolvedValue("log-1");
   writeYamlMock.mockReset().mockResolvedValue(undefined);
   streamStopMock.mockReset().mockResolvedValue(undefined);
+  filesOpenMock.mockReset().mockResolvedValue({
+    kind: "opened",
+    handle: "f-1",
+    sessionId: "session-compose",
+    listing: { path: "/", entries: [] },
+    packed: false,
+  });
+  readTextMock.mockReset().mockResolvedValue(WEB_YML);
+  filesCloseMock.mockReset().mockResolvedValue(undefined);
+  window.localStorage.clear();
+  window.innerWidth = 1280;
   streamListener = null;
   vi.mocked(onContainerStreamLine)
     .mockClear()
@@ -551,3 +587,283 @@ async function openServiceFilter(): Promise<void> {
   await nextTick();
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe("the rail's badge", () => {
+  it("hands up the running count the list reads, and nothing when the read fails", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(runningCounts).toEqual([1]);
+    });
+
+    (document.querySelector("[data-compose-refresh]") as HTMLElement)?.click();
+    await vi.waitFor(() => {
+      expect(runningCounts).toEqual([1, 1]);
+    });
+
+    listMock.mockRejectedValueOnce(new Error("the engine went away"));
+    (document.querySelector("[data-compose-refresh]") as HTMLElement)?.click();
+    await vi.waitFor(() => {
+      expect(runningCounts.at(-1)).toBeNull();
+    });
+  });
+});
+
+describe("the columns the table draws", () => {
+  it("keeps every column wide, and trims the two counts the window makes narrow", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(document.querySelector("[data-compose-services]")).not.toBeNull();
+
+    window.innerWidth = 800;
+    window.dispatchEvent(new Event("resize"));
+    await settle();
+    expect(document.querySelector("[data-compose-services]"), "the narrow window trims the counts").toBeNull();
+    expect(document.querySelector("[data-compose-containers]")).toBeNull();
+    // The rows keep their name, state and actions: the list is still a list.
+    expect(rows()[0]?.textContent).toContain("web-app");
+
+    // The way back is the choice, not the width: the toolbar's columns menu.
+    const menu = useContextMenu();
+    (document.querySelector("[data-compose-columns]") as HTMLElement)?.click();
+    await nextTick();
+    const entry = menu.entries.value.find((item) => item.kind === "action" && item.id === "column-services");
+    if (entry === undefined || entry.kind !== "action") {
+      throw new Error("the columns menu has no services entry");
+    }
+    entry.run();
+    menu.closeMenu();
+    await settle();
+    expect(document.querySelector("[data-compose-services]"), "the explicit choice wins over the width").not.toBeNull();
+    expect(window.localStorage.getItem("container:listColumns.compose")).toContain('"services":"shown"');
+  });
+
+  it("reads a choice from the storage back across a mount", async () => {
+    window.localStorage.setItem(
+      "container:listColumns.compose",
+      JSON.stringify({ services: "hidden", containers: "hidden" }),
+    );
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(document.querySelector("[data-compose-services]")).toBeNull();
+    expect(document.querySelector("[data-compose-containers]")).toBeNull();
+    // A hidden column's header is gone with it, so the way back is the toolbar's columns menu.
+    const menu = useContextMenu();
+    (document.querySelector("[data-compose-columns]") as HTMLElement)?.click();
+    await nextTick();
+    const restore = menu.entries.value.find((item) => item.kind === "action" && item.id === "column-services");
+    if (restore === undefined || restore.kind !== "action") {
+      throw new Error("the column menu has no services entry");
+    }
+    restore.run();
+    menu.closeMenu();
+    await settle();
+    expect(document.querySelector("[data-compose-services]")).not.toBeNull();
+  });
+});
+
+describe("the project's YAML editor", () => {
+  async function openEditor(projectName: string): Promise<void> {
+    await runMenuEntry(projectName, "edit");
+    await vi.waitFor(() => {
+      expect(document.querySelector("[data-compose-edit-yml]")).not.toBeNull();
+    });
+  }
+
+  function editorField(): HTMLTextAreaElement {
+    const field = document.querySelector<HTMLTextAreaElement>("[data-compose-edit-yml]");
+    if (!field) {
+      throw new Error("the editor drew no text area");
+    }
+    return field;
+  }
+
+  it("reads the file through the session's file channel, opened and closed for the one read", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await openEditor("web-app");
+
+    expect(filesOpenMock).toHaveBeenCalledWith("session-compose");
+    expect(readTextMock).toHaveBeenCalledWith("f-1", "/opt/compose/web-app/docker-compose.yml");
+    await vi.waitFor(() => {
+      expect(filesCloseMock).toHaveBeenCalledWith("f-1");
+    });
+    expect(editorField().value).toBe(WEB_YML);
+    expect(document.querySelector("[data-compose-edit-unchanged]")).not.toBeNull();
+  });
+
+  it("shows the save as a line diff before anything is written", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await openEditor("web-app");
+
+    fill("edit-yml", "services:\n  web:\n    image: nginx:1.27\n");
+    await settle();
+
+    const preview = document.querySelector("[data-compose-edit-diff]");
+    expect(preview?.textContent).toContain("+");
+    expect(preview?.textContent).toContain("nginx:1.27");
+    expect(document.body.textContent).toContain("nginx:1.25");
+    expect(writeYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the file alone when only the write is asked for", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await openEditor("web-app");
+    fill("edit-yml", "services:\n  web:\n    image: nginx:1.27\n");
+    await settle();
+
+    (document.querySelector("[data-compose-edit-save]") as HTMLElement)?.click();
+    await vi.waitFor(() => {
+      expect(writeYamlMock).toHaveBeenCalledWith(
+        "conn-1",
+        "/opt/compose/web-app/docker-compose.yml",
+        "services:\n  web:\n    image: nginx:1.27\n",
+      );
+    });
+    expect(upMock, "a save alone never rebuilds").not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("gates the apply behind the acknowledgment that a rebuild restarts the services", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await openEditor("web-app");
+    fill("edit-yml", "services:\n  web:\n    image: nginx:1.27\n");
+    await settle();
+
+    (document.querySelector("[data-compose-edit-apply]") as HTMLElement)?.click();
+    await settle();
+    expect(document.body.textContent).toContain("restarts the services");
+    expect(document.querySelector("[data-compose-rebuild-ack]")).not.toBeNull();
+
+    // The confirm without the acknowledgment is not an answer: nothing travels. The confirm
+    // dialog is drawn after the editor's own footer, so its button is the last one to say so.
+    const confirm = [...document.querySelectorAll("button")]
+      .filter((button) => button.textContent?.trim() === "Save and apply")
+      .at(-1);
+    (confirm as HTMLElement)?.click();
+    await settle();
+    expect(writeYamlMock).not.toHaveBeenCalled();
+    expect(upMock).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-compose-rebuild-refused]")).not.toBeNull();
+
+    // The acknowledgment given, the file goes first and the project comes up detached.
+    const ack = document.querySelector<HTMLInputElement>("[data-compose-rebuild-ack] input");
+    if (!ack) {
+      throw new Error("the rebuild prompt drew no acknowledgment");
+    }
+    ack.checked = true;
+    ack.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    (confirm as HTMLElement)?.click();
+    await vi.waitFor(() => {
+      expect(writeYamlMock).toHaveBeenCalledWith(
+        "conn-1",
+        "/opt/compose/web-app/docker-compose.yml",
+        "services:\n  web:\n    image: nginx:1.27\n",
+      );
+      expect(upMock).toHaveBeenCalledWith("conn-1", "web-app", "/opt/compose/web-app/docker-compose.yml", true);
+    });
+    await vi.waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("holds both buttons while the edited text would not survive the engine's reading", async () => {
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await openEditor("web-app");
+    fill("edit-yml", "services:\n  web:\n\timage: nginx\n");
+    await settle();
+
+    expect(document.body.textContent).toContain("indents with a tab");
+    const save = document.querySelector<HTMLButtonElement>("[data-compose-edit-save]");
+    const apply = document.querySelector<HTMLButtonElement>("[data-compose-edit-apply]");
+    expect(save?.hasAttribute("disabled")).toBe(true);
+    expect(apply?.hasAttribute("disabled")).toBe(true);
+    expect(writeYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("says so when the file channel stands in front of the read", async () => {
+    filesOpenMock.mockResolvedValue({
+      kind: "hostKeyUnknown",
+      key: { host: "engine", port: 22, keyType: "ed25519", publicKey: "AAAATEST", fingerprint: "SHA256:abc" },
+    });
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await runMenuEntry("web-app", "edit");
+    await settle();
+    expect(document.querySelector("[data-compose-edit-failure]")?.textContent).toContain("file channel");
+  });
+});
+
+describe("the orchestration export", () => {
+  it("hands the project's file back as a download named for the project", async () => {
+    const downloaded: Blob[] = [];
+    const names: string[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn((blob: Blob) => {
+        downloaded.push(blob);
+        return "blob:export";
+      }),
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
+    const anchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) {
+      names.push(this.download);
+    };
+
+    try {
+      await mount();
+      await vi.waitFor(() => {
+        expect(rows().length).toBe(2);
+      });
+      await runMenuEntry("web-app", "export");
+
+      await vi.waitFor(() => {
+        expect(downloaded).toHaveLength(1);
+      });
+      expect(names).toEqual(["web-app.compose.yml"]);
+      expect(await downloaded[0]?.text()).toBe(WEB_YML);
+      expect(readTextMock).toHaveBeenCalledWith("f-1", "/opt/compose/web-app/docker-compose.yml");
+      expect(writeYamlMock, "an export never writes").not.toHaveBeenCalled();
+      expect(upMock, "an export never starts anything").not.toHaveBeenCalled();
+    } finally {
+      HTMLAnchorElement.prototype.click = anchorClick;
+    }
+  });
+
+  it("says so when the file channel would not open", async () => {
+    filesOpenMock.mockResolvedValue({
+      kind: "hostKeyUnknown",
+      key: { host: "engine", port: 22, keyType: "ed25519", publicKey: "AAAATEST", fingerprint: "SHA256:abc" },
+    });
+    await mount();
+    await vi.waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    await runMenuEntry("web-app", "export");
+    await settle();
+    expect(document.querySelector("[data-compose-failure]")?.textContent).toContain("export");
+  });
+});

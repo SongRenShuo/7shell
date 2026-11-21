@@ -69,7 +69,7 @@ import ContainerListView from "@/components/container/ContainerListView.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useToast } from "@/composables/useToast";
 import { i18n } from "@/i18n";
-import { containerAction, containerExecOpen, filesOpenContainer } from "@/lib/backend/tauri";
+import { containerAction, containerExecOpen, containerInspect, filesOpenContainer } from "@/lib/backend/tauri";
 import { useContainerStore, type ContainerSession } from "@/stores/container";
 import { useTerminalsStore, type ContainerTab } from "@/stores/terminals";
 import type { ContainerActionOutcome } from "@/types/container";
@@ -77,6 +77,7 @@ import type { ContainerActionOutcome } from "@/types/container";
 const actionMock = vi.mocked(containerAction);
 const execMock = vi.mocked(containerExecOpen);
 const filesMock = vi.mocked(filesOpenContainer);
+const inspectMock = vi.mocked(containerInspect);
 
 let app: App | undefined;
 let host: HTMLDivElement | undefined;
@@ -472,6 +473,39 @@ describe("the desktop layout of the same list", () => {
     expect(host?.querySelector("[data-container-batch-bar]"), "the ticked row opens the batch bar").not.toBeNull();
     expect(host?.querySelector("[data-container-batch-count]")?.textContent).toContain("1 selected");
   });
+  describe("the run-to-compose ask on a row", () => {
+    it("offers the conversion under the row's menu, reads the container once, and shows the snippet", async () => {
+      inspectMock.mockResolvedValue({
+        id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        name: "web",
+        image: "nginx:latest",
+        state: "running",
+        status: "Up",
+        oomKilled: false,
+        pid: 10,
+        restartPolicy: "always",
+        ports: [],
+        mounts: [],
+        env: [],
+        raw: JSON.stringify({ HostConfig: { AutoRemove: true } }),
+      });
+      await mountDesktop();
+      await showEveryState();
+
+      await openRowMenu("web");
+      await runMenuEntry("compose");
+
+      await vi.waitFor(() => {
+        expect(inspectMock).toHaveBeenCalledWith("conn-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        const snippet = document.querySelector<HTMLTextAreaElement>("[data-convert-yml]");
+        expect(snippet?.value).toContain("services:");
+        expect(snippet?.value).toContain("image: nginx:latest");
+      });
+      // The conversion reads: no action the engine would feel has been asked for.
+      expect(actionMock).not.toHaveBeenCalled();
+      expect(document.querySelector("[data-convert-unresolved]")?.textContent).toContain("AutoRemove");
+    });
+  });
 });
 
 describe("batch operations on the ticked rows", () => {
@@ -632,5 +666,66 @@ describe("batch operations on the ticked rows", () => {
     await vi.waitFor(() => expect(toast.message.value).toContain("1 succeeded, 1 failed"));
     expect(toast.message.value).toContain("old:");
     expect(toast.tier.value).toBe("failure");
+  });
+});
+
+describe("the columns the container table draws", () => {
+  it("keeps every column wide, trims the secondary ones a narrow window trims, and remembers a choice", async () => {
+    window.innerWidth = 1280;
+    window.localStorage.clear();
+    await mount();
+    await nextTick();
+    const headings = () => [...(host?.querySelectorAll("thead th") ?? [])].map((cell) => cell.textContent ?? "");
+    expect(headings().some((text) => text.includes("ID"))).toBe(true);
+    expect(headings().some((text) => text.includes("Created"))).toBe(true);
+
+    window.innerWidth = 800;
+    window.dispatchEvent(new Event("resize"));
+    await nextTick();
+    expect(
+      headings().some((text) => text.includes("ID")),
+      "the narrow window trims the id",
+    ).toBe(false);
+    expect(headings().some((text) => text.includes("Created"))).toBe(false);
+    expect(
+      headings().some((text) => text.includes("Name")),
+      "the name stays: the rows are read by it",
+    ).toBe(true);
+    expect(headings().some((text) => text.includes("Actions"))).toBe(true);
+
+    // The way back is a choice, and the choice is written down: the toolbar's columns menu.
+    const menu = useContextMenu();
+    (host?.querySelector("[data-container-columns]") as HTMLElement | null)?.click();
+    await nextTick();
+    const entry = menu.entries.value.find((item) => item.kind === "action" && item.id === "column-id");
+    if (entry === undefined || entry.kind !== "action") {
+      throw new Error("the columns menu has no id entry");
+    }
+    entry.run();
+    menu.closeMenu();
+    await nextTick();
+    expect(
+      headings().some((text) => text.includes("ID")),
+      "the explicit choice wins over the width",
+    ).toBe(true);
+    expect(window.localStorage.getItem("container:listColumns.containers")).toContain('"id":"shown"');
+  });
+
+  it("reads a choice from the storage back across a mount, and never hides the primary columns", async () => {
+    window.localStorage.setItem(
+      "container:listColumns.containers",
+      JSON.stringify({ id: "hidden", created: "hidden", ports: "hidden", memory: "hidden", name: "hidden" }),
+    );
+    window.innerWidth = 1280;
+    await mount();
+    await nextTick();
+    const headings = () => [...(host?.querySelectorAll("thead th") ?? [])].map((cell) => cell.textContent ?? "");
+    expect(headings().some((text) => text.includes("ID"))).toBe(false);
+    expect(
+      headings().some((text) => text.includes("Name")),
+      "a choice cannot hide the name",
+    ).toBe(true);
+    expect(headings().some((text) => text.includes("Image"))).toBe(true);
+    expect(headings().some((text) => text.includes("State"))).toBe(true);
   });
 });

@@ -104,6 +104,21 @@ All notable changes to 7Shell are documented in this file. The format is
   `--all`), dangling build cache, one named volume at a time — each destructive word behind an
   acknowledged flag and its own journal entry, with the volumes capability probed once at engine
   open and `run --entrypoint` carried for the upgrade (22dfd8f).
+- A Compose project's file edits in place on its own page: the editor reads the file through the
+  session's file channel, shows the save as a line diff before anything is written, and the apply
+  that rebuilds — `docker compose up -d` on the file as saved — is asked about first, with the
+  acknowledgment that a rebuild stops and starts the services (79523cc).
+- A container row's menu asks for the Compose service snippet its inspect would make: a read-only
+  conversion that writes the parameters into YAML and names every one it could not express, with
+  the value it carries, instead of dropping it; the snippet copies or downloads by its own hand
+  (79523cc).
+- A Compose project exports as a download of the file the engine's host holds, named for the
+  project it came from (79523cc).
+- The Docker window's rail counts its Compose entry the way it counts containers and images: the
+  running projects, handed up from the page that reads the list (79523cc).
+- The containers' and the Compose projects' tables trim their secondary columns for a window
+  under 900px — no card rearrangement, the table stays a table — and a column the person shows or
+  hides is remembered in localStorage, the primary columns never hiding (79523cc).
 
 ### Fixed
 
