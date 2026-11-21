@@ -19,10 +19,16 @@
  *
  * A pause is not free: `-F` is the far side's business, so what was written while nobody read is
  * missed, and the copy under the paused view says so instead of implying otherwise.
+ *
+ * Beside the count in the reading's header is the rate the lines land at — one bar a second while
+ * the window follows, the last minute of them, gathered here rather than arriving from the far
+ * side. It stands still when the stream does: a paused bar is the rate that was, not a zero.
  */
+import { LoaderCircle } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import SparkBars from "@/components/charts/SparkBars.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
@@ -143,6 +149,65 @@ onBeforeUnmount(() => {
   void tails.stop(props.windowId);
 });
 
+// -- the line frequency ---------------------------------------------------------
+
+/**
+ * How fast lines arrive, drawn as the minute behind the reading: one sample a second while the
+ * stream is followed, sixty of them, each the number of lines that landed in that second. The
+ * samples are gathered here rather than arriving from anywhere — the store keeps lines, not a
+ * rate — and they gather only while the stream is live:
+ *
+ * - **following** samples; **paused** and **ended** stop sampling and keep what was drawn, which
+ *   is the rate that *was* rather than a zero that never was; **idle** (the ask again) empties
+ *   the bar, because a fresh follow is a fresh minute.
+ */
+const FREQ_INTERVAL_MS = 1000;
+const FREQ_POINTS = 60;
+
+const frequency = ref<number[]>([]);
+let frequencyLastCount = 0;
+let frequencyTimer: ReturnType<typeof setInterval> | undefined;
+
+function stopFrequency(): void {
+  if (frequencyTimer !== undefined) {
+    clearInterval(frequencyTimer);
+    frequencyTimer = undefined;
+  }
+}
+
+function startFrequency(): void {
+  if (frequencyTimer !== undefined) {
+    return;
+  }
+  frequencyLastCount = count.value;
+  frequencyTimer = setInterval(() => {
+    const arrived = Math.max(0, count.value - frequencyLastCount);
+    frequencyLastCount = count.value;
+    frequency.value = [...frequency.value, arrived].slice(-FREQ_POINTS);
+  }, FREQ_INTERVAL_MS);
+}
+
+watch(
+  () => state.value?.status ?? "idle",
+  (status) => {
+    if (status === "following") {
+      startFrequency();
+      return;
+    }
+    stopFrequency();
+    if (status === "idle") {
+      frequency.value = [];
+    }
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  stopFrequency();
+});
+
+const frequencySeries = computed(() => [{ values: frequency.value, class: "bg-primary/50" }]);
+
 // -- what the state says ---------------------------------------------------------
 
 function translate(key: string, params?: Record<string, string>): string {
@@ -221,7 +286,19 @@ const describedFailure = computed(() =>
         <code class="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" :title="state.path">
           {{ state.path }}
         </code>
-        <span class="shrink-0 text-[11px] text-muted-foreground">
+        <!--
+          How fast the lines land, for as long as the window has been following. It draws nothing
+          until the first second has answered, and once drawn it moves only while the stream does.
+        -->
+        <SparkBars
+          v-if="frequency.length > 0"
+          class="w-24 shrink-0"
+          height-class="h-3"
+          :series="frequencySeries"
+          :label="t('workbench.desktop.tail.frequency')"
+          data-workbench-tail-frequency
+        />
+        <span class="nums shrink-0 text-[11px] text-muted-foreground">
           {{ t("workbench.desktop.tail.count", { count }) }}
         </span>
         <button
@@ -246,7 +323,16 @@ const describedFailure = computed(() =>
         </button>
       </header>
 
-      <div v-if="state.status === 'connecting'" class="px-4 py-2 text-[11px] text-muted-foreground">
+      <!--
+        The three state lines under the header, one shape for all: a thin banner, the muted voice
+        for the ordinary ones, the destructive one for the end that carried a reason. The open's
+        wait is a single thing being waited for, so it keeps the spinner rather than a skeleton.
+      -->
+      <div
+        v-if="state.status === 'connecting'"
+        class="flex items-center gap-2 border-b border-border bg-accent/30 px-4 py-2 text-[11px] text-muted-foreground"
+      >
+        <LoaderCircle :size="11" class="animate-spin" />
         {{ t("workbench.desktop.tail.connecting") }}
       </div>
 

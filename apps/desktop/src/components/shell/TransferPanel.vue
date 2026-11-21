@@ -298,6 +298,55 @@ function indeterminate(info: TransferInfo): boolean {
   return info.state.kind === "running" && info.size === 0;
 }
 
+// -- the rate the bytes move -----------------------------------------------------
+
+/**
+ * How fast each running transfer is moving, in bytes a second. The list carries no speed field —
+ * but it is re-read every half second, so the delta of `transferred` between two reads over the
+ * time between them *is* the rate, and this panel is where the two reads meet. The reading is
+ * per row and only for rows still running: a row that has stopped draws no rate, because a speed
+ * that is not moving is a lie about bytes, and a row whose first interval has not closed yet has
+ * no rate to draw either — the dash says so rather than a zero.
+ */
+interface SpeedSample {
+  readonly transferred: number;
+  readonly at: number;
+}
+
+const rates = ref<ReadonlyMap<string, number>>(new Map());
+let lastSamples: ReadonlyMap<string, SpeedSample> = new Map();
+
+watch(
+  () => files.transfers,
+  (list) => {
+    const now = Date.now();
+    const nextRates = new Map<string, number>();
+    const samples = new Map<string, SpeedSample>();
+    for (const entry of list) {
+      if (entry.state.kind !== "running") {
+        continue;
+      }
+      const previous = lastSamples.get(entry.id);
+      if (previous !== undefined && now > previous.at) {
+        const seconds = (now - previous.at) / 1000;
+        const delta = entry.transferred - previous.transferred;
+        if (seconds > 0 && delta >= 0) {
+          nextRates.set(entry.id, delta / seconds);
+        }
+      }
+      samples.set(entry.id, { transferred: entry.transferred, at: now });
+    }
+    lastSamples = samples;
+    rates.value = nextRates;
+  },
+);
+
+/** The row's speed reading: the measured rate with its unit, or the dash before one exists. */
+function rateText(info: TransferInfo): string {
+  const rate = rates.value.get(info.id);
+  return rate === undefined ? "-" : `${formatSize(rate)}/s`;
+}
+
 /** The row's menu, which offers everything the row's own button does and the file besides. */
 function openTransferMenu(event: MouseEvent, info: TransferInfo): void {
   openMenu(
@@ -467,7 +516,7 @@ onMounted(() => void files.loadDownloadFolder());
       <CircleAlert v-else-if="failed" :size="12" class="text-destructive" />
       <CircleCheck v-else :size="12" class="text-success" />
       <span>{{ t("files.transfer.pill", { count: files.transfers.length }) }}</span>
-      <span v-if="overall !== null" class="font-mono text-muted-foreground">{{ overall }}%</span>
+      <span v-if="overall !== null" class="nums text-muted-foreground">{{ overall }}%</span>
       <span v-if="failed" class="size-1.5 rounded-full bg-destructive"></span>
       <ChevronUp :size="12" class="text-muted-foreground" />
     </button>
@@ -493,7 +542,7 @@ onMounted(() => void files.loadDownloadFolder());
         <p
           v-if="files.transfers.length > 0"
           data-transfer-tally
-          class="shrink-0 font-mono text-[10px] text-muted-foreground"
+          class="nums shrink-0 text-[10px] text-muted-foreground"
         >
           {{ t("files.transfer.tally", { done: finishedCount, remaining: remainingCount }) }}
         </p>
@@ -734,13 +783,25 @@ onMounted(() => void files.loadDownloadFolder());
                   :style="{ width: `${percent(entry.transfer)}%` }"
                 ></div>
               </div>
-              <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span class="nums shrink-0 text-[10px] text-muted-foreground">
                 {{
                   t("files.transfer.progress", {
                     transferred: formatSize(entry.transfer.transferred),
                     size: sizeText(entry.transfer),
                   })
                 }}
+              </span>
+              <!--
+                The rate, for the row it is about: a running row names how fast its bytes move, a
+                row whose first interval has not closed draws the dash rather than a zero, and a
+                row that has stopped draws nothing — a speed that is not moving says nothing.
+              -->
+              <span
+                v-if="entry.transfer.state.kind === 'running'"
+                class="nums shrink-0 text-[10px] text-muted-foreground"
+                data-transfer-rate
+              >
+                {{ rateText(entry.transfer) }}
               </span>
             </div>
 

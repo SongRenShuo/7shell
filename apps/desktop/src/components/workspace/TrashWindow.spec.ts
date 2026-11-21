@@ -136,3 +136,51 @@ describe("the trash panel's delete-for-good", () => {
     expect(trashListMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the trash panel's failed read", () => {
+  it("the failure banner carries the retry, and the retry is the same read again", async () => {
+    trashListMock.mockRejectedValue({
+      version: 1,
+      code: "SESSION-CLOSED",
+      messageKey: "errors.session.closed",
+      messageParams: {},
+      origin: { subsystem: "session" },
+      outcome: "failed",
+    });
+    await mount();
+    await vi.waitFor(() => {
+      // The banner says what happened in words; the trash banner carries no code line.
+      expect(body().textContent).toContain("no longer connected");
+    });
+
+    // The read failed; the empty state stays out of the way (a failed read is not an empty trash).
+    expect(body().querySelector("[data-wb-empty]")).toBeNull();
+
+    // The retry asks the same question again, and this time it is answered.
+    trashListMock.mockReturnValue(Promise.resolve([ENTRY]));
+    const retry = [...body().querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    if (!retry) {
+      throw new Error("the failure banner carries no retry");
+    }
+    retry.click();
+    await vi.waitFor(() => {
+      expect(body().textContent).toContain("old.log");
+    });
+    expect(body().textContent).not.toContain("no longer connected");
+  });
+
+  it("the size column wears the numbers track", async () => {
+    trashListMock.mockResolvedValue([{ ...ENTRY, size: 2048 }]);
+    await mount();
+    await vi.waitFor(() => {
+      expect(body().textContent).toContain("old.log");
+    });
+
+    const sizeCell = [...body().querySelectorAll("td")].find((cell) => cell.textContent?.trim() === "2.0 KB");
+    expect(sizeCell, "the size is drawn").not.toBeUndefined();
+    expect(sizeCell?.className).toContain("nums");
+    expect(sizeCell?.className).not.toContain("font-mono");
+  });
+});

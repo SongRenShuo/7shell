@@ -596,3 +596,40 @@ describe("the failure summary", () => {
     expect(useFilesStore().panelExpanded).toBe(true);
   });
 });
+
+describe("the transfer row's rate", () => {
+  const RUNNING: TransferState = { kind: "running" };
+
+  /** A running download, half of the way there, that the store is simply told about. */
+  function moving(id: string, transferred: number): TransferInfo {
+    return transfer(id, RUNNING, { size: 10240, transferred });
+  }
+
+  it("a running row names how fast its bytes move, and the dash stands before a rate exists", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      await render(moving("t1", 100));
+
+      // The first read samples the counter; no interval has closed, so the row draws the dash.
+      const files = useFilesStore();
+      files.transfers = [moving("t1", 100)];
+      await nextTick();
+      expect(drawn().querySelector<HTMLElement>("[data-transfer-rate]")?.textContent?.trim()).toBe("-");
+
+      // One second later the counter has moved: the delta over the gap is the rate, with its unit.
+      vi.setSystemTime(1000);
+      files.transfers = [moving("t1", 610)];
+      await nextTick();
+      const rate = drawn().querySelector<HTMLElement>("[data-transfer-rate]");
+      expect(rate?.textContent?.trim()).toBe("510 B/s");
+
+      // A row that has stopped draws no rate at all — a speed that is not moving says nothing.
+      files.transfers = [transfer("t1", { kind: "done" }, { size: 10240, transferred: 10240 })];
+      await nextTick();
+      expect(drawn().querySelector("[data-transfer-rate]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -144,7 +144,7 @@ watch(
         <Trash2 :size="13" class="text-muted-foreground" />
         <span class="text-xs font-medium">{{ t("workbench.trash.title") }}</span>
       </template>
-      <span v-if="count > 0" class="text-[11px] text-muted-foreground">{{ count }}</span>
+      <span v-if="count > 0" class="nums text-[11px] text-muted-foreground">{{ count }}</span>
       <span class="flex-1" />
       <button
         type="button"
@@ -174,8 +174,19 @@ watch(
       </button>
     </header>
 
-    <div v-if="readable" class="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5">
-      <p class="text-[11px]">{{ readable }}</p>
+    <div
+      v-if="readable"
+      class="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5"
+    >
+      <p class="min-w-0 flex-1 text-[11px]">{{ readable }}</p>
+      <button
+        type="button"
+        class="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        :disabled="reading"
+        @click="read()"
+      >
+        {{ t("common.action.retry") }}
+      </button>
     </div>
 
     <div class="min-h-0 flex-1 overflow-auto">
@@ -199,7 +210,7 @@ watch(
             >
               {{ origin(entry) }}
             </td>
-            <td :class="cn(TABLE.page.cell, 'text-right font-mono text-[11px] text-muted-foreground')">
+            <td :class="cn(TABLE.page.cell, 'nums text-right text-[11px] text-muted-foreground')">
               {{ size(entry) }}
             </td>
             <td :class="cn(TABLE.page.cell, 'text-right')">
@@ -235,10 +246,12 @@ watch(
         <p v-if="reading" class="text-xs text-muted-foreground">{{ t("workbench.trash.reading") }}</p>
         <!--
           The empty state is the shared one: the same drawing every empty list in the desktop and the
-          panels draws, saying what this panel says an empty trash means.
+          panels draws, saying what this panel says an empty trash means. It yields to a failed
+          read — a read that did not answer is not an empty trash, and the banner above already
+          says so with its retry.
         -->
         <WbEmpty
-          v-else
+          v-else-if="!readable"
           scenario="noData"
           size="sm"
           :title="t('workbench.trash.emptyState')"

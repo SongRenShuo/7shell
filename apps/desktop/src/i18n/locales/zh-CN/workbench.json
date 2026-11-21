@@ -61,6 +61,7 @@
         "ended": "数据流已结束。",
         "waiting": "等待第一行…",
         "pausedNotice": "已暂停。暂停期间写入文件的内容会错过；重新跟踪会从头读取文件现有的末尾内容。",
+        "frequency": "每秒落入的行数，本次跟踪的最近一分钟",
         "count": "{count} 行",
         "hint": {
           "syslog": "要看系统日志？用 /var/log/syslog —— 一有动静就会写入，窗口会一直跟上。",
@@ -72,6 +73,7 @@
         "listTitle": "已建立的转发",
         "refresh": "刷新",
         "empty": "当前没有正在进行的转发。",
+        "emptyAdd": "在下方添加一条",
         "stop": "停止转发",
         "stopTitle": "停止转发",
         "stopMessage": "{bind} 上的转发将不再监听。已建立的连接不受影响，但新的连接进不来。",
@@ -114,6 +116,7 @@
         "listTitle": "这台机器正在监听的端口",
         "refresh": "刷新",
         "empty": "主机没有返回任何监听端口。",
+        "toForwards": "打开转发管理",
         "unnamed": "未知进程",
         "openTunnel": "开隧道",
         "openBrowser": "浏览器打开",
@@ -300,7 +303,12 @@
     "system": {
       "title": "系统面板",
       "refresh": "重新读取这台机器",
-      "reading": "正在读取这台机器…",
+      "servicesSummary": {
+        "running": "{count} 个运行中",
+        "failed": "{count} 个失败",
+        "inactive": "{count} 个未运行",
+        "filterHint": "只看失败的单元；再按一次显示全部。"
+      },
       "sections": {
         "services": "服务",
         "disks": "磁盘",
