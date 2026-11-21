@@ -25,7 +25,7 @@ import WbEmpty from "@/components/ui/WbEmpty.vue";
 import { describeShellError } from "@/i18n/errors";
 import { backend } from "@/lib/backend/api";
 import { asShellError, type ShellError } from "@/lib/backend/errors";
-import { TABLE } from "@/lib/table";
+import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
 import type { ContainerSession } from "@/stores/container";
 import type { ContainerDiskUsage, ContainerDiskUsageKind, ContainerPruneReport } from "@/types/container";
@@ -279,7 +279,7 @@ function describe(error: ShellError): string {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in usage" :key="row.kind" :class="TABLE.page.row">
+          <tr v-for="row in usage" :key="row.kind" :class="cn(rowClass('page', { striped: true }))">
             <td :class="TABLE.page.cell">{{ kindLabel(row.kind) }}</td>
             <td :class="TABLE.page.cell">
               <span class="nums text-[11px]" data-cleanup-count>{{ row.count }}</span>
