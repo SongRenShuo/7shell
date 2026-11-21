@@ -210,6 +210,15 @@ impl Provider {
         Ok(parse::image_history(&output))
     }
 
+    /// Every tag one repository has on this engine, as the images list carries rows: the same
+    /// shape, asked of a narrower question. The registry half — whether a tag has moved — is
+    /// [`Self::image_remote_digest`]'s to answer, one tag at a time.
+    pub async fn image_tags(&self, repository: &str) -> Result<Vec<ContainerImage>, ShellError> {
+        let argv = commands::image_tags(self.runtime, &self.namespace, repository)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::images(&output))
+    }
+
     /// A pull or a push, line by line, stoppable by the caller.
     pub async fn image_transfer(
         &self,
@@ -1088,6 +1097,7 @@ mod tests {
         assert!(provider.image_push(&request).await.is_err());
         assert!(provider.image_inspect(&request.image).await.is_err());
         assert!(provider.image_history(&request.image).await.is_err());
+        assert!(provider.image_tags(&request.image).await.is_err());
         assert!(provider.image_remove(&request.image).await.is_err());
         assert!(provider.image_tag(&request.image, "repo:tag").await.is_err());
         assert!(recorder.calls().is_empty(), "{:?}", recorder.calls());
@@ -1441,6 +1451,34 @@ mod tests {
         assert_eq!(
             recorder.calls(),
             vec![vec!["wslc", "image", "inspect", "--format", "json", "nginx:latest"]]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_tags_list_asks_the_images_list_for_one_repository() {
+        // The answer is what the engine prints for the filtered question — the narrowing happens
+        // on the engine's side of the positional filter, so only the asked repository's rows come
+        // back, whatever else the engine holds.
+        let listing = concat!(
+            "{\"ID\":\"sha256:a1\",\"Repository\":\"nginx\",\"Tag\":\"1.27\",\"Size\":\"192MB\",\"CreatedAt\":\"2026-08-24 09:00:00\"}\n",
+            "{\"ID\":\"sha256:a1\",\"Repository\":\"nginx\",\"Tag\":\"latest\",\"Size\":\"192MB\",\"CreatedAt\":\"2026-08-24 09:00:00\"}\n",
+        );
+        let recorder = Arc::new(RecordingRunner {
+            output: listing.to_owned(),
+            ..RecordingRunner::default()
+        });
+        let tags = build_provider(ContainerRuntime::Docker, "", &recorder)
+            .image_tags("nginx")
+            .await
+            .unwrap();
+        assert_eq!(tags.len(), 2, "{tags:?}");
+        assert_eq!(tags[0].repository, "nginx");
+        assert_eq!(tags[0].tag, "1.27");
+        assert_eq!(tags[0].size, "192MB");
+        assert_eq!(tags[1].tag, "latest");
+        assert_eq!(
+            recorder.calls(),
+            vec![vec!["docker", "images", "--format", "{{json .}}", "nginx"]]
         );
     }
 

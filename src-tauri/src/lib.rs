@@ -335,6 +335,7 @@ pub fn run() {
             commands::container::container_images,
             commands::container::container_image_inspect,
             commands::container::container_image_history,
+            commands::container::container_image_tags,
             commands::container::container_image_pull,
             commands::container::container_image_push,
             commands::container::container_image_remove,

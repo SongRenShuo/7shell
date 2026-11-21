@@ -33,6 +33,7 @@ import type {
   ContainerDetail,
   ContainerEvent,
   ContainerImage,
+  ContainerImageRemoteDigest,
   ContainerImageTransfer,
   ContainerRegistryLogin,
   ContainerRuntime,
@@ -1184,6 +1185,27 @@ export const useContainerStore = defineStore("container", () => {
     return backend.containers.imageHistory(session.connectionId, image);
   }
 
+  /** Every tag one repository has on the engine — the image drawer's tags section. */
+  async function imageTags(tabId: string, repository: string): Promise<ContainerImage[]> {
+    const session = sessions.value[tabId];
+    if (!session?.connectionId) {
+      return [];
+    }
+    return backend.containers.imageTags(session.connectionId, repository);
+  }
+
+  /**
+   * Asks the registry what one reference names now, beside the digests the engine recorded. A
+   * registry that would not speak arrives as its own error; "unknown" is the caller's to read.
+   */
+  async function remoteDigest(tabId: string, image: string): Promise<ContainerImageRemoteDigest> {
+    const session = sessions.value[tabId];
+    if (!session?.connectionId) {
+      throw asShellError(new Error("the engine is not connected"), "image_remote_digest");
+    }
+    return backend.dockerRegistry.remoteDigest(session.connectionId, image);
+  }
+
   async function removeImage(tabId: string, image: string): Promise<void> {
     const session = sessions.value[tabId];
     if (!session?.connectionId) {
@@ -1440,6 +1462,8 @@ export const useContainerStore = defineStore("container", () => {
     dismissError,
     imageInspect,
     imageHistory,
+    imageTags,
+    remoteDigest,
     removeImage,
     pruneImages,
     tagImage,

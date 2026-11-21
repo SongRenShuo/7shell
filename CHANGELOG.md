@@ -31,6 +31,15 @@ All notable changes to 7Shell are documented in this file. The format is
 - A transfer row names how fast its bytes move: the polled counter's delta over the gap between
   reads, drawn with its unit, the dash until an interval has closed and nothing once the row has
   stopped; the panel's counts wear the numbers track (1998c42).
+- An image's drawer lists the tags its repository holds: one row per tag with size and day, each
+  wearing the update column's own three states — the sweep asks the registry a few lanes at a
+  time, a tag nobody has asked about reads not checked, and the engine's answer arrives as one
+  read-only `image_tags` question behind the existing bridges (b91320a, bf5b421).
+- The drawer's layer view reads in the numbers' own track: the layer index and every size sit in
+  tabular numerals instead of the quoted-text face the commands keep (bf5b421).
+- The create wizard keeps named templates: a set of answers saved under a name on the first step,
+  filled back in the way a clone ask does, applied or deleted from the shelf it lives on — a
+  local plain-text store that says so, and a clone ask that stays the stronger prefill (4eed753).
 - A container's memory share reads as a bar beside its number: one tiered capacity bar per row,
   drawn from the same answer the column already sampled (c3-inline).
 - The desk widgets show shape as well as numbers: the processor and network cards each draw a

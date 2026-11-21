@@ -26,6 +26,7 @@ vi.mock("@/lib/backend/tauri", () => ({
 }));
 
 import ContainerWizard, { type ContainerClonePrefill } from "@/components/container/ContainerWizard.vue";
+import { saveContainerTemplate, loadContainerTemplates } from "@/components/container/containerTemplates";
 import { i18n } from "@/i18n";
 import { containerAction, containerCreate, containerList } from "@/lib/backend/tauri";
 import { normalizeShellError } from "@/lib/backend/errors";
@@ -841,5 +842,113 @@ describe("a clone ask", () => {
     button("next").click();
     await settle();
     expect(document.querySelector<HTMLInputElement>("[data-wizard-port-host]")?.value).toBe("8080");
+  });
+});
+
+describe("the template shelf", () => {
+  const TEMPLATE: Parameters<typeof saveContainerTemplate>[1] = {
+    name: "web",
+    image: "nginx:1.27",
+    autostart: true,
+    startNow: false,
+    privileged: false,
+    command: "",
+    ports: [{ hostPort: "8080", containerPort: "80", protocol: "tcp" }],
+    volumes: [],
+    env: [{ key: "NGINX_HOST", value: "example" }],
+    labels: [],
+    networks: ["bridge"],
+    capabilities: [],
+    cpuWeight: "mid",
+    memoryLimitMb: null,
+  };
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("saves what the form holds under the name it was given", async () => {
+    await mount();
+    type("image", "nginx:1.27");
+    type("name", "web");
+    type("template-name", "my web");
+    button("template-save").click();
+    await settle();
+
+    const list = loadContainerTemplates();
+    expect(list).toHaveLength(1);
+    const saved = list[0];
+    expect(saved?.name).toBe("my web");
+    expect(saved?.values.image).toBe("nginx:1.27");
+    expect(saved?.values.name).toBe("web");
+  });
+
+  it("refuses to save without a name, and says so", async () => {
+    await mount();
+    type("image", "nginx:1.27");
+    button("template-save").click();
+    await settle();
+
+    expect(loadContainerTemplates()).toEqual([]);
+    expect(words()).toContain("A template needs a name.");
+  });
+
+  it("fills the form the way a clone does when a template is applied", async () => {
+    saveContainerTemplate("web", TEMPLATE);
+    await mount();
+
+    await choose("Fill from a template", "web");
+    button("template-apply").click();
+    await settle();
+
+    expect(field("image").value).toBe("nginx:1.27");
+    expect(field("name").value).toBe("web");
+    expect(document.querySelector("[data-wizard-autostart]")?.getAttribute("aria-checked")).toBe("true");
+    button("next").click();
+    await settle();
+    expect(document.querySelector<HTMLInputElement>("[data-wizard-port-host]")?.value).toBe("8080");
+  });
+
+  it("forgets the chosen template when its delete is pressed, and keeps the rest", async () => {
+    saveContainerTemplate("web", TEMPLATE);
+    saveContainerTemplate("cache", { ...TEMPLATE, name: "cache", image: "redis:7" });
+    await mount();
+
+    await choose("Fill from a template", "web");
+    button("template-delete").click();
+    await settle();
+
+    expect(loadContainerTemplates().map((template) => template.name)).toEqual(["cache"]);
+  });
+
+  it("steps aside while a clone ask stands: the clone's values win, the shelf only saves", async () => {
+    saveContainerTemplate("web", TEMPLATE);
+    await mount(undefined, {
+      name: "web-copy",
+      image: "nginx:1.27",
+      autostart: false,
+      startNow: false,
+      privileged: false,
+      command: "",
+      ports: [],
+      volumes: [],
+      env: [],
+      labels: [],
+      networks: ["bridge"],
+      capabilities: [],
+      cpuWeight: "mid",
+      memoryLimitMb: null,
+    });
+
+    // The shelf says why it is idle, and its apply and delete are not on offer.
+    expect(words()).toContain("Prefilled from a clone");
+    expect(button("template-apply").disabled).toBe(true);
+    expect(button("template-delete").disabled).toBe(true);
+    expect(button("template-save").disabled).toBe(false);
+    // The picker itself is closed for business: no template can be chosen to apply.
+    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Fill from a template"]');
+    expect(picker?.disabled).toBe(true);
+    // The clone's own prefill is untouched by the shelf.
+    expect(field("name").value).toBe("web-copy");
   });
 });
