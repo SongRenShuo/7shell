@@ -11,6 +11,11 @@ All notable changes to 7Shell are documented in this file. The format is
 - The Docker manager's create action sits on the containers page's own toolbar; the empty pane
   header that carried it alone, and the second create button beside it, are gone (container).
 
+- The desktop container row carries its own actions — shell, logs, files, start/stop and the one
+  menu — instead of a lone ellipsis, and a memory column shows each container's share once the
+  engine's stats answer arrives (114ad96).
+- A container's logs open from that row's own button and stream in the desktop window (114ad96).
+
 - The scrollbar is the application's own everywhere: thin, translucent and inside the panel's
   borders, on every surface that scrolls (8205762, 35bf33d, 48360a3).
 - A selected row in the file tree leaves the panel's border visible instead of painting over it
