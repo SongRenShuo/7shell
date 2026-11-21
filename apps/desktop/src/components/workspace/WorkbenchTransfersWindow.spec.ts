@@ -113,10 +113,23 @@ describe("the desktop's transfers window", () => {
     expect(pill?.parentElement?.closest("[data-workbench-transfers-window]")).not.toBeNull();
   });
 
-  it("an empty window says nothing is moving, and still carries the panel", async () => {
+  it("an empty window says nothing is moving instead of drawing a blank frame", async () => {
     await mount();
 
-    expect(windowBody()).toBeDefined();
-    expect(windowBody().textContent).toBe("");
+    // The idle panel renders nothing at all; the window covers for it with its own idle words —
+    // a blank frame would read as broken, not as "nothing is moving".
+    const empty = windowBody().querySelector("[data-transfers-empty]");
+    expect(empty, "the idle window carries its own empty state").not.toBeNull();
+    expect(windowBody().textContent).not.toBe("");
+    expect(windowBody().querySelector("[data-transfer-pill]"), "and no pill while idle").toBeNull();
+
+    // The first byte that starts moving takes the empty state down and brings the panel up.
+    const files = useFilesStore();
+    files.transfers = [transfer("t1", { kind: "running" })];
+    files.panelExpanded = true;
+    await nextTick();
+
+    expect(windowBody().querySelector("[data-transfers-empty]"), "the empty state steps aside").toBeNull();
+    expect(windowBody().querySelector("[data-transfer-panel]")).not.toBeNull();
   });
 });
