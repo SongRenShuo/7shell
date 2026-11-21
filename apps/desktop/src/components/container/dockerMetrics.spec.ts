@@ -1,22 +1,19 @@
 /**
- * The overview's arithmetic, without the component: what the three lines draw, what the rate
+ * The overview's arithmetic, without the component: what the three lines sum, what the rate
  * between two samples is, and whether the engine is healthy.
  *
- * These are the parts that would be silently wrong in a chart — a peak that divides by zero on a
- * quiet engine, a backwards clock that draws a negative spike, a cumulative counter read as a
- * rate — so each is pinned here rather than in a DOM assertion.
+ * These are the parts that would be silently wrong in a chart — a backwards clock that draws a
+ * negative spike, a cumulative counter read as a rate — so each is pinned here rather than in a
+ * DOM assertion.
  */
 import { describe, expect, it } from "vitest";
 
 import {
   SAMPLE_INTERVAL_MS,
   SERIES_POINTS,
-  SPARKLINE_HEIGHT,
-  SPARKLINE_WIDTH,
   aggregateStats,
   engineHealthy,
   netRate,
-  sparklinePoints,
 } from "@/components/container/dockerMetrics";
 import type { ContainerStats, ContainerSummary } from "@/types/container";
 
@@ -78,37 +75,8 @@ describe("the network rate", () => {
   });
 });
 
-describe("the sparkline", () => {
-  it("draws in the reference mini chart's measure", () => {
-    expect(SPARKLINE_WIDTH).toBe(290);
-    expect(SPARKLINE_HEIGHT).toBe(74);
-  });
-
-  it("normalizes to the series' own peak, inside the frame", () => {
-    const points = sparklinePoints([0, 50, 100], SPARKLINE_WIDTH, SPARKLINE_HEIGHT).split(" ");
-    expect(points).toHaveLength(3);
-    const first = points[0]?.split(",") ?? [];
-    const last = points[2]?.split(",") ?? [];
-    expect(Number(first[1]), "higher values draw higher").toBeGreaterThan(Number(last[1]));
-    for (const point of points) {
-      const [, y] = point.split(",");
-      expect(Number(y)).toBeGreaterThanOrEqual(0);
-      expect(Number(y)).toBeLessThanOrEqual(SPARKLINE_HEIGHT);
-    }
-  });
-
-  it("draws a flat line on the floor for an all-zero series, not a division by zero", () => {
-    const points = sparklinePoints([0, 0, 0, 0], SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
-    expect(points).not.toContain("NaN");
-    expect(points).not.toContain("Infinity");
-  });
-
-  it("draws nothing for fewer than two points", () => {
-    expect(sparklinePoints([42], SPARKLINE_WIDTH, SPARKLINE_HEIGHT)).toBe("");
-    expect(sparklinePoints([], SPARKLINE_WIDTH, SPARKLINE_HEIGHT)).toBe("");
-  });
-
-  it("keeps the series short enough to stay a line, not a log", () => {
+describe("the series length", () => {
+  it("keeps the series short enough to stay a band, not a log", () => {
     expect(SERIES_POINTS).toBeLessThanOrEqual(60);
   });
 });

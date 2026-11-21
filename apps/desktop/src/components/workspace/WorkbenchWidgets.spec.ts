@@ -213,6 +213,117 @@ describe("the widgets column", () => {
   });
 });
 
+describe("the cards' trend strips", () => {
+  /**
+   * One sample whose counters and clock stand where they are told. Two samples 2000 ms apart read
+   * as `(totalTicks₂ − totalTicks₁)` ticks over that interval, of which `(idleTicks₂ − idleTicks₁)`
+   * were idle — the busy share is the remainder. `netBytes` moving 2000 between the pair is 1000 B/s.
+   */
+  function sample(sampledAt: number, totalTicks: number, idleTicks: number, netBytes: number): HostMetrics {
+    return metrics({
+      sampledAt,
+      cpu: { totalTicks, idleTicks, states: {} as never },
+      network: [{ name: "eth0", receivedBytes: netBytes, transmittedBytes: netBytes }],
+    });
+  }
+
+  function bars(id: string): number {
+    return card(id).querySelectorAll('[role="img"] span').length;
+  }
+
+  it("draws the strips only once two samples exist — one sample is not a trend", async () => {
+    sampleMock.mockResolvedValue(sample(1_000, 10_000, 8_000, 1_000));
+    mount({ handle: "h1", active: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await nextTick();
+
+    expect(bars("cpu"), "a single sample carries no history yet").toBe(0);
+    expect(bars("net"), "a single rate carries no history yet").toBe(0);
+
+    // The idle counter stands still over the interval: 10000 ticks, all busy.
+    sampleMock.mockResolvedValue(sample(3_000, 20_000, 8_000, 3_000));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await nextTick();
+
+    expect(bars("cpu"), "the second sample starts the busy-share strip").toBe(1);
+    expect(bars("net"), "the second sample starts the throughput strip").toBe(1);
+    expect(card("cpu").textContent).toContain("100%");
+  });
+
+  it("freezes the strips while the application window is hidden, and grows them when it is seen again", async () => {
+    try {
+      sampleMock.mockResolvedValue(sample(1_000, 10_000, 8_000, 1_000));
+      mount({ handle: "h1", active: true });
+      await vi.advanceTimersByTimeAsync(0);
+      await nextTick();
+      sampleMock.mockResolvedValue(sample(3_000, 20_000, 8_000, 3_000));
+      await vi.advanceTimersByTimeAsync(2_000);
+      await nextTick();
+      const before = bars("cpu");
+      expect(before).toBeGreaterThan(0);
+
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await nextTick();
+      expect(bars("cpu"), "a hidden window's strip stands still").toBe(before);
+      expect(sampleMock, "and no sample was taken to grow it").toHaveBeenCalledTimes(2);
+
+      // A fresh sample waits: the machine was asked again, its counters moved on.
+      sampleMock.mockResolvedValue(sample(5_000, 30_000, 8_000, 5_000));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+      await nextTick();
+      expect(bars("cpu"), "the seen-again window's strip grows on the next sample").toBeGreaterThan(before);
+    } finally {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    }
+  });
+
+  it("wears the threshold colour on a hot CPU's number: amber at 90-95, red past 95", async () => {
+    sampleMock.mockResolvedValue(sample(1_000, 10_000, 8_000, 1_000));
+    mount({ handle: "h1", active: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await nextTick();
+
+    // 800 idle ticks of the interval's 10000: 92% busy, the amber band.
+    sampleMock.mockResolvedValue(sample(3_000, 20_000, 8_800, 3_000));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await nextTick();
+    expect(card("cpu").querySelector(".is-warn"), "92% busy wears amber").not.toBeNull();
+    expect(card("cpu").textContent).toContain("92%");
+
+    // 400 idle ticks of the interval's 10000: 96% busy, the red band.
+    sampleMock.mockResolvedValue(sample(5_000, 30_000, 9_200, 5_000));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await nextTick();
+    expect(card("cpu").querySelector(".is-danger"), "96% busy wears red").not.toBeNull();
+  });
+
+  it("draws the storage bar in the workbench family, wearing the tier the reading earns", async () => {
+    sampleMock.mockResolvedValue(metrics());
+    mount({ handle: "h1", active: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await nextTick();
+
+    // (100 - 10) / 100 = 90%: amber fill, named for a reader who cannot see it.
+    const fill = card("storage").querySelector<HTMLElement>(".widget-bar-fill");
+    expect(fill, "the bar is drawn").not.toBeNull();
+    expect(fill?.style.background, "90% wears the workbench amber").toBe("var(--workbench-warning)");
+    expect(card("storage").querySelector('[role="img"]')?.getAttribute("aria-label")).toContain("90%");
+
+    sampleMock.mockResolvedValue(
+      metrics({ disks: [{ mountPoint: "/", filesystem: "ext4", sizeBytes: 100, availableBytes: 3 }] }),
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    await nextTick();
+    expect(card("storage").querySelector<HTMLElement>(".widget-bar-fill")?.style.background).toBe(
+      "var(--workbench-danger)",
+    );
+  });
+});
+
 describe("the cards' skin", () => {
   it("draws from the workbench tokens, thresholds and all, with no literal colour left", () => {
     // The cards' glass is scoped CSS, invisible to DOM assertions here; the probe is the source:
@@ -221,6 +332,9 @@ describe("the cards' skin", () => {
     expect(source, "the cards are the bar surface").toContain("var(--workbench-surface-1)");
     expect(source, "90-95 wears the Semi warning").toContain("var(--workbench-warning)");
     expect(source, "past 95 wears the Semi danger").toContain("var(--workbench-danger)");
+    expect(source, "the bar's track is the wallpaper text, not a theme token").toContain(
+      "color-mix(in srgb, var(--workbench-on-picture) 16%, transparent)",
+    );
     expect(source, "no literal colour is left in the chrome").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

@@ -190,10 +190,10 @@
         "upTitle": "启动项目“{name}”？",
         "upMessage": "将以项目自己的 Compose 文件以分离模式启动；容器会被创建并运行。"
       },
-      "summary": {
-        "containers": "容器：共 {total} 个，运行中 {running} 个",
-        "images": "镜像：共 {total} 个",
-        "abnormal": "运行异常：{count} 个"
+      "tile": {
+        "containers": "容器 · 运行中 {running}",
+        "images": "镜像",
+        "engine": "引擎健康"
       },
       "health": {
         "healthy": "所有服务运行状态健康。",

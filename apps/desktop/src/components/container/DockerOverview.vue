@@ -3,17 +3,18 @@
  * The Docker window's overview page: what the engine holds, whether it is well, and how hard it is
  * working — the page the reference Docker manager opens onto.
  *
- * Three rows say what the engine holds, and each row is the page it summarizes: a click is a jump,
- * because a number that cannot be pressed is a number somebody has to go and find. The three
- * short lines below are the engine working — CPU, memory, network — sampled every five seconds
- * from the stats call the workspace already makes, and drawn without animation: a live chart is
- * data arriving, not a transition.
+ * Three tiles say what the engine holds, and each tile is the page it summarizes: a click is a
+ * jump, because a number that cannot be pressed is a number somebody has to go and find. The
+ * engine-health tile carries the verdict the page's lamp used to say beside the rows — its count
+ * is how many containers are not well, its tier the lamp's colour. The three short lines below
+ * are the engine working — CPU, memory, network — sampled every five seconds from the stats call
+ * the workspace already makes, each titled with its newest reading, and drawn without animation:
+ * a live chart is data arriving, not a transition.
  *
  * The sampling has the discipline the monitor's panel taught: nobody watching, nothing sampled.
  * The window reports whether it is the one in front, and the document reports whether it is
  * visible at all; both have to say yes before the engine is asked anything.
  */
-import { Boxes, CircleAlert, Layers } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -23,6 +24,7 @@ import type { ContainerTab } from "@/stores/terminals";
 import type { ContainerSession } from "@/stores/container";
 
 import SparkArea from "@/components/charts/SparkArea.vue";
+import StatTile from "@/components/charts/StatTile.vue";
 import { usageTone } from "@/components/charts/tone";
 
 import { SAMPLE_INTERVAL_MS, SERIES_POINTS, aggregateStats, engineHealthy, netRate } from "./dockerMetrics";
@@ -154,6 +156,22 @@ function netLabel(): string {
   return rate === null ? "—" : `${formatSize(rate)}/s`;
 }
 
+/** The newest sample a series holds, or nothing when the engine has not answered yet. */
+function latestOf(series: readonly number[]): number | null {
+  return series.length === 0 ? null : (series[series.length - 1] ?? null);
+}
+
+/** The readings beside the chart titles: each series' newest sample, with its unit. */
+const cpuReading = computed(() => {
+  const latest = latestOf(cpuSeries.value);
+  return latest === null ? "—" : `${latest.toFixed(1)}%`;
+});
+
+const memoryReading = computed(() => {
+  const latest = latestOf(memorySeries.value);
+  return latest === null ? "—" : `${latest.toFixed(1)}%`;
+});
+
 /**
  * The memory line wears the tier the desktops share, from the reading it has just drawn: memory is
  * the one series here that is a usage. A rate has no ninety, so the network line keeps its own
@@ -168,72 +186,68 @@ const memoryTone = computed<"ok" | "warn" | "danger">(() => {
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-docker-overview>
     <!--
-      The summary: three rows, each the page it counts. The reference draws these as rows rather
-      than cards,
-      and the difference matters — a card invites decorating, a row invites pressing.
+      The summary: three tiles, each the page it counts. The reference reads these at a glance — a
+      big number over its name — and each tile stays a button, because a number that cannot be
+      pressed is a number somebody has to go and find. The engine-health tile carries the lamp the
+      page used to draw beside the rows: its count is the engine's verdict, its tier is the lamp's
+      colour, and its tooltip says the sentence out loud.
     -->
-    <div class="flex flex-col" data-docker-overview-summary>
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3" data-docker-overview-summary>
       <button
         type="button"
         data-docker-summary-containers
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
+        class="block w-full cursor-pointer text-left transition-opacity hover:opacity-80"
         @click="emit('show-state', '')"
       >
-        <Boxes :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span class="min-w-0 flex-1 truncate">
-          {{
-            t("container.desktop.summary.containers", { total: String(containersTotal), running: String(runningCount) })
-          }}
-        </span>
+        <StatTile
+          :label="t('container.desktop.tile.containers', { running: String(runningCount) })"
+          :value="String(containersTotal)"
+        />
       </button>
       <button
         type="button"
         data-docker-summary-images
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
+        class="block w-full cursor-pointer text-left transition-opacity hover:opacity-80"
         @click="emit('show-images')"
       >
-        <Layers :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span class="min-w-0 flex-1 truncate">
-          {{ t("container.desktop.summary.images", { total: String(imagesTotal) }) }}
-        </span>
+        <StatTile :label="t('container.desktop.tile.images')" :value="String(imagesTotal)" />
       </button>
       <button
         type="button"
         data-docker-summary-abnormal
-        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)]"
+        class="block w-full cursor-pointer text-left transition-opacity hover:opacity-80"
+        :title="healthy ? t('container.desktop.health.healthy') : t('container.desktop.health.unhealthy')"
         @click="emit('show-state', 'dead')"
       >
-        <CircleAlert :size="14" class="shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span class="min-w-0 flex-1 truncate">
-          {{ t("container.desktop.summary.abnormal", { count: String(abnormalCount) }) }}
-        </span>
+        <StatTile
+          :label="t('container.desktop.tile.engine')"
+          :value="String(abnormalCount)"
+          :tone="abnormalCount > 0 ? 'danger' : undefined"
+        />
       </button>
     </div>
-
-    <!-- The lamp: one line saying whether the engine is well, with the dot in its colour. -->
-    <p class="flex items-center gap-2 px-2 text-xs" data-docker-overview-health>
-      <span
-        class="size-1.5 shrink-0 rounded-full"
-        :class="healthy ? 'bg-success' : 'bg-destructive'"
-        aria-hidden="true"
-      ></span>
-      <span class="text-muted-foreground">
-        {{ healthy ? t("container.desktop.health.healthy") : t("container.desktop.health.unhealthy") }}
-      </span>
-    </p>
 
     <!--
       The three lines. Each is drawn at the reference mini chart's measure, from the series this
       page has sampled — the shell is `SparkArea`, shared with a single container's monitor, and it
       draws the samples as an area rather than a line: the samples are intervals, not a continuum.
+      Each title carries its series' newest reading with its unit, the way the reference's stat
+      graphs do; the network's is a rate, and says so with the `/s`.
     -->
     <div class="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-3" data-docker-overview-charts>
-      <SparkArea data-docker-chart-cpu :label="t('container.desktop.chart.cpu')" :values="cpuSeries" tone="accent" />
+      <SparkArea
+        data-docker-chart-cpu
+        :label="t('container.desktop.chart.cpu')"
+        :values="cpuSeries"
+        tone="accent"
+        :value="cpuReading"
+      />
       <SparkArea
         data-docker-chart-memory
         :label="t('container.desktop.chart.memory')"
         :values="memorySeries"
         :tone="memoryTone"
+        :value="memoryReading"
       />
       <SparkArea
         data-docker-chart-network
