@@ -199,6 +199,7 @@
       "image": "Image",
       "id": "ID",
       "state": "State",
+      "memory": "Memory",
       "ports": "Ports",
       "created": "Created",
       "repository": "Repository",

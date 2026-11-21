@@ -34,7 +34,7 @@ import {
   Trash2,
   X,
 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import {
@@ -49,6 +49,7 @@ import WbTag from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
+import { backend } from "@/lib/backend/api";
 import type { MenuEntry } from "@/lib/menu/types";
 import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,7 @@ import {
 } from "@/stores/container";
 import { useTerminalsStore, type ContainerTab } from "@/stores/terminals";
 import type { ContainerSummary } from "@/types/container";
+import type { ContainerStats } from "@/types/container";
 
 import ContainerCommitDialog from "./ContainerCommitDialog.vue";
 import ContainerCreateDialog from "./ContainerCreateDialog.vue";
@@ -123,6 +125,44 @@ const rows = computed(() =>
     image: props.imageFilter,
   }),
 );
+
+/*
+ * The memory column's numbers: one engine call answers for every container on the connection, so
+ * the list samples it on a slow clock instead of asking per row. While the engine is not answering
+ * (or between samples) the column quietly holds its last answer rather than flashing empty.
+ */
+const statsByContainer = ref<Record<string, ContainerStats>>({});
+let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+async function sampleStats(): Promise<void> {
+  try {
+    const rows = await backend.containers.stats(props.session.connectionId);
+    const map: Record<string, ContainerStats> = {};
+    for (const row of rows) {
+      map[row.id] = row;
+      map[row.name] = row;
+    }
+    statsByContainer.value = map;
+  } catch {
+    // The engine hiccups or the connection drops; the column keeps what it had.
+  }
+}
+
+function statsFor(container: ContainerSummary): ContainerStats | null {
+  return statsByContainer.value[container.id] ?? statsByContainer.value[container.name] ?? null;
+}
+
+onMounted(() => {
+  void sampleStats();
+  statsTimer = setInterval(() => void sampleStats(), 10_000);
+});
+
+onBeforeUnmount(() => {
+  if (statsTimer !== null) {
+    clearInterval(statsTimer);
+    statsTimer = null;
+  }
+});
 
 const stateOptions = computed(() => {
   const states = new Set(props.session.containers.map((container) => container.state));
@@ -610,13 +650,14 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       >
         <thead :class="TABLE.page.head">
           <tr :class="TABLE.page.headRow">
-            <th class="w-[20%]" :class="TABLE.page.headCell">{{ t("container.col.name") }}</th>
-            <th class="w-[26%]" :class="TABLE.page.headCell">{{ t("container.col.image") }}</th>
-            <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.id") }}</th>
-            <th class="w-[10%]" :class="TABLE.page.headCell">{{ t("container.col.state") }}</th>
-            <th class="w-[15%]" :class="TABLE.page.headCell">{{ t("container.col.ports") }}</th>
-            <th class="w-[12%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
-            <th class="w-[8rem]" :class="TABLE.page.headCell">{{ t("container.col.actions") }}</th>
+            <th class="w-[18%]" :class="TABLE.page.headCell">{{ t("container.col.name") }}</th>
+            <th class="w-[22%]" :class="TABLE.page.headCell">{{ t("container.col.image") }}</th>
+            <th class="w-[8%]" :class="TABLE.page.headCell">{{ t("container.col.id") }}</th>
+            <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.state") }}</th>
+            <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.memory") }}</th>
+            <th class="w-[13%]" :class="TABLE.page.headCell">{{ t("container.col.ports") }}</th>
+            <th class="w-[11%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
+            <th class="w-[10rem]" :class="TABLE.page.headCell">{{ t("container.col.actions") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -649,6 +690,14 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
               </span>
             </td>
             <td :class="TABLE.page.cell">
+              <!-- The engine answers stats for the whole connection in one call; between samples
+                   the column holds its last answer rather than flashing empty. -->
+              <span v-if="statsFor(container)" class="block font-mono text-[11px] text-muted-foreground">
+                {{ statsFor(container)!.memoryPercent.toFixed(1) }}%
+              </span>
+              <span v-else class="block text-[11px] text-muted-foreground">—</span>
+            </td>
+            <td :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]" :title="container.ports">{{ container.ports }}</span>
             </td>
             <td :class="TABLE.page.cell">
@@ -669,6 +718,55 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
                 {{ loadingText(container.id) }}
               </span>
               <span v-else-if="desktop" class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                  :title="t('container.action.exec', { name: container.name })"
+                  :aria-label="t('container.action.exec', { name: container.name })"
+                  :disabled="container.state !== 'running'"
+                  @click="openShell(container)"
+                >
+                  <SquareTerminal :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
+                  :title="t('container.action.logs', { name: container.name })"
+                  :aria-label="t('container.action.logs', { name: container.name })"
+                  @click="openLogs(container)"
+                >
+                  <ScrollText :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                  :title="t('container.action.files', { name: container.name })"
+                  :aria-label="t('container.action.files', { name: container.name })"
+                  :disabled="container.state !== 'running'"
+                  @click="openFiles(container)"
+                >
+                  <FolderOpen :size="12" />
+                </button>
+                <button
+                  v-if="container.state !== 'running'"
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
+                  :title="t('container.action.start', { name: container.name })"
+                  :aria-label="t('container.action.start', { name: container.name })"
+                  @click="runAction(container, 'start')"
+                >
+                  <Play :size="12" />
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"
+                  :title="t('container.action.stop', { name: container.name })"
+                  :aria-label="t('container.action.stop', { name: container.name })"
+                  @click="runAction(container, 'stop')"
+                >
+                  <Square :size="11" />
+                </button>
                 <button
                   type="button"
                   class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--workbench-on-picture)_6%,transparent)] hover:text-foreground"

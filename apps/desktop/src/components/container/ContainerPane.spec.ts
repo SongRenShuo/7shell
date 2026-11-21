@@ -248,7 +248,7 @@ describe("the desktop layout", () => {
     expect(host?.textContent).toContain("Try again");
   });
 
-  it("draws the state column as tags and gathers the row's actions under the one menu", async () => {
+  it("draws the state column as tags and keeps the row's actions at hand", async () => {
     await mount(tab("docker"), "desktop");
     railButton("Containers").click();
     await nextTick();
@@ -257,9 +257,11 @@ describe("the desktop layout", () => {
     expect(tag, "the running container's state is a tag").not.toBeNull();
     expect(tag?.textContent?.trim()).toBe("Running");
 
-    // The flat row's five buttons collapse to the one menu on the desktop.
+    // The desktop row carries its frequent actions as visible buttons — shell, logs, files, stop —
+    // and gathers the rest under the one menu, the way the flat row does.
     const row = tag?.closest("tr");
-    expect(row?.querySelectorAll("button")).toHaveLength(1);
+    expect(row?.querySelectorAll("button")?.length).toBeGreaterThanOrEqual(5);
+    expect(row?.querySelector('button[aria-label^="More actions for"]'), "the one menu for the rest").not.toBeNull();
   });
 
   it("offers the networks and Compose pages beside the three when the bits are absent", async () => {
