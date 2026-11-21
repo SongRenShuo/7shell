@@ -1530,6 +1530,46 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             Ok(Value::Null)
         }
 
+        // -- Desktop Docker engine: disk usage, volumes, prunes -------------------
+        "system_df" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            to_value(state.core.container_system_df(&connection_id).await?)
+        }
+        "container_prune" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(state.core.container_prune(&connection_id, acknowledged).await?)
+        }
+        "volume_list" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            to_value(state.core.container_volume_list(&connection_id).await?)
+        }
+        "volume_remove" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let name: String = from_args(&args, "name")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            state
+                .core
+                .container_volume_remove(&connection_id, &name, acknowledged)
+                .await?;
+            Ok(Value::Null)
+        }
+        "volume_prune" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(state.core.container_volume_prune(&connection_id, acknowledged).await?)
+        }
+        "build_cache_prune" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            to_value(
+                state
+                    .core
+                    .container_build_cache_prune(&connection_id, acknowledged)
+                    .await?,
+            )
+        }
+
         // -- Desktop Docker engine: Compose projects ------------------------------
         "compose_ls" => {
             let connection_id: String = from_args(&args, "connectionId")?;
