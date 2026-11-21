@@ -27,6 +27,7 @@
  */
 import {
   Activity,
+  ArrowUpCircle,
   Camera,
   Copy,
   Ellipsis,
@@ -102,6 +103,8 @@ const emit = defineEmits<{
   clone: [container: ContainerSummary];
   /** The row's "monitor" ask: the pane opens the per-container charts over this container. */
   monitor: [container: ContainerSummary];
+  /** The row's "upgrade" ask: the pane opens the upgrade transaction over this container. */
+  upgrade: [container: ContainerSummary];
 }>();
 
 const { t } = useI18n();
@@ -722,6 +725,17 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
     labelKey: "container.action.clone",
     icon: Copy,
     run: () => emit("clone", container),
+  });
+  // The upgrade ask: the pane inspects the container, asks the registry whether the image's tag
+  // moved, and walks the pull→stop→remove→create→start transaction behind its own confirm. The
+  // row only offers it; the dialog is where the consequences are said and the gate is answered.
+  entries.push({
+    kind: "action",
+    id: "upgrade",
+    labelKey: "container.action.upgrade",
+    params: { name: container.name },
+    icon: ArrowUpCircle,
+    run: () => emit("upgrade", container),
   });
   entries.push({
     kind: "action",

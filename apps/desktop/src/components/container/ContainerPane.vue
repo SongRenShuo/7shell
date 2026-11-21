@@ -17,14 +17,17 @@
  * and the view keeping are the same in both — only the drawing differs, so the application tab
  * never sees the desktop's presentational choices.
  */
-import { Blocks, Boxes, Gauge, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
+import { Blocks, Boxes, Eraser, Gauge, HardDrive, Layers, LoaderCircle, RotateCw, Waypoints, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import DockerCleanup from "@/components/container/DockerCleanup.vue";
 import DockerImages from "@/components/container/DockerImages.vue";
 import DockerNetworks from "@/components/container/DockerNetworks.vue";
 import DockerOverview from "@/components/container/DockerOverview.vue";
+import DockerVolumes from "@/components/container/DockerVolumes.vue";
 import DockerCompose from "@/components/container/DockerCompose.vue";
+import ContainerUpgradeDialog from "@/components/container/ContainerUpgradeDialog.vue";
 import WbSideNav, { type SideNavItem } from "@/components/container/WbSideNav.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
 import WbButton from "@/components/ui/WbButton.vue";
@@ -53,7 +56,7 @@ const props = withDefaults(
   { layout: "flat" },
 );
 
-type ContainerView = "overview" | "containers" | "images" | "networks" | "compose";
+type ContainerView = "overview" | "containers" | "images" | "volumes" | "cleanup" | "networks" | "compose";
 
 const { t } = useI18n();
 const containers = useContainerStore();
@@ -67,6 +70,9 @@ const imageFilter = ref<string | null>(null);
 const stateFilter = ref<string | null>(null);
 /** Whether the desktop's create wizard is open; the flat workspace has no wizard to open. */
 const wizardOpen = ref(false);
+/** The container the upgrade dialog is working on, and whether the dialog is showing. */
+const upgradeTarget = ref<ContainerSummary | null>(null);
+const upgradeOpen = ref(false);
 
 const session = computed(() => containers.sessionFor(props.tab.id));
 const runtime = computed(() => props.tab.session.container?.runtime ?? "docker");
@@ -125,6 +131,10 @@ const sideRail = computed<readonly SideNavItem[]>(() => {
     { id: "containers", label: t("container.rail.containers"), icon: Boxes, count: current.containers.length },
     { id: "images", label: t("container.rail.images"), icon: Layers, count: current.images.length },
   ];
+  if (current.info?.volumeAvailable !== false) {
+    items.push({ id: "volumes", label: t("container.rail.volumes"), icon: HardDrive, count: null });
+  }
+  items.push({ id: "cleanup", label: t("container.rail.cleanup"), icon: Eraser, count: null });
   if (current.info?.networkAvailable !== false) {
     items.push({ id: "networks", label: t("container.rail.networks"), icon: Waypoints, count: null });
   }
@@ -193,6 +203,15 @@ const monitorOpen = ref(false);
 function openMonitor(container: ContainerSummary): void {
   monitorTarget.value = container;
   monitorOpen.value = true;
+}
+
+/**
+ * Answers the list's upgrade ask: the dialog is where the registry is asked whether the tag moved
+ * and where the transaction's confirm lives — the row only offers it.
+ */
+function openUpgrade(container: ContainerSummary): void {
+  upgradeTarget.value = container;
+  upgradeOpen.value = true;
 }
 
 const { toast } = useToast();
@@ -486,6 +505,7 @@ onBeforeUnmount(() => {
             @filter-state="stateFilter = $event"
             @clone="cloneContainer"
             @monitor="openMonitor"
+            @upgrade="openUpgrade"
           >
             <!-- The create entry lives on the containers page's own toolbar, where the reference
                    manager puts it; the pane only owns the wizard it opens. The slot follows the
@@ -519,6 +539,10 @@ onBeforeUnmount(() => {
           <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
           <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
           <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
+          <!-- The volumes page reads and asks about removals; the cleanup page reads first and
+               prunes second. Both stay mounted across views like every other page here. -->
+          <DockerVolumes v-show="desktop && view === 'volumes'" :session="session" />
+          <DockerCleanup v-show="desktop && view === 'cleanup'" :session="session" />
         </div>
       </div>
     </div>
@@ -546,6 +570,20 @@ onBeforeUnmount(() => {
       :target="monitorTarget"
       :active="props.active"
       @close="monitorOpen = false"
+    />
+
+    <!--
+      The upgrade transaction, wherever in the rail the reader is: a modal of the window, not a
+      view of it. The dialog reads the container and asks the registry itself; the pull-first order
+      and the recovery after the removal are the transaction's own contract.
+    -->
+    <ContainerUpgradeDialog
+      v-if="desktop && session !== undefined"
+      :open="upgradeOpen"
+      :tab-id="props.tab.id"
+      :session="session"
+      :target="upgradeTarget"
+      @update:open="upgradeOpen = $event"
     />
   </section>
 </template>
