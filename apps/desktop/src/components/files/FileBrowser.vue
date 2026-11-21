@@ -1918,7 +1918,7 @@ function openAreaMenu(event: MouseEvent): void {
             data-search-input
             type="text"
             spellcheck="false"
-            class="h-6 w-28 rounded-md bg-muted/40 py-0.5 pl-6 pr-5 text-[11px] placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+            class="h-7 w-28 rounded-md bg-muted/40 py-0.5 pl-6 pr-5 text-[11px] placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
             :aria-label="t('files.search.label')"
             :placeholder="t('files.search.placeholder')"
             @keydown.escape.prevent="searchQuery = ''"

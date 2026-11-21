@@ -144,19 +144,22 @@ function label(row: Row): string {
     The tree is a list of places to click, not text to select: without this the pointer turns into an
     I-beam over every name, and a drag picks up letters instead of rows.
 
-    No border of its own: the line at its right edge is the divider's, which is the same line whoever
-    drags it — two lines a pixel apart would be a border that thickened when the pointer was nowhere
-    near it.
+    No border of its own: the line at its left edge is the panel frame's and the line at its right
+    edge is the divider's, which is the same line whoever drags it — two lines a pixel apart would be
+    a border that thickened when the pointer was nowhere near it. The frame's line is why the padding
+    here and the margin and rounding on each row below: a highlight that ran from the very edge would
+    read as the border having been pressed, so a selected row stops short of it and wears its own
+    rounded corners, the same inset the listing's rows keep.
   -->
   <nav
-    class="shrink-0 cursor-default overflow-auto py-1 select-none"
+    class="shrink-0 cursor-default overflow-auto px-1 py-1 select-none"
     :style="{ width: `${props.width}px` }"
     :aria-label="t('files.tree.title')"
   >
     <ul>
       <li v-for="row in rows" :key="row.path">
         <div
-          class="flex items-center gap-1 pr-2 text-sm"
+          class="mx-0.5 flex items-center gap-1 rounded-md pr-2 text-sm"
           :class="props.currentPath === row.path ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
         >
           <button
