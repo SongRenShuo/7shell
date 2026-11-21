@@ -160,6 +160,11 @@
       "renaming": "Renaming…",
       "pulling": "Pulling…"
     },
+    "healthCheck": {
+      "healthy": "Healthy",
+      "unhealthy": "Unhealthy",
+      "starting": "Starting"
+    },
     "refresh": "Read again",
     "dismiss": "Dismiss this message",
     "filesTabName": "{name} files",
@@ -381,7 +386,8 @@
       "empty": "Nothing has been written yet.",
       "noErrors": "No line reads as an error.",
       "paused": "Paused — lines are kept and appear when resumed.",
-      "ended": "The stream has ended."
+      "ended": "The stream has ended. It reopens when the container runs again.",
+      "reconnecting": "Waiting for the container to run again…"
     },
     "image": {
       "pull": "Pull",

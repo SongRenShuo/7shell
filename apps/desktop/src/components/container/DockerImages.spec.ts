@@ -93,6 +93,7 @@ function session(): ContainerSession {
     error: null,
     info: null,
     tasks: [],
+    eventsStreamId: null,
   };
 }
 

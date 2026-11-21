@@ -20,7 +20,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   }),
   containerNamespaces: vi.fn(async () => []),
   containerSetNamespace: vi.fn(async () => {}),
-  containerAction: vi.fn(async () => {}),
+  containerAction: vi.fn(async () => "done"),
   containerRename: vi.fn(async () => {}),
   containerCreate: vi.fn(async () => {}),
   containerInspect: vi.fn(),
@@ -37,24 +37,32 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerImageCommit: vi.fn(),
   containerRegistryLogin: vi.fn(async () => {}),
   onContainerStreamLine: vi.fn(),
-  onContainerStreamEnd: vi.fn(async () => () => {}),
+  onContainerStreamEnd: vi.fn(),
 }));
 
 import ContainerDetailDrawer from "@/components/container/ContainerDetailDrawer.vue";
 import { i18n } from "@/i18n";
-import { containerInspect, containerLogsStart, containerStreamStop, onContainerStreamLine } from "@/lib/backend/tauri";
+import {
+  containerInspect,
+  containerLogsStart,
+  containerStreamStop,
+  onContainerStreamEnd,
+  onContainerStreamLine,
+} from "@/lib/backend/tauri";
 import { useContainerStore } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
-import type { ContainerDetail, ContainerStreamLine, ContainerSummary } from "@/types/container";
+import type { ContainerDetail, ContainerStreamEnd, ContainerStreamLine, ContainerSummary } from "@/types/container";
 
 const inspectMock = vi.mocked(containerInspect);
 const logsStartMock = vi.mocked(containerLogsStart);
 const streamStopMock = vi.mocked(containerStreamStop);
 const lineMock = vi.mocked(onContainerStreamLine);
+const endMock = vi.mocked(onContainerStreamEnd);
 
 let app: App | undefined;
 let host: HTMLDivElement | undefined;
 let lineListener: ((payload: ContainerStreamLine) => void) | null = null;
+let endListener: ((payload: ContainerStreamEnd) => void) | null = null;
 
 function target(): ContainerSummary {
   return {
@@ -146,8 +154,13 @@ function button(label: string): HTMLButtonElement {
 
 beforeEach(() => {
   lineListener = null;
+  endListener = null;
   lineMock.mockImplementation(async (listener) => {
     lineListener = listener;
+    return () => {};
+  });
+  endMock.mockImplementation(async (listener) => {
+    endListener = listener;
     return () => {};
   });
 });
@@ -259,5 +272,75 @@ describe("container detail drawer", () => {
     await nextTick();
 
     expect(host?.querySelector("[data-logs-no-errors]")?.textContent).toContain("No line reads as an error.");
+  });
+
+  it("reopens the stream once the container it was following runs again", async () => {
+    logsStartMock.mockResolvedValueOnce("log-1").mockResolvedValueOnce("log-2");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener || !endListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+
+    // The container stopped — the engine ended the follow — and the list has caught up with that.
+    lineListener({ streamId: "log-1", line: "2026-11-10T10:00:00Z hello" });
+    const store = useContainerStore();
+    const session = store.sessionFor("tab-1");
+    if (!session) {
+      throw new Error("the drawer never connected its store");
+    }
+    session.containers = [{ ...target(), state: "exited" }];
+    endListener({ streamId: "log-1", error: undefined });
+    await nextTick();
+    expect(host?.textContent).toContain("The stream has ended.");
+
+    // The engine's event stream catches up: the container is running again, and the view reopens
+    // the stream by itself — the second start is the reopen, with the waiting sentence drawn.
+    session.containers = [{ ...target(), state: "running" }];
+    await vi.waitFor(
+      () => {
+        expect(logsStartMock).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 4_000 },
+    );
+    await vi.waitFor(() => {
+      expect(host?.querySelector("[data-logs-reconnecting]")).toBeNull();
+    });
+    await nextTick();
+    expect(host?.textContent).not.toContain("The stream has ended.");
+  });
+
+  it("stops reopening automatically when the stream cannot hold on, and leaves the manual button", async () => {
+    logsStartMock.mockResolvedValue("log-1");
+    await mount("logs");
+    await vi.waitFor(() => {
+      expect(logsStartMock).toHaveBeenCalledTimes(1);
+    });
+    if (!lineListener || !endListener) {
+      throw new Error("the drawer never subscribed to the stream");
+    }
+    const store = useContainerStore();
+    const session = store.sessionFor("tab-1");
+    if (!session) {
+      throw new Error("the drawer never connected its store");
+    }
+    session.containers = [{ ...target(), state: "running" }];
+
+    // Three reopens in a row, each ending without a single line: a stream that cannot hold on.
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await vi.waitFor(
+        () => {
+          expect(logsStartMock).toHaveBeenCalledTimes(attempt + 1);
+        },
+        { timeout: 4_000 },
+      );
+      endListener({ streamId: "log-1", error: undefined });
+    }
+    // The next end opens nothing: the person has the restart button that was always there.
+    await new Promise((resolve) => setTimeout(resolve, 1_600));
+    expect(logsStartMock).toHaveBeenCalledTimes(4);
+    expect(host?.textContent).toContain("The stream has ended.");
   });
 });

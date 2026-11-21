@@ -94,6 +94,45 @@ pub struct ContainerSummary {
     pub status: String,
     pub ports: String,
     pub created_at: String,
+    /// The healthcheck verdict (`healthy`, `unhealthy`, `starting`), empty when the container has
+    /// no healthcheck at all. A runtime that does not report health leaves it empty the same way,
+    /// which is how the interface knows to draw no badge.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub health: String,
+}
+
+/// One event the engine's own `events` stream reported, reduced to what a container list follows.
+///
+/// A runtime that does not name the event's kind (older daemons put only `status` on the line)
+/// leaves it empty; the interface reads an empty kind as a container event, which is what the
+/// stream of a container list cares about.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerEvent {
+    /// The engine's own kind word (`container`, `image`, …), as printed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub event_type: String,
+    /// The engine's own action word (`start`, `die`, `destroy`, …), as printed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub action: String,
+    /// The id of the object the event is about; for container events, the container's id.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// The container's name when the event carried one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+}
+
+/// What one container action came back as. A race the engine settled before we acted — the
+/// container already stopped, already paused, already removed — is a success with a name, not an
+/// error: the person asked for a state and the state is what they have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContainerActionOutcome {
+    /// The engine ran the action.
+    Done,
+    /// The container was already in the state the action asks for, or was already gone.
+    AlreadySatisfied,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,6 +296,12 @@ pub struct ContainerRuntimeInfo {
     /// opened; absent on the connections that were never probed, which reads as "may have it".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub manifest_inspect_available: bool,
+    /// Whether the engine's `events` stream can be followed — the bit behind the container list's
+    /// automatic state updates. Probed once when a desktop engine opened; absent on the
+    /// connections that were never probed. An engine without it is followed by hand, which is not
+    /// an error and never becomes a poll.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub events_available: bool,
 }
 
 /// What the engine's `info` says about where it pulls from.
