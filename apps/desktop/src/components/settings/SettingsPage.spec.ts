@@ -224,6 +224,32 @@ describe("the settings page", () => {
     );
     expect(lists.length, "both lists are drawn under the page's refusal").toBe(2);
   });
+
+  it("asks the close question in the verbs its own three buttons answer with", async () => {
+    await mount();
+
+    // A change nobody wrote down is what makes closing a question rather than an act.
+    usePreferencesStore().setHomeLayout("intro");
+    await nextTick();
+
+    const close = [...host.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "Close");
+    if (!close) {
+      throw new Error("the footer has no close button");
+    }
+    close.click();
+    await nextTick();
+
+    // The question is drawn through a portal, so it lands beside the page rather than inside it.
+    const question = document.querySelector('[role="dialog"]');
+    if (!question) {
+      throw new Error("closing with unwritten changes drew no question");
+    }
+    // Each button repeats the verb the sentence used — save, discard, stay — so nobody has to work
+    // out which word goes with which button before pressing one.
+    const answers = [...question.querySelectorAll("button")].map((button) => button.textContent?.trim());
+    expect(answers).toEqual(["Stay on this page", "Discard changes", "Save and close"]);
+    expect(question.textContent).toContain("Save them, discard them, or stay on this page.");
+  });
 });
 
 it("finds the shortcuts page by an action's name, or by the key it answers to", async () => {

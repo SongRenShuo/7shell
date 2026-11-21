@@ -49,6 +49,23 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- A window coming back to the desk can no longer hang off its edge: restoring a maximised window
+  and showing a minimised one clamp the geometry they were remembered at into the work area as it
+  is now — the forwards window that used to reopen with its title half off the desk, and a desk
+  that shrank under a maximised window, both land whole (4c96c4b).
+- The settings close question names its three answers in the verbs it asks with: the buttons read
+  "Save and close", "Discard changes" and "Stay on this page" instead of a cancel, a "drop" and a
+  "write them and close" the sentence never used, in both languages (39eef29).
+- The batch window's empty host list says why it is empty — a library with nothing saved yet
+  versus one whose saved sessions are all consoles a batch cannot ride — and hands over a
+  new-session entry that opens the session editor, instead of claiming no sessions were saved
+  while one sat in the library (987fba8).
+- The log-tracking window's follow button speaks the desktop's accent primary at the row's end,
+  the way the docker window's create does, instead of a grey full-width bar of its own classes
+  (ab94ff3).
+- The title bar keeps an accessible name on every button over a settings tab — its own buttons
+  already did, and the tab strip's buttons now say their tab as an attribute too, wherever the
+  strip is drawn (66535c6).
 - A terminal's connection can no longer be driven out of channels by its own monitor: a command
   whose channel is abandoned on timeout or refusal now sends Close, so the server frees the
   session slot instead of holding it until the whole connection dies — the outage where

@@ -128,6 +128,15 @@ describe("the desktop's tail window", () => {
     expect(openMock).not.toHaveBeenCalled();
   });
 
+  it("asks with the desktop's accent primary button, in the form's own rhythm", async () => {
+    await mount(windowProps());
+
+    // The accent face is the docker window's create and the shared primary's voice; a full-width
+    // bar would be a second button language inside the same desktop.
+    expect(followButton().className).toContain("bg-[var(--workbench-accent)]");
+    expect(followButton().className).not.toContain("w-full");
+  });
+
   it("follows an absolute path: the open carries the size, and the reading is drawn", async () => {
     openMock.mockResolvedValue("tail-1");
     await mount(windowProps());

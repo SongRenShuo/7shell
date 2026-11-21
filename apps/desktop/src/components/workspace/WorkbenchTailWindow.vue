@@ -24,6 +24,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
+import WbButton from "@/components/ui/WbButton.vue";
 import { describeShellError } from "@/i18n/errors";
 import { TAIL_OPEN_SIZES, isValidTailPath, useTailStore, type TailState } from "@/stores/tail";
 
@@ -190,15 +191,16 @@ const describedFailure = computed(() =>
         />
       </div>
 
-      <button
-        type="button"
-        class="flex w-full items-center justify-center rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="!canFollow"
-        data-workbench-tail-follow
-        @click="follow()"
-      >
-        {{ t("workbench.desktop.tail.follow") }}
-      </button>
+      <!--
+        The one primary action of the ask, in the desktop's own primary voice — the accent the
+        docker window's create speaks — and inline at the row's end, the rhythm the other windows'
+        forms keep, rather than a bar stretching the ask's whole width.
+      -->
+      <div class="flex items-center justify-end">
+        <WbButton variant="primary" :disabled="!canFollow" data-workbench-tail-follow @click="follow()">
+          {{ t("workbench.desktop.tail.follow") }}
+        </WbButton>
+      </div>
 
       <!-- The scenarios, because "follow a log" is abstract and a path is not. -->
       <div

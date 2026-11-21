@@ -549,7 +549,7 @@ function maximize(id: string): void {
 }
 
 function restore(id: string): void {
-  windows.value = restoreWindow(windows.value, id);
+  windows.value = restoreWindow(windows.value, id, bounds.value);
 }
 
 function move(id: string, next: { left: number; top: number }): void {
@@ -652,7 +652,7 @@ function onKeyup(event: KeyboardEvent): void {
 }
 
 function raise(id: string): void {
-  windows.value = showWindow(windows.value, id);
+  windows.value = showWindow(windows.value, id, bounds.value);
 }
 
 /**
@@ -1213,7 +1213,7 @@ function pressTaskbar(id: string): void {
 function pressDesktop(): void {
   windows.value = windows.value.some((window) => window.mode !== "min")
     ? minimizeAll(windows.value)
-    : restoreAll(windows.value);
+    : restoreAll(windows.value, bounds.value);
 }
 
 /**

@@ -8,7 +8,9 @@
       "title": "Hosts",
       "all": "All",
       "none": "None",
-      "empty": "No sessions saved yet.",
+      "empty": "The session library has no saved sessions yet.",
+      "emptyNoSsh": "None of the saved sessions speak SSH.",
+      "emptyHint": "A batch run sends one command to many machines over SSH connections. Add an SSH session, then tick it here.",
       "selected": "{count} selected"
     },
     "command": {
