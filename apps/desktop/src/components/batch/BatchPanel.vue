@@ -20,10 +20,12 @@ import { useI18n } from "vue-i18n";
 
 import BatchHostRow from "@/components/batch/BatchHostRow.vue";
 import Select, { type SelectOption } from "@/components/ui/Select.vue";
+import WbEmpty from "@/components/ui/WbEmpty.vue";
 import { describeShellError } from "@/i18n/errors";
 import { atLeast, needsApproval } from "@/lib/batch/risk";
 import { clearHistory, loadHistory, pushHistory } from "@/lib/batch/history";
 import { useBatchStore } from "@/stores/batch";
+import { useSessionEditorStore } from "@/stores/sessionEditor";
 import { useSessionsStore } from "@/stores/sessions";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { RiskLevel } from "@/types/batch";
@@ -32,12 +34,22 @@ const { t } = useI18n();
 const batch = useBatchStore();
 const library = useSessionsStore();
 const terminals = useTerminalsStore();
+const editor = useSessionEditorStore();
 
 /**
  * What a batch can run on: an SSH connection, because the command travels over its exec channel.
  * A Telnet console, a serial port or a local shell has no such channel, so it is not offered.
  */
 const hosts = computed(() => library.sessions.filter((session) => session.protocol === "ssh"));
+
+/**
+ * Why the host list is empty, which decides what it says.
+ *
+ * An empty library and a library whose sessions are all consoles batch cannot reach look the same
+ * in the list, but they are different news: the first asks for a first session, the second says
+ * the sessions that exist are not the kind a batch can ride.
+ */
+const hostsEmptyKey = computed(() => (library.sessions.length === 0 ? "batch.hosts.empty" : "batch.hosts.emptyNoSsh"));
 
 const LEVEL_STYLES: Record<RiskLevel, string> = {
   safe: "border-border bg-background text-muted-foreground",
@@ -238,8 +250,30 @@ async function runAcknowledged(): Promise<void> {
         </div>
       </header>
 
-      <div v-if="hosts.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
-        {{ t("batch.hosts.empty") }}
+      <!--
+        The empty list says why it is empty and hands over the one act that changes it: the hosts
+        come from the session library, and a new session is the way a host gets in.
+      -->
+      <div
+        v-if="hosts.length === 0"
+        class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-3 py-4 text-center"
+        data-batch-hosts-empty
+      >
+        <WbEmpty
+          scenario="noData"
+          size="sm"
+          :title="t(hostsEmptyKey)"
+          :description="t('batch.hosts.emptyHint')"
+          class="text-muted-foreground"
+        />
+        <button
+          type="button"
+          data-batch-new-session
+          class="rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          @click="editor.startNew()"
+        >
+          {{ t("sessions.newTab.newSession") }}
+        </button>
       </div>
 
       <ul v-else class="min-h-0 flex-1 overflow-auto py-1">

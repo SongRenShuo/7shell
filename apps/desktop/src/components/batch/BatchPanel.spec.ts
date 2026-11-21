@@ -25,6 +25,7 @@ import BatchPanel from "@/components/batch/BatchPanel.vue";
 import { i18n } from "@/i18n";
 import { clearHistory, loadHistory, pushHistory } from "@/lib/batch/history";
 import { useBatchStore } from "@/stores/batch";
+import { useSessionEditorStore } from "@/stores/sessionEditor";
 import { useSessionsStore } from "@/stores/sessions";
 
 const HOST = { id: "s1", name: "web", user: "root", host: "web.example", port: 22, protocol: "ssh" };
@@ -144,5 +145,36 @@ describe("the batch panel's history", () => {
 
     expect(loadHistory()).toEqual([]);
     expect(document.querySelector("[data-batch-history-empty]")?.textContent).toContain("No commands yet.");
+  });
+});
+
+describe("the batch panel's host picker", () => {
+  it("says a host comes from the session library, and hands over the act that adds one", async () => {
+    const library = useSessionsStore();
+    library.sessions = [];
+    await render();
+
+    const empty = document.querySelector("[data-batch-hosts-empty]");
+    if (!empty) throw new Error("an empty library drew no word about it");
+    expect(empty.textContent).toContain("The session library has no saved sessions yet.");
+
+    const entry = document.querySelector<HTMLElement>("[data-batch-new-session]");
+    if (!entry) throw new Error("the empty state offers no way in");
+    entry.click();
+    await nextTick();
+    expect(useSessionEditorStore().open, "the entry opens the editor a new session is written in").toBe(true);
+  });
+
+  it("tells a library with sessions apart from one with none batchable", async () => {
+    // The saved session is a console a batch cannot ride, so "no sessions saved" would be a lie:
+    // the library has one, and the news is that it is not the kind this list can offer.
+    const library = useSessionsStore();
+    library.sessions = [{ ...HOST, id: "s2", protocol: "telnet" }] as never;
+    await render();
+
+    const empty = document.querySelector("[data-batch-hosts-empty]");
+    if (!empty) throw new Error("a library without an SSH session drew no word about it");
+    expect(empty.textContent).toContain("None of the saved sessions speak SSH.");
+    expect(document.querySelector("[data-batch-new-session]")).not.toBeNull();
   });
 });
