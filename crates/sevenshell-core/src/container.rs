@@ -8,7 +8,9 @@
 //! Destructive operations are decided here, before the connection is looked up, so an
 //! unacknowledged stop or removal fails the same way whether or not a runtime is reachable.
 
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use sevenshell_container::{LineStream, Provider, Runner};
@@ -16,10 +18,11 @@ use sevenshell_error::ShellError;
 use sevenshell_policy::PolicyTarget;
 use sevenshell_session::{ForwardedControl, ForwardedSession};
 use sevenshell_types::{
-    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerDiskUsage,
-    ContainerImage, ContainerImageTransfer, ContainerPruneReport, ContainerRegistryLogin, ContainerRuntime,
-    ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary,
-    ContainerTransport, ImageLayer, PolicyAction, Protocol, RiskAssessment, VolumeSummary,
+    ContainerActionOutcome, ContainerChannelBudget, ContainerChannelHolders, ContainerCommitRequest,
+    ContainerCreateRequest, ContainerDetail, ContainerDiskUsage, ContainerImage, ContainerImageTransfer,
+    ContainerPruneReport, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
+    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction, Protocol,
+    RiskAssessment, VolumeSummary,
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -77,6 +80,10 @@ impl Core {
 
     /// Drops a connection and every stream it was feeding.
     pub async fn container_disconnect(&self, connection_id: &str) {
+        // The events yield hook goes first, while the provider can still be asked for the
+        // session that holds it.
+        self.container_events_streams.lock().await.remove(connection_id);
+        self.clear_events_yield_hook(connection_id);
         let stops: Vec<_> = {
             let mut streams = self.container_streams.lock().await;
             streams.drain().map(|(_, stop)| stop).collect()
@@ -474,6 +481,11 @@ impl Core {
     /// ids off it, because which events a view cares about is a view question. An engine whose
     /// CLI has no events surface never gets here: the capability bit keeps the interface from
     /// asking, and the ask would refuse with `AppUnsupported` in any case.
+    ///
+    /// The stream registers itself as the connection's yielder: when a later open would cross the
+    /// channel budget, the budget stops this stream through the hook registered here, and its end
+    /// event tells the interface which holder was spent — the list falls back to a manual
+    /// refresh, and the stream does not come back on its own.
     pub async fn container_events_start(
         &self,
         connection_id: &str,
@@ -481,7 +493,34 @@ impl Core {
         end: UnboundedSender<ContainerStreamEnd>,
     ) -> Result<String, ShellError> {
         let stream = self.container_provider(connection_id)?.events().await?;
-        Ok(self.spawn_container_stream(stream, events, end).await)
+        let stream_id = self.spawn_container_stream(stream, events, end.clone()).await;
+
+        // The hook is the events stream's own stop. It runs on a live connection only when a
+        // budget refusal has already decided this stream is the cheapest holder to lose; the end
+        // event it sends travels before the stream task's own, so the interface learns the yield
+        // and not a mystery end.
+        if let Ok(Runner::Ssh(session)) = self.container_provider(connection_id)?.runner() {
+            let stopper = self.container_streams.lock().await.get(&stream_id).cloned();
+            if let Some(stopper) = stopper {
+                let hook_end = end;
+                let hook_stream_id = stream_id.clone();
+                session.set_events_yield_hook(Some(Arc::new(move || {
+                    stopper();
+                    let _ = hook_end.send(ContainerStreamEnd {
+                        stream_id: hook_stream_id.clone(),
+                        error: None,
+                        yielded: Some("events".to_owned()),
+                    });
+                    Box::pin(async {}) as Pin<Box<dyn Future<Output = ()> + Send>>
+                })));
+            }
+        }
+
+        self.container_events_streams
+            .lock()
+            .await
+            .insert(connection_id.to_owned(), stream_id.clone());
+        Ok(stream_id)
     }
 
     /// Starts a pull or a push, whose output is the CLI's own progress lines.
@@ -507,6 +546,54 @@ impl Core {
         if let Some(stop) = stop {
             stop();
         }
+        // If that was a connection's events stream, its yield hook goes with it: a hook left
+        // behind would stop a dead stream and answer an end nobody is reading.
+        let yielded: Vec<String> = self
+            .container_events_streams
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, id)| id.as_str() == stream_id)
+            .map(|(connection, _)| connection.clone())
+            .collect();
+        for connection_id in yielded {
+            self.container_events_streams.lock().await.remove(&connection_id);
+            self.clear_events_yield_hook(&connection_id);
+        }
+    }
+
+    /// Takes a connection's events yield hook down, if its provider is still there to ask.
+    fn clear_events_yield_hook(&self, connection_id: &str) {
+        if let Ok(provider) = self.container_provider(connection_id)
+            && let Ok(Runner::Ssh(session)) = provider.runner()
+        {
+            session.set_events_yield_hook(None);
+        }
+    }
+
+    /// How full a connection's channel budget is, and who is holding the rest.
+    ///
+    /// `None` for an engine that runs on this machine — a local command holds no SSH channel, so
+    /// there is no budget to read, and a caller that gets `None` opens what it wants.
+    pub fn container_channels(&self, connection_id: &str) -> Result<Option<ContainerChannelBudget>, ShellError> {
+        let provider = self.container_provider(connection_id)?;
+        let Ok(Runner::Ssh(session)) = provider.runner() else {
+            return Ok(None);
+        };
+        let snapshot = session.channel_budget();
+        Ok(Some(ContainerChannelBudget {
+            limit: u32::try_from(snapshot.limit).unwrap_or(u32::MAX),
+            held: u32::try_from(snapshot.held).unwrap_or(u32::MAX),
+            free: u32::try_from(snapshot.free).unwrap_or(u32::MAX),
+            holders: snapshot
+                .holders
+                .into_iter()
+                .map(|(holder, held)| ContainerChannelHolders {
+                    kind: holder.as_str().to_owned(),
+                    held: u32::try_from(held).unwrap_or(u32::MAX),
+                })
+                .collect(),
+        }))
     }
 
     /// Opens an exec terminal and registers it with the terminal registry.
@@ -573,6 +660,7 @@ impl Core {
             let _ = end.send(ContainerStreamEnd {
                 stream_id: task_id,
                 error: None,
+                yielded: None,
             });
         });
 
@@ -696,6 +784,26 @@ mod tests {
             Some(Arc::clone(&journal) as Arc<dyn PolicyJournal>),
         );
         (directory, core, journal)
+    }
+
+    #[tokio::test]
+    async fn a_local_engine_answers_no_budget_and_an_unknown_connection_is_an_error() {
+        let directory = tempdir().expect("temp dir");
+        let (core, _events) = Core::new(Arc::new(Vault::open_at(directory.path().join("vault.json"))));
+        let provider = Provider::new(ContainerRuntime::Docker, "", Runner::Local).expect("a local provider");
+        core.containers
+            .add("conn-local", provider)
+            .expect("the provider registers");
+
+        // A local command holds no SSH channel, so there is nothing to count and nothing that
+        // could refuse: the view that asks opens every stream it was asked for.
+        let budget = core.container_channels("conn-local").expect("the read");
+        assert!(budget.is_none(), "a local engine is no budget at all, got {budget:?}");
+
+        let error = core
+            .container_channels("conn-that-never-was")
+            .expect_err("no provider, no answer");
+        assert!(error.to_string().contains("NOT-CONNECTED"), "{error}");
     }
 
     #[tokio::test]

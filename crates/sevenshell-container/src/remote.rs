@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sevenshell_error::ShellError;
-use sevenshell_ssh::{ExecCapture, MAX_OUTPUT_BYTES, SshSession};
+use sevenshell_ssh::{ChannelHolder, ExecCapture, MAX_OUTPUT_BYTES, SshSession};
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
@@ -146,9 +146,15 @@ pub(crate) async fn stream_bytes(session: &Arc<SshSession>, argv: &[String]) -> 
 /// One line per item, with the carriage return of a terminal-style line ending removed. A stop
 /// closes the command's channel, which is what ends the process on the far side; the same happens
 /// when the returned [`LineStream`] is dropped, because the task holding the channel ends with it.
-pub(crate) async fn stream(session: &Arc<SshSession>, argv: &[String]) -> Result<LineStream, ShellError> {
+/// The `holder` names who will hold the channel — a log follow, the engine's events — so the
+/// connection's channel budget can speak of them by name when it refuses or yields.
+pub(crate) async fn stream(
+    session: &Arc<SshSession>,
+    holder: ChannelHolder,
+    argv: &[String],
+) -> Result<LineStream, ShellError> {
     let command = command_line(argv);
-    let mut source = session.open_exec_stream(&command).await?;
+    let mut source = session.open_exec_stream(&command, holder).await?;
 
     let (line_sender, lines) = mpsc::channel(LINE_BACKLOG);
     let (stop_sender, mut stop) = mpsc::channel::<()>(1);
@@ -773,6 +779,7 @@ mod live_tests {
         // A command that prints and then keeps running: the shape of a log follow.
         let mut lines = stream(
             &session,
+            ChannelHolder::Logs,
             &[
                 "sh".to_owned(),
                 "-c".to_owned(),

@@ -94,6 +94,7 @@ function session(overrides: Partial<ContainerSession> = {}): ContainerSession {
     info: null,
     tasks: [],
     eventsStreamId: null,
+    eventsDegraded: false,
     ...overrides,
   };
 }

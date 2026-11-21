@@ -16,6 +16,7 @@
 //! failing in a way nobody can read: agent authentication (`ssh-agent`, Pageant), FIDO
 //! security keys, and host certificates.
 
+mod budget;
 mod credential;
 mod hostkey;
 mod keygen;
@@ -34,6 +35,7 @@ use std::time::Duration;
 use sevenshell_types::PresentedHostKey;
 
 pub use agent::agent_public_keys;
+pub use budget::{ChannelHolder, ChannelLedger, DEFAULT_CHANNEL_LIMIT, HeldChannel, HeldChannels, YieldHook};
 pub use credential::{Credential, KeyDescription, describe_key};
 pub use exec::{ExecCapture, ExecOutcome, MAX_OUTPUT_BYTES};
 pub use hostkey::{fingerprint, probe_host_key, probe_host_key_via};
