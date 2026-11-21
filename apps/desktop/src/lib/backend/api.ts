@@ -18,9 +18,11 @@ import type {
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
+  ContainerDiskUsage,
   ContainerImage,
   ContainerImageRemoteDigest,
   ContainerImageTransfer,
+  ContainerPruneReport,
   ContainerRegistryLogin,
   ContainerRegistrySettings,
   ContainerRuntimeInfo,
@@ -31,6 +33,7 @@ import type {
   ImageLayer,
   NetworkCreateRequest,
   NetworkSummary,
+  VolumeSummary,
 } from "@/types/container";
 import type {
   K8sExecRequest,
@@ -961,6 +964,40 @@ export const backend = {
       forward("network_create", () => desktop.networkCreate(connectionId, request)),
     remove: (connectionId: string, name: string): Promise<void> =>
       forward("network_remove", () => desktop.networkRemove(connectionId, name)),
+  },
+
+  /**
+   * The engine's own disk-usage reading, and the tiered prunes the cleanup page offers beside it.
+   *
+   * Every prune is destructive and carries an acknowledged flag — the confirm dialog's answer.
+   * The volume prune's flag means something heavier than the others: the person agreed that
+   * unmounted volumes go with it, which is why the page sends it only from its own explicit
+   * confirmation.
+   */
+  dockerCleanup: {
+    df: (connectionId: string): Promise<ContainerDiskUsage[]> =>
+      forward("system_df", () => desktop.systemDf(connectionId)),
+    pruneContainers: (connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> =>
+      forward("container_prune", () => desktop.containerPrune(connectionId, acknowledged)),
+    pruneVolumes: (connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> =>
+      forward("volume_prune", () => desktop.volumePrune(connectionId, acknowledged)),
+    pruneBuildCache: (connectionId: string, acknowledged: boolean): Promise<ContainerPruneReport> =>
+      forward("build_cache_prune", () => desktop.buildCachePrune(connectionId, acknowledged)),
+  },
+
+  /**
+   * The volumes of one desktop engine: a reader, not a maker.
+   *
+   * There is no create here on purpose — volumes are made by compose files and the create wizard,
+   * and a page that made one from a bare name would be a page that made empty data look easy. A
+   * removal the engine refuses because a container still mounts the volume arrives as the
+   * daemon's own sentence, and the page shows it as it arrived.
+   */
+  dockerVolumes: {
+    list: (connectionId: string): Promise<VolumeSummary[]> =>
+      forward("volume_list", () => desktop.volumeList(connectionId)),
+    remove: (connectionId: string, name: string, acknowledged: boolean): Promise<void> =>
+      forward("volume_remove", () => desktop.volumeRemove(connectionId, name, acknowledged)),
   },
 
   /**

@@ -160,6 +160,49 @@ export interface ContainerRuntimeInfo {
    * becomes a poll.
    */
   readonly eventsAvailable?: boolean;
+  /**
+   * Whether the engine's volume surface can be asked at all — the bit behind the volumes page.
+   * Probed once when a desktop engine opened, network-free; absent on connections that were never
+   * probed. An engine without it keeps its other pages and trims this one.
+   */
+  readonly volumeAvailable?: boolean;
+}
+
+/** The kinds of disk object the engine's `system df` counts, mirroring `ContainerDiskUsageKind`. */
+export type ContainerDiskUsageKind = "images" | "containers" | "volumes" | "buildCache";
+
+/**
+ * One row of the engine's own `system df` answer, mirroring `ContainerDiskUsage` in Rust: how much
+ * one kind of object occupies and how much of it the engine says it could give back.
+ */
+export interface ContainerDiskUsage {
+  readonly kind: ContainerDiskUsageKind;
+  readonly count: number;
+  readonly size: number;
+  readonly reclaimable: number;
+}
+
+/**
+ * One volume as the volumes page shows it, mirroring `VolumeSummary` in Rust. The page is a
+ * reader, not a maker — there is no create here, and the only verb is a removal the engine itself
+ * refuses while a container still holds the volume.
+ */
+export interface VolumeSummary {
+  readonly name: string;
+  readonly driver: string;
+  readonly mountpoint: string;
+  /** The size the engine printed, when its listing prints sizes at all; empty means it gave none. */
+  readonly size?: string;
+  readonly createdAt?: string;
+}
+
+/**
+ * What one prune came back with, mirroring `ContainerPruneReport` in Rust: the bytes the engine
+ * says it gave back and the objects it named while doing it.
+ */
+export interface ContainerPruneReport {
+  readonly reclaimed: number;
+  readonly deleted?: readonly string[];
 }
 
 /**
@@ -229,6 +272,8 @@ export interface ContainerCreateRequest {
   readonly env?: readonly string[];
   readonly restartPolicy?: string;
   readonly command?: string;
+  /** The entrypoint the container runs instead of the image's own. Absent leaves the default. */
+  readonly entrypoint?: string;
   readonly interactive?: boolean;
   readonly tty?: boolean;
   /** Run with the host's device access (`--privileged`). */
