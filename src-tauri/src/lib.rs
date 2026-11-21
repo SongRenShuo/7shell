@@ -328,6 +328,7 @@ pub fn run() {
             commands::container::container_runtime_info,
             commands::container::container_logs_start,
             commands::container::container_events_start,
+            commands::container::container_channels,
             commands::container::container_stream_stop,
             commands::tail::file_tail_open,
             commands::tail::file_tail_close,

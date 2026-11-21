@@ -7,10 +7,10 @@
 
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerDiskUsage,
-    ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerPruneReport, ContainerRegistryLogin,
-    ContainerRegistrySettings, ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine,
-    ContainerSummary, ImageLayer, VolumeSummary,
+    ContainerActionOutcome, ContainerChannelBudget, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail,
+    ContainerDiskUsage, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerPruneReport,
+    ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd,
+    ContainerStreamLine, ContainerSummary, ImageLayer, VolumeSummary,
 };
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
@@ -152,6 +152,14 @@ pub async fn container_events_start(
     let stream_id = state.core().container_events_start(&connection_id, events, end).await?;
     forward_stream(app, lines, ends);
     Ok(stream_id)
+}
+
+#[tauri::command]
+pub async fn container_channels(
+    state: State<'_, ShellState>,
+    connection_id: String,
+) -> Result<Option<ContainerChannelBudget>, ShellError> {
+    state.core().container_channels(&connection_id)
 }
 
 #[tauri::command]

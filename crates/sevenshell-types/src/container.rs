@@ -423,6 +423,39 @@ pub struct ContainerStreamEnd {
     pub stream_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Which holder the backend spent to free a channel for something else — the events stream
+    /// is the one that yields. The stream did not fail: the interface reads this as "follow by
+    /// refreshing instead" and does not reconnect on its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yielded: Option<String>,
+}
+
+/// One holder kind and how many channels it holds on a connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerChannelHolders {
+    /// The holder's name in the budget's own vocabulary: `events`, `logs`, `pty` or `exec`.
+    pub kind: String,
+    pub held: u32,
+}
+
+/// How full a connection's channel budget is, and who is holding the rest.
+///
+/// A merged log view reads this before it opens one stream per container, and opens as many as
+/// there is room for. `holders` carries the same numbers the refusal diagnostics spell, so a
+/// person and an error line read the same arithmetic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerChannelBudget {
+    /// The ceiling this connection runs under.
+    pub limit: u32,
+    /// The channels currently held, across every holder.
+    pub held: u32,
+    /// The opens that would still be accepted.
+    pub free: u32,
+    /// Per-holder counts; a holder holding nothing is left out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holders: Vec<ContainerChannelHolders>,
 }
 
 /// A port mapping asked for when a container is created.

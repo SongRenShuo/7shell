@@ -56,6 +56,7 @@ function session(): ContainerSession {
     info: null,
     tasks: [],
     eventsStreamId: null,
+    eventsDegraded: false,
   };
 }
 
