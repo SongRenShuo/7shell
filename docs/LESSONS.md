@@ -175,6 +175,9 @@ Rust 侧 `skip_serializing_if = "Vec::is_empty"` 让空数组不上线，TS 镜�
 **A4 复用底层「丢弃即结束」的假设前，先查它丢弃时到底发不发什么**
 russh 的 `Channel` 丢弃时**不发** SSH_MSG_CLOSE（`ChannelCloseOnDrop` 只包在 `into_stream` 的读半边里），所以「channel 变量出了作用域连接就干净」是假象：超时/截断/请求被拒这类早退分支把通道丢掉后，服务器占着 session 名额直到整条连接断开。共享连接（终端自己的那条）上的采样循环每 2s 撞一次，`MaxSessions 10` 被 10 个泄漏名额占满后，该主机一切要开通道的操作全部报「无法打开或使用 SSH 通道」，且对端 sshd 随后被高频重连撞 MaxStartups。正例：通道的产生点集中封装（`exec_capture`/`open_exec_stream`…），每个「服务端没说 Close 就结束」的分支确定性发 EOF+Close（`3dce0a6`）；反例：在调用方各自记得「用完关一下」。证据：7shell `3dce0a6`，真机 sshd 日志 `error: no more sessions`×5 + `kex_exchange_identification: Connection reset by peer`×N（103.36.220.245，2026-11-21 排障）；同型兄弟审计了 exec/pty/stream/sftp/forward 五条开通道路径。Seen 1。
 
+**A5 车道自验的「全绿」以 CI 的完整关卡清单为准，缺一项就是一道假绿**
+工作树车道自报「oxlint/typecheck/fmt 全净」，CI 在合并提交上仍红：车道只跑了 `oxlint`（规则检查）没跑 `pnpm fmt:check`（格式关卡），四个文件带着格式偏差合入，红在合并后的第一次 CI 上。关卡清单是**合取**——少跑任何一项，其余全绿证明不了任何事；派活模板里的验收清单就是 CI 的 job 步骤逐条镜像，车道收口按清单逐项打勾，不许凭记忆自报。证据：7shell run 44880513075 `Interface failure`（`pnpm fmt:check` 4 文件不合格）对照车道报告「oxlint 0 警告」；修复 `8dcdc15`。Seen 1。
+
 ## 升级记录
 
 | 日期 | 条目 | 去向 |
