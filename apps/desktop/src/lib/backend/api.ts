@@ -915,6 +915,12 @@ export const backend = {
       forward("container_image_inspect", () => desktop.containerImageInspect(connectionId, image)),
     imageHistory: (connectionId: string, image: string): Promise<ImageLayer[]> =>
       forward("container_image_history", () => desktop.containerImageHistory(connectionId, image)),
+    /**
+     * Every tag one repository has on the engine — the image drawer's tags section. A read; the
+     * update question about any one tag is `dockerRegistry.remoteDigest`'s, behind its own probe.
+     */
+    imageTags: (connectionId: string, repository: string): Promise<ContainerImage[]> =>
+      forward("container_image_tags", () => desktop.containerImageTags(connectionId, repository)),
     imagePull: (connectionId: string, request: ContainerImageTransfer): Promise<string> =>
       forward("container_image_pull", () => desktop.containerImagePull(connectionId, request)),
     imagePush: (connectionId: string, request: ContainerImageTransfer): Promise<string> =>
