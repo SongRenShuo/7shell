@@ -220,6 +220,12 @@ pub struct Core {
     pub(crate) vmrest_auth: std::sync::Mutex<Option<(String, String)>>,
     pub(crate) next_file: std::sync::atomic::AtomicU64,
     pub(crate) next_transfer: std::sync::atomic::AtomicU64,
+    /// The sampling throttle: one read in flight per connection, and a pause after a connection
+    /// starts refusing channels. See [`crate::backoff`].
+    pub(crate) sampling: crate::backoff::SamplingGate,
+    /// The reconnect throttle: a host whose fresh connections keep failing is not attempted again
+    /// before its pause is over. See [`crate::backoff`].
+    pub(crate) reconnects: crate::backoff::ReconnectGate,
     /// The matrix and the audit trail behind every unattended action. Replaced together, read
     /// without waiting on a disk because the journal is called after the snapshot is released.
     pub(crate) policy: std::sync::Mutex<crate::policy::PolicySnapshot>,
@@ -252,6 +258,8 @@ impl Core {
                 vmrest_auth: std::sync::Mutex::new(None),
                 next_file: std::sync::atomic::AtomicU64::new(1),
                 next_transfer: std::sync::atomic::AtomicU64::new(1),
+                sampling: crate::backoff::SamplingGate::new(),
+                reconnects: crate::backoff::ReconnectGate::new(),
                 // The default rule until a host replaces it: safe and caution run, the destructive
                 // levels ask, and nothing is journaled because there is no trail yet.
                 policy: std::sync::Mutex::new(crate::policy::PolicySnapshot::default()),
@@ -1330,6 +1338,12 @@ impl Core {
     ///
     /// Used when the terminal's connection is the wrong place for a new channel: one SSH
     /// connection carries only so many, and the terminal still needs room for its monitor.
+    ///
+    /// A host whose fresh connections keep failing is not attempted again before its backoff is
+    /// over — the callers of this (file browsers, tails, container and cluster opens, batch) poll
+    /// and retry, and without the pause one refused handshake becomes a stream of them. Within
+    /// the pause the answer is immediate and names the failures; a host key decision is not a
+    /// failure, because a person is being asked, and a success is a forgetting.
     pub(crate) async fn open_fresh_carrier(&self, session: &Session) -> Result<ConnectionOutcome, ShellError> {
         let prepared = self.prepare_session(session)?;
         let session = &prepared.session;
@@ -1340,7 +1354,34 @@ impl Core {
             user: session.user.clone(),
         };
 
-        let hop = match self.open_route(&prepared, None).await? {
+        self.reconnects.check(&target.host, target.port)?;
+        let opened = self
+            .open_fresh_carrier_connection(&prepared, session, &target, credential)
+            .await;
+        match &opened {
+            Ok(ConnectionOutcome::Ready(_)) => self.reconnects.record_success(&target.host, target.port),
+            Err(error) if connection_attempt_failed(error) => {
+                let reason = error.detail().map(str::to_owned).unwrap_or_else(|| error.to_string());
+                self.reconnects.record_failure(&target.host, target.port, &reason);
+            }
+            _ => {}
+        }
+        opened
+    }
+
+    /// The fresh carrier's steps, once the throttle has let them run.
+    ///
+    /// `credential` was already collected before the throttle ran: a missing password is answered
+    /// before any socket, and a host that is pausing should not change what the caller learns
+    /// about its own configuration.
+    async fn open_fresh_carrier_connection(
+        &self,
+        prepared: &PreparedSession,
+        session: &Session,
+        target: &Target,
+        credential: Credential,
+    ) -> Result<ConnectionOutcome, ShellError> {
+        let hop = match self.open_route(prepared, None).await? {
             RouteOutcome::Ready(hop) => hop,
             RouteOutcome::Decision(decision) => return Ok(ConnectionOutcome::Decision(decision)),
         };
@@ -1388,7 +1429,11 @@ impl Core {
         };
 
         let request = OpenRequest {
-            target,
+            target: Target {
+                host: target.host.clone(),
+                port: target.port,
+                user: target.user.clone(),
+            },
             credential,
             terminal_type: String::new(),
             keepalive_seconds: session.terminal.keepalive_seconds,
@@ -1664,6 +1709,22 @@ fn test_decision(decision: HostKeyDecision) -> ConnectionTestOutcome {
 /// A stopwatch reading as whole milliseconds, which is the precision the interface prints.
 fn elapsed_millis(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Whether an open's failure is one the *host* produced, and so one worth pausing before
+/// repeating.
+///
+/// Unreachable, timed out and refused credentials are all attempts the server saw — the exact
+/// traffic a pause exists to stop repeating. A decision (an untrusted key) is a question to a
+/// person, and a missing password or a refused configuration is answered locally; neither is a
+/// fact about the host's willingness, so neither pausing again makes sense for.
+fn connection_attempt_failed(error: &ShellError) -> bool {
+    matches!(
+        error.code(),
+        sevenshell_error::ErrorCode::SshUnreachable
+            | sevenshell_error::ErrorCode::SshTimeout
+            | sevenshell_error::ErrorCode::SshAuthFailed
+    )
 }
 
 /// A `ProxyJump` chain that cannot be followed, in the vocabulary of the error envelope.
