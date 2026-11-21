@@ -5,8 +5,9 @@
  * The sources are the ones the plan names — transfers finishing or failing (read off the same
  * polled list the transfer panel draws, with this store's own memory of the last state per
  * transfer, so a completion is told exactly once), a followed log's stream ending, a container
- * task's stream ending, the power action's receipt (pushed by the pane that asked), and the
- * browser handover's deep link failing to name a desktop the vault knows. Each
+ * task's stream ending, the power action's receipt (pushed by the pane that asked), the browser
+ * handover's deep link failing to name a desktop the vault knows, and an image sweep finding a
+ * newer version to pull (pushed by the image page that ran it). Each
  * notice carries *keys*, not sentences: this store imports no translations, and the panel's owner
  * says what "upload finished" means in the language the interface is speaking.
  *
@@ -29,7 +30,7 @@ import { useTailStore } from "@/stores/tail";
 import type { TransferState } from "@/types/session";
 
 /** Where a notice came from, which is also how the panel groups them. */
-export type NoticeSource = "transfer" | "container" | "tail" | "power" | "browser";
+export type NoticeSource = "transfer" | "container" | "image" | "tail" | "power" | "browser";
 
 /** One notice: what happened, in the caller's vocabulary, and where a click on it goes. */
 export interface WorkbenchNotice {

@@ -118,8 +118,10 @@
         "tagPlaceholder": "latest",
         "tagInvalid": "That is not a tag Docker would accept: letters, digits, dots, dashes and underscores, starting with a letter or digit.",
         "checkUpdate": "Check for updates",
+        "checkingProgress": "Checking {done}/{total}",
         "update": "Update this image",
         "checkingTag": "Checking…",
+        "unknownTag": "Not checked",
         "updateTag": "New version",
         "currentTag": "Up to date",
         "undecidedTag": "Unverifiable",
@@ -209,9 +211,29 @@
       "created": "Created",
       "repository": "Repository",
       "tag": "Tag",
+      "update": "Update",
       "size": "Size",
       "related": "Containers",
       "actions": "Actions"
+    },
+    "select": {
+      "all": "Select every row shown",
+      "row": "Select container {name}"
+    },
+    "batch": {
+      "selected": "{count} selected",
+      "start": "Start selected",
+      "stop": "Stop selected",
+      "remove": "Remove selected",
+      "clear": "Clear the selection",
+      "stopTitle": "Stop {count} containers?",
+      "stopMessage": "The {count} selected containers will be stopped; whatever runs inside them ends at once.",
+      "removeTitle": "Remove {count} containers?",
+      "removeMessage": "The {count} selected containers and their writable layers are deleted, and all data inside them is lost.",
+      "summary": "Batch finished: {ok} succeeded, {failed} failed",
+      "already": "({count} already in the requested state)",
+      "failureLine": "{name}: {message}",
+      "gone": "no longer in the list"
     },
     "action": {
       "exec": "Open a shell in {name}",

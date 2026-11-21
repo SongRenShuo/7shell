@@ -259,6 +259,7 @@
       "group": {
         "transfer": "Transfers",
         "container": "Containers",
+        "image": "Images",
         "tail": "Log tracking",
         "power": "System",
         "browser": "Browser handover"
@@ -280,6 +281,10 @@
         "ended": "Container task finished",
         "failed": "Container task failed",
         "error": "{error}"
+      },
+      "image": {
+        "update": "Image update available",
+        "updateDetail": "{image}"
       },
       "power": {
         "issuedReboot": "{name} was asked to reboot.",
