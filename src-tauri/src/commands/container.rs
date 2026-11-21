@@ -7,9 +7,9 @@
 
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage, ContainerImageRemoteDigest,
-    ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntimeInfo, ContainerStats,
-    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ImageLayer,
+    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
+    ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings,
+    ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ImageLayer,
 };
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
@@ -59,7 +59,7 @@ pub async fn container_action(
     container_id: String,
     action: String,
     acknowledged: bool,
-) -> Result<(), ShellError> {
+) -> Result<ContainerActionOutcome, ShellError> {
     state
         .core()
         .container_action(&connection_id, &container_id, &action, acknowledged)
@@ -136,6 +136,19 @@ pub async fn container_logs_start(
         .core()
         .container_logs_start(&connection_id, &container_id, tail, timestamps, events, end)
         .await?;
+    forward_stream(app, lines, ends);
+    Ok(stream_id)
+}
+
+#[tauri::command]
+pub async fn container_events_start(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+    connection_id: String,
+) -> Result<String, ShellError> {
+    let (events, lines) = tokio::sync::mpsc::unbounded_channel();
+    let (end, ends) = tokio::sync::mpsc::unbounded_channel();
+    let stream_id = state.core().container_events_start(&connection_id, events, end).await?;
     forward_stream(app, lines, ends);
     Ok(stream_id)
 }

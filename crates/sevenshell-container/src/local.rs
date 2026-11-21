@@ -41,7 +41,7 @@ const EXIT_GRACE: Duration = Duration::from_secs(5);
 const EXIT_POLL: Duration = Duration::from_millis(25);
 /// How many stderr lines a failed stream still shows.
 const MAX_ERROR_LINES: usize = 32;
-const STREAM_LINE_CAPACITY: usize = 256;
+pub(crate) const STREAM_LINE_CAPACITY: usize = 256;
 const PTY_OUTPUT_CAPACITY: usize = 256;
 const PTY_CONTROL_CAPACITY: usize = 64;
 /// How much of a streamed command's output waits for its reader. The queue is the memory bound:

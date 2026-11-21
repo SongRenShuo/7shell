@@ -1875,10 +1875,28 @@ fn container_and_cluster_wire_types_keep_their_camel_case_fields() {
             status: "Up 2 hours".to_owned(),
             ports: "0.0.0.0:8080->80/tcp".to_owned(),
             created_at: "2026-11-10 10:00:00".to_owned(),
+            health: "healthy".to_owned(),
         },
         "ContainerSummary",
     );
     assert_eq!(summary["createdAt"], serde_json::json!("2026-11-10 10:00:00"));
+    assert_eq!(summary["health"], serde_json::json!("healthy"));
+    // An empty health is no healthcheck, and the field stays off the wire entirely — the mirror
+    // reads it as optional, so a row without one must not send `"health": ""`.
+    let no_health = check(
+        &ContainerSummary {
+            id: "abc".to_owned(),
+            name: "web".to_owned(),
+            image: "nginx:latest".to_owned(),
+            state: "running".to_owned(),
+            status: "Up 2 hours".to_owned(),
+            ports: "0.0.0.0:8080->80/tcp".to_owned(),
+            created_at: "2026-11-10 10:00:00".to_owned(),
+            health: String::new(),
+        },
+        "ContainerSummary::no_health",
+    );
+    assert!(no_health.get("health").is_none());
 
     let detail = check(
         &ContainerDetail {
