@@ -106,3 +106,13 @@ export function filterComposeProjects<T extends { name: string }>(projects: read
   }
   return projects.filter((project) => project.name.toLowerCase().includes(needle));
 }
+
+/**
+ * How many of the projects are running — the rail's Compose badge carries the count.
+ *
+ * The word is the plugin's own: a project is running when its status line starts with "running",
+ * the same reading the row menu's start verb takes before it offers to bring the file up.
+ */
+export function composeRunningCount(projects: readonly { status: string }[]): number {
+  return projects.filter((project) => project.status.toLowerCase().startsWith("running")).length;
+}

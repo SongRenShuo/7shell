@@ -188,7 +188,23 @@
         "downMessage": "项目的容器将停止并被移除。项目创建的网络随之删除；命名卷会保留。",
         "up": "启动",
         "upTitle": "启动项目“{name}”？",
-        "upMessage": "将以项目自己的 Compose 文件以分离模式启动；容器会被创建并运行。"
+        "upMessage": "将以项目自己的 Compose 文件以分离模式启动；容器会被创建并运行。",
+        "edit": "编辑 YAML",
+        "editTitle": "编辑“{name}”的 Compose 文件",
+        "editLoading": "正在读取 Compose 文件…",
+        "editReadRefused": "文件通道未能打开，无法读取引擎宿主上的 Compose 文件。",
+        "editHint": "保存前查看下方变更预览；“保存并应用”将以 docker compose up -d 重建配置有变化的容器。",
+        "editUnchanged": "文件内容没有变化。",
+        "diffTitle": "保存前变更预览（+{added} / −{removed} 行）",
+        "diffCropped": "变更行数超出显示上限，仅列出前 400 行。",
+        "saveOnly": "仅保存",
+        "saveApply": "保存并应用",
+        "rebuildTitle": "应用“{name}”的新配置？",
+        "rebuildMessage": "修改将写入 {path}，并以 docker compose up -d 应用：配置有变化的容器会被重建——重建会先停止再启动服务；未变化的容器不受影响。",
+        "rebuildAck": "我已知晓重建将重启服务。",
+        "rebuildAckRequired": "请先勾选确认，再执行保存并应用。",
+        "export": "导出",
+        "exportRefused": "文件通道未能打开，无法导出引擎宿主上的 Compose 文件。"
       },
       "tile": {
         "containers": "容器 · 运行中 {running}",
@@ -311,6 +327,21 @@
       "related": "容器数",
       "actions": "操作"
     },
+    "columns": {
+      "toolbar": "列",
+      "menu": "列的显示与隐藏",
+      "hideColumn": "隐藏“{column}”列"
+    },
+    "convert": {
+      "title": "“{name}” 的 Compose 服务片段",
+      "intro": "只读转换：把该容器的 inspect 参数写成 Compose 服务片段；不会重启或重建任何容器，保存与应用由你自己完成。",
+      "converting": "正在读取容器参数…",
+      "unresolvedTitle": "未能表达的参数（{count} 项）——以下内容无法写进片段，已显式列出而非静默丢弃：",
+      "unresolvedNone": "inspect 的参数全部表达完毕，没有无法写入片段的项。",
+      "copy": "复制片段",
+      "copied": "已复制",
+      "download": "下载"
+    },
     "select": {
       "all": "全选当前显示的行",
       "row": "选择容器 {name}"
@@ -342,6 +373,7 @@
       "commit": "提交为镜像",
       "clone": "复制容器",
       "upgrade": "升级 {name}",
+      "compose": "转为 Compose 服务片段",
       "remove": "删除",
       "more": "{name} 的更多操作",
       "menu": "{name} 的操作",
