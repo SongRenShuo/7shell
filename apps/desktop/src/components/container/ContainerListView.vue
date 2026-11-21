@@ -135,8 +135,13 @@ const statsByContainer = ref<Record<string, ContainerStats>>({});
 let statsTimer: ReturnType<typeof setInterval> | null = null;
 
 async function sampleStats(): Promise<void> {
+  // The connection may not be open yet (or any more); without it there is nothing to sample.
+  const connection = props.session.connectionId;
+  if (connection === null) {
+    return;
+  }
   try {
-    const rows = await backend.containers.stats(props.session.connectionId);
+    const rows = await backend.containers.stats(connection);
     const map: Record<string, ContainerStats> = {};
     for (const row of rows) {
       map[row.id] = row;
