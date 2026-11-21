@@ -37,6 +37,8 @@ import {
   cpuUsage,
   interfaceRates,
   isLoopback,
+  memoryUsed,
+  share,
 } from "@/lib/monitor/rates";
 import { type TerminalTab, type WorkbenchTab, sessionOf, useTerminalsStore } from "@/stores/terminals";
 import {
@@ -83,6 +85,16 @@ export const MONITOR_MAX_GAP_MS = MONITOR_POLL_MS * 3;
 /** How many samples the charts keep. Two minutes at the interval above, which is what fits the panel. */
 export const MONITOR_HISTORY = 60;
 
+/**
+ * How many readings the report window's own charts keep: twice the panel's, four minutes at the
+ * interval above.
+ *
+ * The panel's history answers "what just happened"; the report's charts answer "how has this host
+ * been running while I read it", which wants a little more room behind the band. Still numbers
+ * this side gathered from samples it already took — no second command, no history at rest.
+ */
+export const MONITOR_REPORT_HISTORY = 120;
+
 /** The connection the monitor follows, and what the header says about it. */
 export interface MonitorTarget {
   readonly handle: string;
@@ -124,6 +136,14 @@ export const useMonitorStore = defineStore("monitor", () => {
   /** Chart history per interface, so switching the picker does not erase what was drawn. */
   const histories = ref<Record<string, TrafficPoint[]>>({});
   const roundTrips = ref<number[]>([]);
+  /**
+   * The report window's own charts: how busy the CPUs were between two samples, and how full the
+   * memory ran at each one. They grow only inside `absorb` — a reading joins when a sample
+   * arrives, and a sample arrives only while the pump runs, so a hidden window's charts stand
+   * still rather than filling with what nobody watched.
+   */
+  const cpuHistory = ref<number[]>([]);
+  const memoryHistory = ref<number[]>([]);
   /** The interface somebody picked, or null for "whichever is busiest". */
   const picked = ref<string | null>(null);
 
@@ -325,6 +345,17 @@ export const useMonitorStore = defineStore("monitor", () => {
   }
 
   /**
+   * Asks for a sample now, for a page whose reader has just seen why nothing is on screen.
+   *
+   * The clock keeps its own rhythm; a retry is the person's answer to "is it back yet" not having
+   * to wait out the interval. Everything the tick guards still applies — no target forgets, one
+   * already on its way is not stacked, a document nobody looks at is not sampled.
+   */
+  function retry(): void {
+    void tick();
+  }
+
+  /**
    * One sample, if there is anything to sample and nothing already on its way.
    *
    * Skipping the tick rather than queueing it is the point: a host that takes ten seconds to answer
@@ -376,6 +407,11 @@ export const useMonitorStore = defineStore("monitor", () => {
       cpuShares.value = cpuBreakdown(before.cpu, answer.cpu);
       rates.value = interfaceRates(before.network, answer.network, elapsed);
       draw();
+      // A reading an interval could not produce joins no chart: a null here is a skipped point,
+      // never a zero the band would draw as "the host went idle".
+      if (cpuPercent.value !== null) {
+        cpuHistory.value = [...cpuHistory.value, cpuPercent.value].slice(-MONITOR_REPORT_HISTORY);
+      }
     } else {
       // Nothing to measure against: the readings that need two samples restart rather than being
       // carried over a gap they did not see.
@@ -383,6 +419,17 @@ export const useMonitorStore = defineStore("monitor", () => {
       cpuShares.value = null;
       rates.value = [];
       histories.value = {};
+    }
+
+    // Memory is a level, not a difference: one sample carries a whole reading, so it joins its
+    // chart on every answer that has one — the first after a connection opens and the first after
+    // a gap included. A host that reported no memory figure sends no point rather than a zero.
+    const usage = answer.memory;
+    if (usage) {
+      const level = share(memoryUsed(usage), usage.totalBytes);
+      if (level !== null) {
+        memoryHistory.value = [...memoryHistory.value, level].slice(-MONITOR_REPORT_HISTORY);
+      }
     }
 
     roundTrips.value = [...roundTrips.value, answer.roundTripMs].slice(-MONITOR_HISTORY);
@@ -419,6 +466,8 @@ export const useMonitorStore = defineStore("monitor", () => {
     cpuShares.value = null;
     rates.value = [];
     histories.value = {};
+    cpuHistory.value = [];
+    memoryHistory.value = [];
     roundTrips.value = [];
     processes.value = [];
     previousTicks = null;
@@ -619,6 +668,9 @@ export const useMonitorStore = defineStore("monitor", () => {
     rates,
     traffic,
     roundTrips,
+    cpuHistory,
+    memoryHistory,
+    retry,
     interfaces,
     interfaceName,
     currentRate,
