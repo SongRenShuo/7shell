@@ -188,7 +188,23 @@
         "downMessage": "The project's containers will stop and be removed. Networks the project made go with it; volumes with names stay.",
         "up": "Start",
         "upTitle": "Start the project “{name}”?",
-        "upMessage": "The project is brought up detached from the project's own file; the containers are created and started."
+        "upMessage": "The project is brought up detached from the project's own file; the containers are created and started.",
+        "edit": "Edit YAML",
+        "editTitle": "Edit the Compose file of “{name}”",
+        "editLoading": "Reading the Compose file…",
+        "editReadRefused": "The file channel would not open, so the Compose file on the engine's host cannot be read.",
+        "editHint": "Read the change preview below before saving; “Save and apply” rebuilds the containers whose configuration changed, with docker compose up -d.",
+        "editUnchanged": "The file is unchanged.",
+        "diffTitle": "What this save changes (+{added} / −{removed} lines)",
+        "diffCropped": "More changed lines than the preview draws; the first 400 are listed.",
+        "saveOnly": "Save only",
+        "saveApply": "Save and apply",
+        "rebuildTitle": "Apply the new configuration of “{name}”?",
+        "rebuildMessage": "The changes are written to {path} and applied with docker compose up -d: containers whose configuration changed are rebuilt — a rebuild stops and starts the service again. Unchanged containers are left alone.",
+        "rebuildAck": "I understand the rebuild restarts the services.",
+        "rebuildAckRequired": "Tick the acknowledgment first; the apply waits for it.",
+        "export": "Export",
+        "exportRefused": "The file channel would not open, so the Compose file on the engine's host cannot be exported."
       },
       "tile": {
         "containers": "Containers · {running} running",
@@ -311,6 +327,21 @@
       "related": "Containers",
       "actions": "Actions"
     },
+    "columns": {
+      "toolbar": "Columns",
+      "menu": "Column visibility",
+      "hideColumn": "Hide the “{column}” column"
+    },
+    "convert": {
+      "title": "The Compose service snippet for “{name}”",
+      "intro": "A read-only conversion: the container's inspect parameters become a Compose service snippet. Nothing restarts and nothing is rebuilt — saving and applying stay in your hands.",
+      "converting": "Reading the container's parameters…",
+      "unresolvedTitle": "Parameters the snippet cannot express ({count}) — listed here rather than dropped:",
+      "unresolvedNone": "Every inspect parameter found its way into the snippet; nothing was left out.",
+      "copy": "Copy snippet",
+      "copied": "Copied",
+      "download": "Download"
+    },
     "select": {
       "all": "Select every row shown",
       "row": "Select container {name}"
@@ -342,6 +373,7 @@
       "commit": "Commit as an image",
       "clone": "Clone container",
       "upgrade": "Upgrade {name}",
+      "compose": "Convert to a Compose service snippet",
       "remove": "Remove",
       "more": "More actions for {name}",
       "menu": "Actions for {name}",

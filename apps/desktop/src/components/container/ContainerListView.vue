@@ -28,7 +28,9 @@
 import {
   Activity,
   ArrowUpCircle,
+  Blocks,
   Camera,
+  Columns3,
   Copy,
   Ellipsis,
   FolderOpen,
@@ -49,6 +51,14 @@ import {
   containerStateLabel,
   containerStateStyle,
 } from "@/components/container/containerStates";
+import {
+  isColumnShown,
+  readColumnChoices,
+  shownColumnCount,
+  useNarrowViewport,
+  writeColumnChoices,
+  type ColumnChoices,
+} from "@/components/container/listColumns";
 import MiniBar from "@/components/charts/MiniBar.vue";
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
 import Select from "@/components/ui/Select.vue";
@@ -82,6 +92,7 @@ import ContainerCommitDialog from "./ContainerCommitDialog.vue";
 import ContainerCreateDialog from "./ContainerCreateDialog.vue";
 import ContainerDetailDrawer from "./ContainerDetailDrawer.vue";
 import ContainerDialog from "./ContainerDialog.vue";
+import ComposeConvertDialog from "./ComposeConvertDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -239,12 +250,81 @@ function healthLabel(health: string): string {
   return translated === key ? health : translated;
 }
 
+// -- the columns the table draws -------------------------------------------------
+
+/**
+ * The container table's columns, and who decides which of them it keeps. The name, the image, the
+ * state and the actions are the floor the rows are read by; the id, the memory, the ports and the
+ * created-at are the columns a choice or a narrow window takes away (see `listColumns.ts` for the
+ * whole rule). The tick column is the selection's, and no list is drawn without it.
+ */
+const CONTAINER_COLUMNS = [
+  { id: "select", primary: true },
+  { id: "name", primary: true },
+  { id: "image", primary: true },
+  { id: "id", primary: false },
+  { id: "state", primary: true },
+  { id: "memory", primary: false },
+  { id: "ports", primary: false },
+  { id: "created", primary: false },
+  { id: "actions", primary: true },
+] as const;
+
+const narrow = useNarrowViewport();
+const columnChoices = ref<ColumnChoices>(readColumnChoices("containers"));
+
+function columnShown(id: string): boolean {
+  const column = CONTAINER_COLUMNS.find((entry) => entry.id === id);
+  return column !== undefined && isColumnShown(column, columnChoices.value, narrow.value);
+}
+
+const columnSpan = computed(() => shownColumnCount(CONTAINER_COLUMNS, columnChoices.value, narrow.value));
+
+function columnLabel(id: string): string {
+  return t(`container.col.${id}`);
+}
+
+/** One column's menu: hide the column it opened from, and the way back for everything trimmed. */
+function openColumnsMenu(event: MouseEvent, hideId?: string): void {
+  const entries: MenuEntry[] = [];
+  if (hideId !== undefined) {
+    entries.push({
+      kind: "action",
+      id: `column-hide-${hideId}`,
+      labelKey: "container.columns.hideColumn",
+      params: { column: columnLabel(hideId) },
+      run: () => setColumn(hideId, "hidden"),
+    });
+    entries.push({ kind: "separator", id: "column-separator" });
+  }
+  for (const column of CONTAINER_COLUMNS) {
+    if (column.primary) {
+      continue;
+    }
+    entries.push({
+      kind: "action",
+      id: `column-${column.id}`,
+      labelKey: `container.col.${column.id}`,
+      checked: isColumnShown(column, columnChoices.value, narrow.value),
+      run: () => setColumn(column.id, columnShown(column.id) ? "hidden" : "shown"),
+    });
+  }
+  openMenu(event, { key: "container.columns.menu" }, entries);
+}
+
+function setColumn(id: string, choice: "shown" | "hidden"): void {
+  columnChoices.value = { ...columnChoices.value, [id]: choice };
+  writeColumnChoices("containers", columnChoices.value);
+}
+
 // -- drawers and dialogs -----------------------------------------------------
 
 const drawerMode = ref<"detail" | "logs" | null>(null);
 const drawerTarget = ref<ContainerSummary | null>(null);
 const creating = ref(false);
 const committing = ref<ContainerSummary | null>(null);
+/** The container whose inspect the run→compose dialog is reading. */
+const converting = ref<ContainerSummary | null>(null);
 const renaming = ref<ContainerSummary | null>(null);
 const renameText = ref("");
 const renameProblem = ref<string | null>(null);
@@ -727,6 +807,18 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
     icon: Copy,
     run: () => emit("clone", container),
   });
+  // The run→compose ask: the dialog inspects the container and turns its parameters into a Compose
+  // service snippet, reading only — what the inspect could not express is listed, not dropped.
+  entries.push({
+    kind: "action",
+    id: "compose",
+    labelKey: "container.action.compose",
+    params: { name: container.name },
+    icon: Blocks,
+    run: () => {
+      converting.value = container;
+    },
+  });
   // The upgrade ask: the pane inspects the container, asks the registry whether the image's tag
   // moved, and walks the pull→stop→remove→create→start transaction behind its own confirm. The
   // row only offers it; the dialog is where the consequences are said and the gate is answered.
@@ -901,6 +993,16 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       <button
         type="button"
         class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        :title="t('container.columns.toolbar')"
+        :aria-label="t('container.columns.toolbar')"
+        data-container-columns
+        @click="openColumnsMenu($event)"
+      >
+        <Columns3 :size="12" />
+      </button>
+      <button
+        type="button"
+        class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         :title="t('container.refresh')"
         :aria-label="t('container.refresh')"
         @click="containers.refresh(props.tab.id)"
@@ -930,11 +1032,67 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             </th>
             <th class="w-[16%]" :class="TABLE.page.headCell">{{ t("container.col.name") }}</th>
             <th class="w-[22%]" :class="TABLE.page.headCell">{{ t("container.col.image") }}</th>
-            <th class="w-[8%]" :class="TABLE.page.headCell">{{ t("container.col.id") }}</th>
+            <th v-if="columnShown('id')" class="w-[8%]" :class="TABLE.page.headCell">
+              <span class="flex items-center gap-0.5">
+                {{ t("container.col.id") }}
+                <button
+                  type="button"
+                  class="grid size-4 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('container.columns.menu')"
+                  :aria-label="t('container.columns.menu')"
+                  data-container-column="id"
+                  @click="openColumnsMenu($event, 'id')"
+                >
+                  <Columns3 :size="10" />
+                </button>
+              </span>
+            </th>
             <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.state") }}</th>
-            <th class="w-[12%]" :class="TABLE.page.headCell">{{ t("container.col.memory") }}</th>
-            <th class="w-[13%]" :class="TABLE.page.headCell">{{ t("container.col.ports") }}</th>
-            <th class="w-[11%]" :class="TABLE.page.headCell">{{ t("container.col.created") }}</th>
+            <th v-if="columnShown('memory')" class="w-[12%]" :class="TABLE.page.headCell">
+              <span class="flex items-center gap-0.5">
+                {{ t("container.col.memory") }}
+                <button
+                  type="button"
+                  class="grid size-4 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('container.columns.menu')"
+                  :aria-label="t('container.columns.menu')"
+                  data-container-column="memory"
+                  @click="openColumnsMenu($event, 'memory')"
+                >
+                  <Columns3 :size="10" />
+                </button>
+              </span>
+            </th>
+            <th v-if="columnShown('ports')" class="w-[13%]" :class="TABLE.page.headCell">
+              <span class="flex items-center gap-0.5">
+                {{ t("container.col.ports") }}
+                <button
+                  type="button"
+                  class="grid size-4 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('container.columns.menu')"
+                  :aria-label="t('container.columns.menu')"
+                  data-container-column="ports"
+                  @click="openColumnsMenu($event, 'ports')"
+                >
+                  <Columns3 :size="10" />
+                </button>
+              </span>
+            </th>
+            <th v-if="columnShown('created')" class="w-[11%]" :class="TABLE.page.headCell">
+              <span class="flex items-center gap-0.5">
+                {{ t("container.col.created") }}
+                <button
+                  type="button"
+                  class="grid size-4 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  :title="t('container.columns.menu')"
+                  :aria-label="t('container.columns.menu')"
+                  data-container-column="created"
+                  @click="openColumnsMenu($event, 'created')"
+                >
+                  <Columns3 :size="10" />
+                </button>
+              </span>
+            </th>
             <th class="w-[10rem]" :class="TABLE.page.headCell">{{ t("container.col.actions") }}</th>
           </tr>
         </thead>
@@ -963,7 +1121,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             <td :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]" :title="container.image">{{ container.image }}</span>
             </td>
-            <td :class="TABLE.page.cell">
+            <td v-if="columnShown('id')" :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]" :title="container.id">{{
                 shortId(container.id)
               }}</span>
@@ -985,7 +1143,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
                 <span class="truncate">{{ container.state }}</span>
               </span>
             </td>
-            <td :class="TABLE.page.cell">
+            <td v-if="columnShown('memory')" :class="TABLE.page.cell">
               <!-- The engine answers stats for the whole connection in one call; between samples
                    the column holds its last answer rather than flashing empty. The bar and the
                    number read together, the way the reference manager draws a memory share. -->
@@ -997,10 +1155,10 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
               </span>
               <span v-else class="block text-[11px] text-muted-foreground">—</span>
             </td>
-            <td :class="TABLE.page.cell">
+            <td v-if="columnShown('ports')" :class="TABLE.page.cell">
               <span class="block truncate font-mono text-[11px]" :title="container.ports">{{ container.ports }}</span>
             </td>
-            <td :class="TABLE.page.cell">
+            <td v-if="columnShown('created')" :class="TABLE.page.cell">
               <span class="block truncate text-[11px] text-muted-foreground" :title="container.createdAt">
                 {{ container.createdAt }}
               </span>
@@ -1140,7 +1298,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td :colspan="9" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
+            <td :colspan="columnSpan" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
               <WbEmpty scenario="noData" size="sm" :description="t('container.filters.none')" class="mx-auto" />
             </td>
           </tr>
@@ -1162,6 +1320,13 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       :tab-id="props.tab.id"
       :target="committing"
       @update:open="closeCommit"
+    />
+
+    <ComposeConvertDialog
+      :open="converting !== null"
+      :session="props.session"
+      :target="converting"
+      @update:open="converting = null"
     />
 
     <ContainerDialog
