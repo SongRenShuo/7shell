@@ -9,7 +9,7 @@
     },
     "system": {
       "title": "系统信息",
-      "group": "操作系统",
+      "details": "系统明细",
       "arch": "硬件架构"
     },
     "cpu": {
@@ -22,7 +22,6 @@
       "kilobytes": "{value} KB",
       "shareHint": "两次采样之间，CPU 时间的去向：",
       "share": "处理器时间去向",
-      "noShare": "CPU 占用",
       "state": {
         "user": "用户",
         "nice": "Nice",
@@ -39,6 +38,14 @@
       "used": "已用",
       "percent": "使用率",
       "available": "可用"
+    },
+    "swap": {
+      "none": "此主机未启用交换分区。"
+    },
+    "report": {
+      "cpuTrend": "CPU 趋势",
+      "memoryTrend": "内存趋势",
+      "unanswered": "主机还没有送来读数。"
     },
     "network": {
       "title": "网络",
