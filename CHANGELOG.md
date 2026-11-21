@@ -6,6 +6,11 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ## [Unreleased]
 
+### Fixed
+
+- The VMware inventory's Windows-style separators are understood on every platform, so a machine's
+  name falls back correctly wherever the host runs (7e020e3).
+
 ### Added
 
 #### The desk grows a desktop's daily shape
