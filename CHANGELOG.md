@@ -41,7 +41,7 @@ All notable changes to 7Shell are documented in this file. The format is
   filled back in the way a clone ask does, applied or deleted from the shelf it lives on — a
   local plain-text store that says so, and a clone ask that stays the stronger prefill (4eed753).
 - A container's memory share reads as a bar beside its number: one tiered capacity bar per row,
-  drawn from the same answer the column already sampled (c3-inline).
+  drawn from the same answer the column already sampled (f384776).
 - The desk widgets show shape as well as numbers: the processor and network cards each draw a
   strip of the pump's own last sixty samples — standing still the moment sampling stops — and the
   storage card a capacity bar wearing the tier its reading earns, in the workbench colours the
