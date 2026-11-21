@@ -205,6 +205,11 @@ pub struct Core {
     /// Stops for the line streams a container tab is following. Keyed by the id the host emitted,
     /// so a stop button and a closing window use the same path.
     pub(crate) container_streams: Arc<Mutex<ContainerStreamStops>>,
+    /// The events stream each container connection follows, connection id to stream id. This is
+    /// the yield bookkeeping: when a later open would cross the connection's channel budget, the
+    /// budget stops this stream first through the hook the start registered, and a stop here
+    /// takes the hook down with it.
+    pub(crate) container_events_streams: Mutex<HashMap<String, String>>,
     /// The desktop engine each Linux desktop session opened, session id to connection id. The
     /// desktop's Docker manager asks for its engine by session; opening again answers the
     /// connection the first open made.
@@ -252,6 +257,7 @@ impl Core {
                 containers: Arc::new(sevenshell_container::ContainerManager::new()),
                 clusters: Arc::new(sevenshell_k8s::K8sManager::new()),
                 container_streams: Arc::new(Mutex::new(HashMap::new())),
+                container_events_streams: Mutex::new(HashMap::new()),
                 desktop_engines: Mutex::new(HashMap::new()),
                 desktop_engine_caps: Mutex::new(HashMap::new()),
                 tail_streams: Arc::new(Mutex::new(HashMap::new())),

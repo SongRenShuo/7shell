@@ -245,6 +245,32 @@ export interface ContainerStreamLine {
 export interface ContainerStreamEnd {
   readonly streamId: string;
   readonly error?: string;
+  /**
+   * Which holder the backend spent to free a channel for something else — the events stream is
+   * the one that yields. The stream did not fail: follow the list by refreshing instead, and do
+   * not reconnect on your own.
+   */
+  readonly yielded?: string;
+}
+
+/** One holder kind and how many channels it holds on a connection. */
+export interface ContainerChannelHolders {
+  /** The holder's name in the budget's own vocabulary: `events`, `logs`, `pty` or `exec`. */
+  readonly kind: string;
+  readonly held: number;
+}
+
+/**
+ * How full a connection's channel budget is, and who is holding the rest.
+ *
+ * `null` from the backend means the engine runs on this machine: a local command holds no SSH
+ * channel, so there is no budget to read and no open to refuse.
+ */
+export interface ContainerChannelBudget {
+  readonly limit: number;
+  readonly held: number;
+  readonly free: number;
+  readonly holders?: readonly ContainerChannelHolders[];
 }
 
 export interface ContainerPortMapping {

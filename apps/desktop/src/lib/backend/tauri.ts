@@ -31,6 +31,7 @@ import type {
   ComposeProject,
   ComposeServiceRow,
   ContainerActionOutcome,
+  ContainerChannelBudget,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -1532,6 +1533,14 @@ export function containerLogsStart(
 /** Follows the engine's own event stream; the lines are the engine's events in the wire shape. */
 export function containerEventsStart(connectionId: string): Promise<string> {
   return invoke<string>("container_events_start", { connectionId });
+}
+
+/**
+ * Reads how full the connection's channel budget is, and who is holding the rest. `null` means
+ * the engine runs on this machine and holds no SSH channels to budget.
+ */
+export function containerChannels(connectionId: string): Promise<ContainerChannelBudget | null> {
+  return invoke<ContainerChannelBudget | null>("container_channels", { connectionId });
 }
 
 export function containerStreamStop(streamId: string): Promise<void> {
