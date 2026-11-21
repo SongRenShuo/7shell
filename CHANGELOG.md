@@ -8,6 +8,29 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+- The system panel opens onto a services summary — how many units run, how many failed, how many
+  neither, the failed count the one that acts and narrows the table to the failures — the rows
+  wearing the desktop's status light, the machine's own facts (distribution, kernel, uptime,
+  timezone) on a line of their own that wraps instead of truncating, a skeleton for the first
+  read alone, and the numeric readings off the monospace face and onto the numbers track (1998c42).
+- The services window draws its three states: the first read is the rows' skeleton and only that
+  read — a refresh keeps its rows on screen, so nothing flashes — a failed read is the banner with
+  the retry beside it, and a host with no listeners says so with the way out (the forwards
+  manager, which the pane opens) (1998c42).
+- The tail window shows the rate the lines land at: one bar a second while the stream is followed,
+  the last minute of them, gathered on this side and standing still the moment the stream does;
+  the open's wait joins the paused banner's shape (1998c42).
+- The forwards window's rows carry the status light — filled green is a tunnel carrying a
+  connection, hollow is up but idle — the add form keeps the group rhythm, the empty state hands
+  the caret to the form, and the failure banner carries the retry (1998c42).
+- The batch row's settled states draw as the same dot light — hollow has not run, filled green
+  succeeded, filled red failed — the result readings wear the numbers track, and the results'
+  empty state hands the caret to the command box (1998c42).
+- The trash's size column wears the numbers track, its failure banner carries the retry, and a
+  failed read no longer draws the empty-trash drawing underneath it (1998c42).
+- A transfer row names how fast its bytes move: the polled counter's delta over the gap between
+  reads, drawn with its unit, the dash until an interval has closed and nothing once the row has
+  stopped; the panel's counts wear the numbers track (1998c42).
 - A container's memory share reads as a bar beside its number: one tiered capacity bar per row,
   drawn from the same answer the column already sampled (c3-inline).
 - The desk widgets show shape as well as numbers: the processor and network cards each draw a
