@@ -8,6 +8,14 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+- The monitor window opens on how the host is doing now: a status band of readings under the
+  host's name, CPU and memory trend charts drawn from the store's own history with the memory
+  line wearing the tier its reading earns, the processors' share as one bar per column, disk
+  rows carrying a tiered capacity bar, and a ring for swap — with the kernel, the processor
+  model and the rest of the static detail kept below the first screen (045c94f).
+- The report's charts stand still instead of lying: the CPU and memory history grows only while
+  samples arrive, an interval that cannot be measured sends no point rather than a zero, and a
+  host that has not answered yet is said so with a retry that asks again now (045c94f).
 - A ticked container list is a batch: start runs at once; stop and remove are asked about once with
   the consequence said for the lot; every row carries its own loading word while it waits; and the
   engine's answers come back sorted into one summary — succeeded, already-in-the-requested-state,

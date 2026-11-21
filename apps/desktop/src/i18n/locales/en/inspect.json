@@ -9,7 +9,7 @@
     },
     "system": {
       "title": "System info",
-      "group": "Operating system",
+      "details": "System details",
       "arch": "Architecture"
     },
     "cpu": {
@@ -22,7 +22,6 @@
       "kilobytes": "{value} KB",
       "shareHint": "Where the processors spent the last interval, between two samples:",
       "share": "Processor time",
-      "noShare": "CPU usage",
       "state": {
         "user": "User",
         "nice": "Nice",
@@ -39,6 +38,14 @@
       "used": "Used",
       "percent": "Used %",
       "available": "Available"
+    },
+    "swap": {
+      "none": "This host has no swap space configured."
+    },
+    "report": {
+      "cpuTrend": "CPU trend",
+      "memoryTrend": "Memory trend",
+      "unanswered": "The host has not sent a reading yet."
     },
     "network": {
       "title": "Network",
