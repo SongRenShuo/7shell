@@ -444,6 +444,55 @@ pub(crate) fn namespaces(runtime: ContainerRuntime) -> Vec<String> {
     vec![runtime.program().to_owned(), "namespace".to_owned(), "ls".to_owned()]
 }
 
+/// Whether this command line only asks and can be asked again as it is.
+///
+/// A read that ends without an exit status — a channel that closed before the server said how the
+/// command did — is the one failure a second identical attempt is safe for. Anything that changes
+/// the engine is not: the first run may have taken effect, and repeating it is a decision nobody
+/// made. The verdict is read off the argv, the place every verb this module builds is spelled; a
+/// verb that is not on the list reads as "may not repeat", which is the safe default.
+///
+/// Three argv shapes carry a flag in front of the verb, and all three are built here: nerdctl's
+/// `--namespace`, compose's `--project-name`, and compose's `--file`. The skip stops at the first
+/// word that is not one of them, so the verb of a shape this module never produced reads as "may
+/// not repeat" too.
+pub(crate) fn is_idempotent_read(argv: &[String]) -> bool {
+    let mut index = 1;
+    if argv.is_empty() {
+        return false;
+    }
+    while matches!(
+        argv.get(index).map(String::as_str),
+        Some("--namespace" | "--project-name" | "--file")
+    ) {
+        index += 2;
+    }
+    let verb = argv.get(index).map(String::as_str);
+    let operand = argv.get(index + 1).map(String::as_str);
+    match (verb, operand) {
+        (Some("ps" | "inspect" | "images" | "history" | "info" | "version" | "stats"), ..) => true,
+        (Some("namespace"), Some("ls")) => true,
+        (Some("network"), Some("ls" | "inspect")) => true,
+        (Some("volume"), Some("ls")) => true,
+        (Some("system"), Some("df")) => true,
+        (Some("buildx"), Some("version" | "imagetools")) => true,
+        (Some("manifest"), Some("inspect")) => true,
+        // Only the capability probe runs as a command; the real events follow is a stream, which
+        // never goes through a runner that could repeat it.
+        (Some("events"), _) => argv.iter().any(|word| word == "--help"),
+        // The compose subcommands sit behind their optional project name and file, so the word that
+        // decides is the first one past them.
+        (Some("compose"), _) => {
+            let mut sub = index + 1;
+            while matches!(argv.get(sub).map(String::as_str), Some("--project-name" | "--file")) {
+                sub += 2;
+            }
+            matches!(argv.get(sub).map(String::as_str), Some("ls" | "ps" | "version"))
+        }
+        _ => false,
+    }
+}
+
 // -- Remote digest -------------------------------------------------------------
 //
 // Asking a registry what digest a tag currently names — the question behind the image page's
@@ -1544,6 +1593,121 @@ mod tests {
             list(ContainerRuntime::Docker, ""),
             vec!["docker", "ps", "-a", "--format", PS_FORMAT_DOCKER]
         );
+    }
+
+    #[test]
+    fn the_verbs_this_build_only_asks_with_may_be_repeated() {
+        // Every argv shape below is one the builders actually produce.
+        let reads: Vec<Vec<String>> = vec![
+            list(ContainerRuntime::Docker, ""),
+            list(ContainerRuntime::Nerdctl, "k8s.io"),
+            inspect(ContainerRuntime::Docker, "", "abc123").unwrap(),
+            image_inspect(ContainerRuntime::Docker, "", "nginx:1.27").unwrap(),
+            image_tags(ContainerRuntime::Docker, "", "nginx").unwrap(),
+            image_history(ContainerRuntime::Docker, "", "nginx:1.27").unwrap(),
+            stats(ContainerRuntime::Docker, ""),
+            stats(ContainerRuntime::Wslc, ""),
+            images(ContainerRuntime::Podman, ""),
+            info(ContainerRuntime::Docker, ""),
+            version(ContainerRuntime::Docker, ""),
+            namespaces(ContainerRuntime::Nerdctl),
+            network_ls(ContainerRuntime::Docker).unwrap(),
+            network_inspect(ContainerRuntime::Docker, &["bridge".to_owned()]).unwrap(),
+            volume_list(ContainerRuntime::Docker).unwrap(),
+            system_df(ContainerRuntime::Docker).unwrap(),
+            compose_version(ContainerRuntime::Docker).unwrap(),
+            compose_ls(ContainerRuntime::Docker).unwrap(),
+            compose_labelled_ps(ContainerRuntime::Docker).unwrap(),
+            compose_ps(ContainerRuntime::Docker, "site").unwrap(),
+            remote_digest_probes(ContainerRuntime::Docker).unwrap()[0].clone(),
+            remote_digest_probes(ContainerRuntime::Docker).unwrap()[1].clone(),
+            imagetools_inspect(ContainerRuntime::Docker, "nginx:1.27").unwrap(),
+            manifest_inspect(ContainerRuntime::Docker, "nginx:1.27").unwrap(),
+            events_probe(ContainerRuntime::Docker).unwrap(),
+        ];
+        for argv in &reads {
+            assert!(
+                is_idempotent_read(argv),
+                "a read this build builds must be repeatable: {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn everything_that_changes_the_engine_may_never_be_repeated() {
+        let mutations: Vec<Vec<String>> = vec![
+            action(ContainerRuntime::Docker, "", "stop", "abc123").unwrap(),
+            action(ContainerRuntime::Docker, "", "rm", "abc123").unwrap(),
+            rename(ContainerRuntime::Docker, "", "abc123", "web-2").unwrap(),
+            create(
+                ContainerRuntime::Docker,
+                "",
+                &ContainerCreateRequest {
+                    image: "nginx:1.27".to_owned(),
+                    ..ContainerCreateRequest::default()
+                },
+            )
+            .unwrap(),
+            remove_image(ContainerRuntime::Docker, "", "nginx:1.27").unwrap(),
+            image_prune(ContainerRuntime::Docker, ""),
+            tag(ContainerRuntime::Docker, "", "nginx:1.27", "nginx:latest").unwrap(),
+            load(ContainerRuntime::Docker, ""),
+            commit(
+                ContainerRuntime::Docker,
+                "",
+                &ContainerCommitRequest {
+                    container_id: "abc123".to_owned(),
+                    image: "team/web:built".to_owned(),
+                    author: String::new(),
+                    message: String::new(),
+                },
+            )
+            .unwrap(),
+            network_create(
+                ContainerRuntime::Docker,
+                &NetworkCreateRequest {
+                    name: "edge-net".to_owned(),
+                    ..NetworkCreateRequest::default()
+                },
+            )
+            .unwrap(),
+            network_rm(ContainerRuntime::Docker, "bridge").unwrap(),
+            volume_remove(ContainerRuntime::Docker, "site-data").unwrap(),
+            volume_prune(ContainerRuntime::Docker).unwrap(),
+            build_cache_prune(ContainerRuntime::Docker).unwrap(),
+            container_prune(ContainerRuntime::Docker).unwrap(),
+            compose_up(ContainerRuntime::Docker, "site", "/srv/site/compose.yml", true).unwrap(),
+            compose_down(ContainerRuntime::Docker, "site").unwrap(),
+            compose_restart(ContainerRuntime::Docker, "site").unwrap(),
+            transfer(
+                ContainerRuntime::Docker,
+                "",
+                ImageTransfer::Pull,
+                &transfer_request("nginx:1.27"),
+            )
+            .unwrap(),
+            events(ContainerRuntime::Docker, "").unwrap(),
+            exec(ContainerRuntime::Docker, "", "abc123", "sh").unwrap(),
+            copy(ContainerRuntime::Docker, "", "abc123:/etc/nginx/nginx.conf", "/tmp/nginx.conf").unwrap(),
+        ];
+        for argv in &mutations {
+            assert!(
+                !is_idempotent_read(argv),
+                "a verb that changes the engine must never be repeated on a lost status: {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_argv_this_module_never_built_reads_as_not_repeatable() {
+        assert!(!is_idempotent_read(&[]));
+        assert!(!is_idempotent_read(&["docker".to_owned()]));
+        // A verb the builders do not produce, and a trailing-word shape they do not build either:
+        // the safe default is the one that does not repeat a command.
+        assert!(!is_idempotent_read(&["docker".to_owned(), "build".to_owned(), ".".to_owned()]));
+        assert!(!is_idempotent_read(&["docker".to_owned(), "network".to_owned(), "rm".to_owned()]));
+        // The live events stream is a stream, not a command that may be fired twice.
+        assert!(!is_idempotent_read(&["docker".to_owned(), "events".to_owned(), "--format".to_owned(), "{{json .}}".to_owned()]));
     }
 
     #[test]

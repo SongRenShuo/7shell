@@ -63,10 +63,12 @@ import { resolve } from "node:path";
 
 import ContainerPane from "@/components/container/ContainerPane.vue";
 import { i18n } from "@/i18n";
-import { containerConnect, containerRuntimeInfo } from "@/lib/backend/tauri";
+import { ShellError } from "@/lib/backend/errors";
+import { containerConnect, containerList, containerRuntimeInfo } from "@/lib/backend/tauri";
 import type { ContainerTab } from "@/stores/terminals";
 
 const connectMock = vi.mocked(containerConnect);
+const listMock = vi.mocked(containerList);
 const infoMock = vi.mocked(containerRuntimeInfo);
 
 let app: App | undefined;
@@ -319,6 +321,66 @@ describe("the desktop layout", () => {
     (cancel as HTMLElement).click();
     await vi.waitFor(() => {
       expect(document.querySelector("[data-wizard-basic]"), "the closed wizard takes its dialog with it").toBeNull();
+    });
+  });
+});
+
+describe("the banner's second line", () => {
+  /**
+   * The shape the backend sends when a container command ran and did not succeed: the summary
+   * sentence is built from the message key, and the detail is what the engine itself said.
+   */
+  function commandFailed(detail: string): ShellError {
+    return new ShellError({
+      version: 1,
+      code: "CONTAINER-COMMAND-FAILED",
+      messageKey: "errors.container.commandFailed",
+      messageParams: { operation: "docker ps" },
+      origin: { subsystem: "container" },
+      outcome: "sent",
+      detail,
+    });
+  }
+
+  async function mountExpecting(expectation: () => void): Promise<void> {
+    app = createApp({ render: () => h(ContainerPane, { tab: tab("docker"), active: true }) });
+    app.use(i18n);
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    app.use(pinia);
+    host = document.createElement("div");
+    document.body.append(host);
+    app.mount(host);
+    await vi.waitFor(expectation);
+  }
+
+  it("shows what the engine said on the banner, under the summary sentence", async () => {
+    // The first-open failure shape: a channel that ended before the exit status arrived. The
+    // reason the backend carried has to be readable, or every command failure looks the same.
+    listMock.mockRejectedValueOnce(commandFailed("the command ended without reporting an exit status"));
+    await mountExpecting(() => {
+      const banner = document.querySelector('[role="alert"]');
+      expect(banner?.textContent).toContain("the command ended without reporting an exit status");
+      expect(banner?.textContent).toContain("CONTAINER-COMMAND-FAILED");
+    });
+
+    const banner = document.querySelector('[role="alert"]');
+    expect(banner?.textContent).not.toContain("no such container");
+    // The detail is its own line, not glued to the summary sentence.
+    expect(banner?.querySelectorAll("span").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("shows the engine's own refusal when the command failed for a real reason", async () => {
+    listMock.mockRejectedValueOnce(commandFailed("no such container: web"));
+    await mountExpecting(() => {
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("no such container: web");
+    });
+  });
+
+  it("carries the detail on the connect-failure block too", async () => {
+    connectMock.mockRejectedValueOnce(commandFailed("the connection could not be opened"));
+    await mountExpecting(() => {
+      expect(host?.textContent).toContain("the connection could not be opened");
     });
   });
 });

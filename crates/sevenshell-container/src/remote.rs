@@ -266,7 +266,15 @@ fn failed(argv: &[String], stderr: &str, stdout: &str, exit_code: Option<u32>) -
             Some(code) => format!("the command exited with status {code}"),
             None => "the command ended without reporting an exit status".to_owned(),
         });
-    ShellError::container_command_failed(&operation(argv), detail)
+    let error = ShellError::container_command_failed(&operation(argv), detail);
+    // A channel that ended before the server said how the command did is a transport ending, not
+    // the runtime's verdict: the same code as a refusal, but marked so a caller that can safely
+    // repeat an idempotent read may ask once more. A genuine refusal carries no marker, and the
+    // marker rides the envelope's diagnostics, which the interface shows separately or not at all.
+    if exit_code.is_none() {
+        return error.with_diagnostic("outcome", "no-status");
+    }
+    error
 }
 
 /// The first useful thing a command said, short enough to show.
@@ -489,6 +497,27 @@ mod tests {
     fn a_failure_that_reported_no_status_says_so() {
         let error = failed(&argv(&["docker", "ps"]), "", "", None);
         assert!(error.detail().unwrap_or_default().contains("without reporting"));
+    }
+
+    #[test]
+    fn a_channel_that_ended_without_a_verdict_is_marked_for_a_safe_retry() {
+        // The transient shape behind a first-open banner: the channel ended before the exit status
+        // arrived, which is the transport's ending, not the runtime's refusal.
+        let error = failed(&argv(&["docker", "ps"]), "", "", None);
+        assert_eq!(error.code(), ErrorCode::ContainerCommandFailed);
+        assert_eq!(
+            error.diagnostics().get("outcome").map(String::as_str),
+            Some("no-status"),
+            "the marker is what lets an idempotent read be asked once more: {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_the_runtime_itself_reported_is_not_marked_as_a_lost_status() {
+        // A non-zero exit is the runtime's own verdict: repeating the command is not this layer's
+        // decision, so no marker travels with the envelope.
+        let error = failed(&argv(&["docker", "ps"]), "no such object", "", Some(1));
+        assert!(error.diagnostics().get("outcome").is_none(), "{error:?}");
     }
 
     #[test]

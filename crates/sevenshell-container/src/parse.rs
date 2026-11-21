@@ -1585,6 +1585,34 @@ mod tests {
         assert_eq!(rows[0].health, "");
     }
 
+    /// The pipe output a current engine prints for the same template, taken from the server whose
+    /// `ps` JSON carries a health field (a v29 CLI): rows in every state, verdicts healthy,
+    /// unhealthy, starting and absent, and ports in both the IPv4 and the bare-exposure shape.
+    const DOCKER_PS_HEALTH_STATUS: &str = include_str!("../testdata/docker_ps_health_status.txt");
+
+    #[test]
+    fn the_server_shape_ps_including_the_health_column_parses_whole() {
+        let rows = containers(ContainerRuntime::Docker, DOCKER_PS_HEALTH_STATUS);
+        assert_eq!(rows.len(), 8, "every row the engine printed is a row drawn: {rows:?}");
+
+        assert_eq!(rows[0].name, "web-gateway");
+        assert_eq!(rows[0].health, "healthy");
+        assert_eq!(rows[0].status, "Up 3 hours (healthy)");
+        assert_eq!(rows[0].ports, "0.0.0.0:8080->80/tcp, [::]:8080->80/tcp");
+        assert_eq!(rows[0].created_at, "2026-11-21 08:15:04");
+
+        assert_eq!(rows[1].health, "unhealthy", "the verdict travels as the engine spells it");
+        assert_eq!(rows[2].health, "starting", "a starting healthcheck is its own verdict");
+        assert_eq!(rows[3].health, "", "no healthcheck is no badge, not a guessed word");
+        assert_eq!(rows[3].ports, "", "an empty column between separators stays empty");
+        assert_eq!(rows[4].state, "paused");
+        assert_eq!(rows[5].state, "exited");
+        assert_eq!(rows[5].health, "");
+        assert_eq!(rows[6].state, "created");
+        assert_eq!(rows[7].state, "restarting");
+        assert_eq!(rows[7].status, "Restarting (1) 5 seconds ago");
+    }
+
     #[test]
     fn podman_ps_object_ports_and_names_are_flattened() {
         let rows = containers(ContainerRuntime::Podman, PODMAN_PS);
