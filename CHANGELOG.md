@@ -122,6 +122,10 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- A docker engine that renamed the health column refuses the container list's template with
+  "can't evaluate field Health"; the list is asked once more with the renamed column and the
+  engine's taste is remembered, so the v29 daemon's window opens full instead of to a refusal
+  banner (51588f1).
 - A docker window that opens to a command with no verdict no longer stops at "the container
   runtime refused docker ps": the channel ending before the server said how the command did
   travels marked on the envelope, an idempotent read is asked again once on the same connection

@@ -34,6 +34,13 @@ const MAX_REMOTE_PATH_CHARS: usize = 1024;
 /// container with no healthcheck, which is how the row knows to draw no badge.
 const PS_FORMAT_DOCKER: &str =
     "{{.ID}}|{{.Image}}|{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}|{{.Health}}";
+
+/// Docker v29 renamed the `ps` table's health column: a template that asks for `.Health` there is
+/// answered "can't evaluate field Health", where `.HealthStatus` carries the verdict. Engines
+/// before the rename refuse the new name in turn — which is why the first ask stays `.Health` and
+/// the rename is a remembered fallback, not the default.
+const PS_FORMAT_DOCKER_HEALTH_STATUS: &str =
+    "{{.ID}}|{{.Image}}|{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}|{{.HealthStatus}}";
 const JSON_FORMAT: &str = "{{json .}}";
 /// WSLC's `--format` takes a fixed vocabulary, not a template.
 const WSLC_FORMAT: &str = "json";
@@ -89,6 +96,29 @@ pub(crate) fn list(runtime: ContainerRuntime, namespace: &str) -> Vec<String> {
     argv.push("-a".to_owned());
     argv.extend(format_flag(runtime));
     argv
+}
+
+/// The container list again, with the renamed health column.
+pub(crate) fn list_with_health_status(runtime: ContainerRuntime, namespace: &str) -> Vec<String> {
+    let mut argv = base(runtime, namespace);
+    argv.push("ps".to_owned());
+    argv.push("-a".to_owned());
+    if runtime == ContainerRuntime::Docker {
+        argv.push("--format".to_owned());
+        argv.push(PS_FORMAT_DOCKER_HEALTH_STATUS.to_owned());
+    } else {
+        argv.extend(format_flag(runtime));
+    }
+    argv
+}
+
+/// Whether the failure is the daemon refusing `.Health` in the ps table template — the Docker v29
+/// rename of the column. The caller answers it once with [`list_with_health_status`] and remembers
+/// the engine's taste, so the session pays for the refusal a single time.
+pub(crate) fn is_health_template_refusal(error: &ShellError) -> bool {
+    error
+        .detail()
+        .is_some_and(|detail| detail.contains("can't evaluate field Health"))
 }
 
 pub(crate) fn inspect(runtime: ContainerRuntime, namespace: &str, id: &str) -> Result<Vec<String>, ShellError> {

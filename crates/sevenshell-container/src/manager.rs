@@ -12,6 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
@@ -80,6 +81,9 @@ pub struct Provider {
     /// runs its own commands on the same connection, and a trait object cannot be turned back into
     /// the handle that knows where it runs; a provider built around a recorder therefore has none.
     handle: Option<Runner>,
+    /// Docker v29 renamed the ps table's health column; a provider whose engine refused `.Health`
+    /// asks for `.HealthStatus` from then on, so the session pays for the refusal once.
+    health_status_field: AtomicBool,
 }
 
 // The runner is a process handle or a session; printing it would print neither anything a log can
@@ -113,6 +117,7 @@ impl Provider {
             namespace: namespace_for(runtime, namespace)?,
             runner,
             handle: None,
+            health_status_field: AtomicBool::new(false),
         })
     }
 
@@ -158,8 +163,27 @@ impl Provider {
     }
 
     pub async fn list(&self) -> Result<Vec<ContainerSummary>, ShellError> {
-        let output = self.read(&commands::list(self.runtime, &self.namespace)).await?;
-        Ok(parse::containers(self.runtime, &output))
+        let argv = if self.health_status_field.load(Ordering::Relaxed) {
+            commands::list_with_health_status(self.runtime, &self.namespace)
+        } else {
+            commands::list(self.runtime, &self.namespace)
+        };
+        match self.read(&argv).await {
+            Ok(output) => Ok(parse::containers(self.runtime, &output)),
+            Err(error) => {
+                if commands::is_health_template_refusal(&error) {
+                    // Docker v29 answered the health column with a rename. One retry asks for the
+                    // renamed column and the provider remembers the engine's taste, so the refusal
+                    // costs the session a single extra round-trip and never a banner.
+                    let output = self
+                        .read(&commands::list_with_health_status(self.runtime, &self.namespace))
+                        .await?;
+                    self.health_status_field.store(true, Ordering::Relaxed);
+                    return Ok(parse::containers(self.runtime, &output));
+                }
+                Err(error)
+            }
+        }
     }
 
     pub async fn inspect(&self, id: &str) -> Result<ContainerDetail, ShellError> {
@@ -699,6 +723,7 @@ impl Provider {
             namespace: namespace_for(self.runtime, namespace)?,
             runner: Arc::clone(&self.runner),
             handle: self.handle.clone(),
+            health_status_field: AtomicBool::new(self.health_status_field.load(Ordering::Relaxed)),
         })
     }
 }
@@ -1054,6 +1079,13 @@ mod tests {
                 Some("exit-1") => {
                     return Err(ShellError::container_command_failed("the command", "no such object"));
                 }
+                Some("health-rename") => {
+                    return Err(ShellError::container_command_failed(
+                        "the command",
+                        "failed to execute template: template: :1:61: executing \"\" at <.Health>: \
+                         can't evaluate field Health in type *formatter.ContainerContext",
+                    ));
+                }
                 Some(other) => panic!("a script shape the tests do not know: {other}"),
                 None => {}
             }
@@ -1181,6 +1213,42 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::ContainerCommandFailed);
         assert!(error.detail().unwrap_or_default().contains("no such object"));
         assert_eq!(recorder.calls().len(), 1, "{:?}", recorder.calls());
+    }
+
+    #[tokio::test]
+    async fn a_renamed_health_column_is_asked_for_once_and_remembered() {
+        // Docker v29 answered the ps table's health column with a rename: the first list fails with
+        // the template refusal, one retry asks for the renamed column, and the provider remembers —
+        // the second list goes straight to the new name, never showing the refusal again.
+        let recorder = Arc::new(RecordingRunner {
+            output: ps_row(),
+            ..RecordingRunner::with_script(&["health-rename"])
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let rows = provider.list().await.expect("the renamed template answers");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "web");
+
+        let calls = recorder.calls();
+        assert_eq!(calls.len(), 2, "one retry, not more: {calls:?}");
+        assert!(
+            calls[1].iter().any(|word| word.contains(".HealthStatus")),
+            "the retry asks for the renamed column: {:?}",
+            calls[1]
+        );
+
+        provider
+            .list()
+            .await
+            .expect("the remembered taste answers without a refusal");
+        let calls = recorder.calls();
+        assert_eq!(calls.len(), 3, "{calls:?}");
+        assert!(
+            calls[2].iter().any(|word| word.contains(".HealthStatus")),
+            "the remembered form is used from the second list on: {:?}",
+            calls[2]
+        );
     }
 
     #[tokio::test]
