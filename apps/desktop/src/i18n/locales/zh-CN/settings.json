@@ -69,8 +69,9 @@
     "leaving": {
       "title": "关闭设置？",
       "message": "部分修改尚未保存。可以保存、放弃，或留在当前页面。",
-      "write": "写下来并关闭",
-      "drop": "丢掉"
+      "write": "保存并关闭",
+      "drop": "放弃修改",
+      "stay": "留在当前页面"
     },
     "search": {
       "placeholder": "搜索设置",

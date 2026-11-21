@@ -69,8 +69,9 @@
     "leaving": {
       "title": "Close the settings?",
       "message": "Some changes have not been saved yet. Save them, discard them, or stay on this page.",
-      "write": "Write them and close",
-      "drop": "Drop them"
+      "write": "Save and close",
+      "drop": "Discard changes",
+      "stay": "Stay on this page"
     },
     "search": {
       "placeholder": "Search settings",
