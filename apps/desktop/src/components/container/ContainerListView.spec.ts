@@ -291,8 +291,9 @@ describe("the desktop layout of the same list", () => {
     );
   }
 
+  /** Opens the row's one menu — the ellipsis at the actions' end, past the buttons on the row. */
   async function openRowMenu(name: string): Promise<void> {
-    const more = rowOf(name)?.querySelector("button");
+    const more = rowOf(name)?.querySelector<HTMLButtonElement>(`button[aria-label="More actions for ${name}"]`);
     more?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await nextTick();
   }
@@ -334,24 +335,25 @@ describe("the desktop layout of the same list", () => {
     expect(row?.querySelectorAll("button")?.length).toBeGreaterThan(1);
   });
 
-  it("gathers start, shell and the rest under the one menu, and the engine's word labels them", async () => {
+  it("carries the row's frequent actions as visible buttons, and gathers the rest under the one menu", async () => {
     await mountDesktop();
     await showEveryState();
-    const menu = useContextMenu();
 
+    // The actions a row needs at a glance sit on the row itself: the exited container offers
+    // start, the running one stop, and shell, logs and files stand beside either.
+    expect(button("Start old").disabled).toBe(false);
+    expect(button("Open a shell in old").disabled, "a stopped container's shell is disabled, not hidden").toBe(true);
+    expect(rowOf("web")?.querySelector('button[aria-label="Stop web"]')).not.toBeNull();
+    expect(rowOf("web")?.querySelector('button[aria-label="Start web"]'), "no start beside a stop").toBeNull();
+
+    // The rest gathers under the one menu, and the engine's word labels them.
+    const menu = useContextMenu();
     await openRowMenu("old");
     expect(menu.visible.value).toBe(true);
     const ids = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
-    expect(ids).toContain("start");
-    expect(ids).toContain("exec");
-    expect(ids).toContain("logs");
-    expect(ids).toContain("files");
+    expect(ids).toContain("monitor");
+    expect(ids).toContain("clone");
     expect(ids).toContain("remove");
-
-    await openRowMenu("web");
-    const runningIds = menu.entries.value.map((entry) => (entry.kind === "action" ? entry.id : entry.kind));
-    expect(runningIds).toContain("stop");
-    expect(runningIds, "a running container is offered stop, not start").not.toContain("start");
   });
 
   it("says what a write in flight is doing, on the row it is working on", async () => {
@@ -365,8 +367,8 @@ describe("the desktop layout of the same list", () => {
     await mountDesktop();
     await showEveryState();
 
-    await openRowMenu("old");
-    await runMenuEntry("start");
+    // Start is a button on the exited row itself now; the click is the row's own.
+    button("Start old").click();
     await nextTick();
 
     const loading = rowOf("old")?.querySelector("[data-container-row-loading]");

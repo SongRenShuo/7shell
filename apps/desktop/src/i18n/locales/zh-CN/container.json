@@ -199,6 +199,7 @@
       "image": "镜像",
       "id": "ID",
       "state": "状态",
+      "memory": "内存",
       "ports": "端口",
       "created": "创建时间",
       "repository": "仓库",
