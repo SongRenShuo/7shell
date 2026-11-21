@@ -1,8 +1,9 @@
 /**
- * The desktop overview, as a person reads it: what the engine holds in three pressable rows, the
- * lamp saying whether it is well, and the three short lines drawn from what the engine reported.
+ * The desktop overview, as a person reads it: what the engine holds in three pressable tiles (the
+ * third wearing the health verdict the page's lamp used to say), and the three short lines drawn
+ * from what the engine reported, each titled with its newest reading.
  *
- * The summary rows and the lamp are DOM facts; the sampling is asserted through the backend mock —
+ * The tiles and the readings are DOM facts; the sampling is asserted through the backend mock —
  * one answer on mount, another each interval while the page is visible, and silence when it is
  * not, because "nobody watching, nothing sampled" is the discipline the monitor's panel taught
  * and this page keeps.
@@ -132,9 +133,21 @@ async function mount(withSession: ContainerSession = session(), active = true): 
 function summary(name: string): HTMLElement {
   const element = document.querySelector(`[data-docker-summary-${name}]`);
   if (!(element instanceof HTMLElement)) {
-    throw new Error(`the overview has no ${name} row`);
+    throw new Error(`the overview has no ${name} tile`);
   }
   return element;
+}
+
+/** A tile reads as its label above the big number; the last paragraph is the number. */
+function tileParts(name: string): { label: string; value: string } {
+  const paragraphs = [...summary(name).querySelectorAll("p")];
+  if (paragraphs.length < 2) {
+    throw new Error(`the ${name} tile is not drawn`);
+  }
+  return {
+    label: paragraphs[0]?.textContent?.trim() ?? "",
+    value: paragraphs[paragraphs.length - 1]?.textContent?.trim() ?? "",
+  };
 }
 
 beforeEach(() => {
@@ -150,16 +163,16 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the summary rows", () => {
-  it("counts what the engine holds, running and all", async () => {
+describe("the summary tiles", () => {
+  it("counts what the engine holds, running and all, at a glance", async () => {
     await mount();
-    expect(summary("containers").textContent).toContain("2 in total");
-    expect(summary("containers").textContent).toContain("1 running");
-    expect(summary("images").textContent).toContain("2 in total");
-    expect(summary("abnormal").textContent).toContain("0");
+    expect(tileParts("containers").label).toContain("1 running");
+    expect(tileParts("containers").value).toBe("2");
+    expect(tileParts("images").value).toBe("2");
+    expect(tileParts("abnormal").value).toBe("0");
   });
 
-  it("is the page it counts: a click jumps, and the abnormal row names its state", async () => {
+  it("is the page it counts: a click jumps, and the health tile names its state", async () => {
     await mount();
 
     summary("containers").click();
@@ -186,20 +199,21 @@ describe("the summary rows", () => {
         },
       }),
     );
-    expect(summary("containers").textContent).toContain("36 in total");
-    expect(summary("images").textContent).toContain("14 in total");
+    expect(tileParts("containers").value).toBe("36");
+    expect(tileParts("images").value).toBe("14");
   });
 });
 
-describe("the health lamp", () => {
-  it("reads healthy while nothing is dead", async () => {
+describe("the engine tile, which carries the lamp the rows used to sit beside", () => {
+  it("reads healthy while nothing is dead: a calm number and the sentence on its tooltip", async () => {
     await mount();
-    const lamp = document.querySelector("[data-docker-overview-health]");
-    expect(lamp?.querySelector("span")?.className).toContain("bg-success");
-    expect(lamp?.textContent).toContain("running normally");
+    const tile = summary("abnormal");
+    expect(tileParts("abnormal").value).toBe("0");
+    expect(tile.getAttribute("title")).toContain("running normally");
+    expect(tile.querySelector("p.nums")?.getAttribute("style"), "a healthy engine wears no tier").toBeNull();
   });
 
-  it("goes unhealthy when a container is dead", async () => {
+  it("goes red when a container is dead, and says the sentence out loud", async () => {
     await mount(
       session({
         containers: [
@@ -208,9 +222,10 @@ describe("the health lamp", () => {
         ],
       }),
     );
-    const lamp = document.querySelector("[data-docker-overview-health]");
-    expect(lamp?.querySelector("span")?.className).toContain("bg-destructive");
-    expect(lamp?.textContent).toContain("abnormal state");
+    const tile = summary("abnormal");
+    expect(tileParts("abnormal").value).toBe("1");
+    expect(tile.getAttribute("title")).toContain("abnormal state");
+    expect(tile.querySelector("p.nums")?.getAttribute("style")).toContain("var(--destructive)");
   });
 });
 
@@ -252,6 +267,25 @@ describe("the sampling", () => {
     await flush();
     await nextTick();
     expect(document.querySelector("[data-docker-chart-cpu] path")).not.toBeNull();
+  });
+
+  it("titles each chart with its newest reading, unit and all — the network's is a rate", async () => {
+    statsMock.mockResolvedValue([stat(12.5, 40, 100, 50)]);
+    vi.useFakeTimers();
+    await mount();
+    await nextTick();
+
+    expect(document.querySelector("[data-docker-chart-cpu]")?.textContent).toContain("12.5%");
+    expect(document.querySelector("[data-docker-chart-memory]")?.textContent).toContain("40.0%");
+    expect(document.querySelector("[data-docker-chart-network]")?.textContent).toContain("/s");
+
+    // Two samples make the rate real: 150 bytes moved over the five-second interval.
+    vi.advanceTimersByTime(SAMPLE_INTERVAL_MS);
+    await flush();
+    await nextTick();
+    const network = document.querySelector("[data-docker-chart-network]")?.textContent ?? "";
+    expect(network).toContain("/s");
+    expect(network, "a rate, not the counter").not.toContain("150");
   });
 
   it("samples again every interval while the page is visible", async () => {

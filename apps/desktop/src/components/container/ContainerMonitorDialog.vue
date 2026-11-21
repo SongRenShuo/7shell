@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
- * One container's own lines: processor, memory and network, sampled while somebody is looking.
+ * One container's own lines: processor, memory and network, each titled with its newest reading,
+ * sampled while somebody is looking. The visual is the overview's — the same `SparkArea` shell,
+ * the same readings beside the titles — so a container and its engine disagree only in numbers.
  *
  * The reference manager gives every container a monitor of its own, and the engine already answers
  * per-container stats — the overview's aggregate is the same call with the rows summed, so this
@@ -178,6 +180,22 @@ function netLabel(): string {
   return rate === null ? "—" : `${formatSize(rate)}/s`;
 }
 
+/** The newest sample a series holds, or nothing when the engine has not answered yet. */
+function latestOf(series: readonly number[]): number | null {
+  return series.length === 0 ? null : (series[series.length - 1] ?? null);
+}
+
+/** The readings beside the chart titles: each series' newest sample, with its unit. */
+const cpuReading = computed(() => {
+  const latest = latestOf(cpuSeries.value);
+  return latest === null ? "—" : `${latest.toFixed(1)}%`;
+});
+
+const memoryReading = computed(() => {
+  const latest = latestOf(memorySeries.value);
+  return latest === null ? "—" : `${latest.toFixed(1)}%`;
+});
+
 /**
  * The memory line wears the tier the desktops share, from the reading it has just drawn — the one
  * series here that is a usage. The overview's own line follows the same rule, so a container and
@@ -221,12 +239,19 @@ const memoryTone = computed<"ok" | "warn" | "danger">(() => {
           {{ t("container.monitor.waiting") }}
         </p>
         <div class="grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-3">
-          <SparkArea data-container-monitor-cpu :label="t('container.monitor.cpu')" :values="cpuSeries" tone="accent" />
+          <SparkArea
+            data-container-monitor-cpu
+            :label="t('container.monitor.cpu')"
+            :values="cpuSeries"
+            tone="accent"
+            :value="cpuReading"
+          />
           <SparkArea
             data-container-monitor-memory
             :label="t('container.monitor.memory')"
             :values="memorySeries"
             :tone="memoryTone"
+            :value="memoryReading"
           />
           <SparkArea
             data-container-monitor-network
