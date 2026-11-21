@@ -18,7 +18,9 @@ use std::time::Duration;
 use russh::keys;
 use russh::server::{Auth, Config as ServerConfig, Handler as ServerHandler, Server as _, Session};
 use sevenshell_error::ErrorCode;
-use sevenshell_ssh::{Credential, OpenRequest, Purpose, Route, SshSession, Target, TerminalSize, generate};
+use sevenshell_ssh::{
+    ChannelHolder, Credential, OpenRequest, Purpose, Route, SshSession, Target, TerminalSize, generate,
+};
 use sevenshell_types::{KeyAlgorithm, PresentedHostKey};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -318,4 +320,177 @@ async fn a_refused_channel_open_is_answered_with_the_session_slot_semantics() {
         1,
         "the refusal came from the server, not from this side"
     );
+}
+
+/// A held stream is counted under its holder, and the count comes back when the stream ends.
+///
+/// This is the ledger's whole job: the count has to match the channel's life exactly, or the
+/// budget refuses opens the server would have taken.
+#[tokio::test]
+async fn a_held_stream_is_counted_and_its_slot_comes_back_when_it_ends() {
+    let lab = Lab::start(ChannelOpen::Accept, Command::Hangs).await;
+    let session = a_carrier(&lab).await;
+    assert_eq!(session.channel_budget().held, 0, "an idle connection holds nothing");
+
+    let stream = session
+        .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
+        .await
+        .expect("the stream opens");
+    let budget = session.channel_budget();
+    assert_eq!(budget.held, 1, "the held stream is counted");
+    assert_eq!(budget.free, budget.limit - 1);
+    assert_eq!(budget.holders.get(&ChannelHolder::Logs), Some(&1));
+
+    // The stream ends the way a stopped log follow ends: the value goes away, and the Close it
+    // sends is what the server sees — the slot is the ledger's mirror of that.
+    drop(stream);
+    lab.until(1, |counts| counts.closes.load(Ordering::Relaxed), "closes")
+        .await;
+    assert_eq!(session.channel_budget().held, 0, "the ended stream released its slot");
+
+    // The room is real: the next open is taken, not refused.
+    let again = session
+        .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
+        .await
+        .expect("the room came back");
+    assert_eq!(session.channel_budget().held, 1);
+    drop(again);
+    lab.until(2, |counts| counts.closes.load(Ordering::Relaxed), "closes")
+        .await;
+}
+
+/// An open that would cross the ceiling is refused by this side, before the server sees it.
+///
+/// The refusal names the arithmetic (n over the ceiling) and the holders — and the lab's own
+/// counter proves the refused ask never reached the wire.
+#[tokio::test]
+async fn an_open_over_the_ceiling_is_refused_here_and_never_reaches_the_server() {
+    let lab = Lab::start(ChannelOpen::Accept, Command::Hangs).await;
+    let session = a_carrier(&lab).await;
+
+    let mut streams = Vec::new();
+    for _ in 0..session.channel_budget().limit {
+        streams.push(
+            session
+                .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
+                .await
+                .expect("each open under the ceiling"),
+        );
+    }
+    assert_eq!(
+        lab.counts.execs.load(Ordering::Relaxed),
+        session.channel_budget().limit as u32,
+        "the lab started one command per open"
+    );
+
+    let error = match session.open_exec_stream("cat /proc/uptime", ChannelHolder::Logs).await {
+        Ok(_) => panic!("the ceiling is reached, so this open is refused by the budget"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code(), ErrorCode::SshChannelRefused);
+    assert_eq!(
+        error.message_params().get("held").map(String::as_str),
+        Some("8"),
+        "the refusal names how full the connection is: {:?}",
+        error.message_params()
+    );
+    assert_eq!(error.message_params().get("limit").map(String::as_str), Some("8"));
+    assert_eq!(
+        error.diagnostics().get("holders").map(String::as_str),
+        Some("logs:8"),
+        "the refusal lists who holds what: {:?}",
+        error.diagnostics()
+    );
+    assert_eq!(
+        lab.counts.execs.load(Ordering::Relaxed),
+        session.channel_budget().limit as u32,
+        "the refused open never reached the server"
+    );
+    assert_eq!(
+        session.channel_budget().held,
+        session.channel_budget().limit,
+        "the refusal held nothing"
+    );
+
+    // The room comes back the moment the streams end.
+    drop(streams);
+    lab.until(
+        session.channel_budget().limit as u32,
+        |counts| counts.closes.load(Ordering::Relaxed),
+        "closes",
+    )
+    .await;
+    assert_eq!(session.channel_budget().held, 0);
+}
+
+/// An exhausted budget yields the events stream first, and the new open takes the freed slot.
+///
+/// The events stream is the designated yielder: the cheapest thing to lose, and the one most
+/// likely to have been open for hours. Its owner registers the stop; the budget runs it, the
+/// slot comes back, and what asked for the channel gets it.
+#[tokio::test]
+async fn an_exhausted_budget_yields_the_events_stream_and_the_new_open_takes_its_slot() {
+    let lab = Lab::start(ChannelOpen::Accept, Command::Hangs).await;
+    let session = a_carrier(&lab).await;
+
+    let events_stream = session
+        .open_exec_stream("docker events --format '{{json .}}'", ChannelHolder::Events)
+        .await
+        .expect("the events stream opens");
+    let mut fillers = Vec::new();
+    for _ in 1..session.channel_budget().limit {
+        fillers.push(
+            session
+                .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
+                .await
+                .expect("each filler under the ceiling"),
+        );
+    }
+    assert_eq!(session.channel_budget().free, 0, "the connection is exactly full");
+
+    // The hook is the events stream's own stop: the value goes away, the Close travels, the
+    // slot comes back. An `Option` under a mutex because the hook is callable many times and
+    // the stream leaves it on the first call.
+    let stopped: Arc<std::sync::Mutex<Option<_>>> = Arc::new(std::sync::Mutex::new(Some(events_stream)));
+    let hook_stopped = Arc::clone(&stopped);
+    session.set_events_yield_hook(Some(Arc::new(move || {
+        if let Some(stream) = hook_stopped.lock().expect("not poisoned").take() {
+            drop(stream);
+        }
+        Box::pin(async {})
+    })));
+
+    let opened = session
+        .open_exec_stream("cat /proc/uptime", ChannelHolder::Logs)
+        .await
+        .expect("the yield made room");
+    assert_eq!(
+        stopped.lock().expect("not poisoned").is_none(),
+        true,
+        "the hook ran and the events stream went"
+    );
+    let budget = session.channel_budget();
+    assert_eq!(budget.held, budget.limit, "the new open took the freed slot");
+    assert_eq!(
+        budget.holders.get(&ChannelHolder::Events),
+        None,
+        "the events stream is gone"
+    );
+    assert_eq!(
+        budget.holders.get(&ChannelHolder::Logs),
+        Some(&budget.limit),
+        "the freed slot went to the new log stream"
+    );
+    // The yielded stream's Close is the one this side sent so far; the fillers are still held.
+    lab.until(1, |counts| counts.closes.load(Ordering::Relaxed), "closes")
+        .await;
+
+    // Every stream that ends gives its slot back — the yield's accounting holds to the last one.
+    let total_opens = budget.limit as u32;
+    drop(opened);
+    drop(fillers);
+    session.set_events_yield_hook(None);
+    lab.until(total_opens, |counts| counts.closes.load(Ordering::Relaxed), "closes")
+        .await;
+    assert_eq!(session.channel_budget().held, 0);
 }

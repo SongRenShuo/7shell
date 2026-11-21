@@ -8,6 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,9 +17,11 @@ use russh::client::{self, Config, DisconnectReason, Handle, KeyboardInteractiveA
 use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect, Preferred, SshId, kex};
 use sevenshell_error::ShellError;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::Purpose;
-use crate::route::{BoxedStream, Route};
+use crate::budget::{ChannelHolder, ChannelLedger, HeldChannel, HeldChannels, YieldHook};
+use crate::route::{BoxedStream, Route, TunnelStream};
 use sevenshell_types::PRODUCT_NAME;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc;
@@ -89,12 +92,45 @@ pub struct SshSession {
     /// the arriving channel's port up and passes the channel through, and a port with no entry is
     /// refused — nothing on this connection asked for it.
     pub(crate) remote_accepts: Arc<Mutex<HashMap<u16, mpsc::Sender<Channel<Msg>>>>>,
+    /// The channel budget this connection keeps: who holds how many, and whether one more may
+    /// open. Every session channel this side opens is counted here, and an open that would cross
+    /// the ceiling is refused before the server ever sees it.
+    ledger: Arc<ChannelLedger>,
+    /// The slot the terminal's own channel holds, when this connection opened as a terminal. The
+    /// ledger counts it like any other, and it is released when the connection ends.
+    _terminal_held: Option<HeldChannel>,
 }
 
 impl SshSession {
     /// The host and port this connection is on, for messages that name where the problem is.
     pub fn peer(&self) -> (&str, u16) {
         (&self.host, self.port)
+    }
+
+    /// How full this connection's channel budget is, and who is holding the rest.
+    ///
+    /// A caller about to open several streams — a merged log view is the one that does — reads
+    /// this first and opens as many as there is room for, instead of walking into refusals.
+    pub fn channel_budget(&self) -> HeldChannels {
+        self.ledger.snapshot()
+    }
+
+    /// Registers the connection's events stream yield hook, or clears it.
+    ///
+    /// The hook is the events stream's own stop, provided by whoever owns the stream: when a
+    /// later open would cross the budget and the events stream is the cheapest holder, the
+    /// budget closes the stream through this hook and gives its slot to the new ask. One
+    /// connection follows at most one events stream, so one slot holds the hook.
+    pub fn set_events_yield_hook(&self, hook: Option<YieldHook>) {
+        self.ledger.set_yield_hook(hook);
+    }
+
+    /// Takes a budget slot for `holder`, or refuses with the budget envelope.
+    ///
+    /// Every session channel open goes through here before it goes through the wire, so the
+    /// count and the server's view stay one decision apart.
+    pub(crate) async fn acquire_channel(&self, holder: ChannelHolder, what: &str) -> Result<HeldChannel, ShellError> {
+        self.ledger.acquire(holder, &self.host, self.port, what).await
     }
 
     /// Verifies the host key, authenticates, and opens a shell channel with a pty.
@@ -194,15 +230,25 @@ impl SshSession {
         outcome
     }
 
-    /// Opens a session channel with nothing requested on it.
+    /// Opens a session channel with nothing requested on it, under the budget.
     ///
     /// The thing that is asked for next is what makes a channel a terminal, an sftp subsystem or a
-    /// command; the channel itself is the same, so it is opened in one place.
-    pub(crate) async fn open_session_channel_for(&self, what: &str) -> Result<Channel<Msg>, ShellError> {
-        self.handle
-            .channel_open_session()
-            .await
-            .map_err(|error| self.channel_failure(&format!("a channel for {what} could not be opened"), &error))
+    /// command; the channel itself is the same, so it is opened in one place. The budget slot is
+    /// taken before the open is sent — a refusal here never reaches the server — and handed back
+    /// beside the channel, because the slot is held exactly as long as the channel is.
+    pub(crate) async fn open_session_channel_for(
+        &self,
+        what: &str,
+        holder: ChannelHolder,
+    ) -> Result<(Channel<Msg>, HeldChannel), ShellError> {
+        let held = self.acquire_channel(holder, &format!("a channel for {what}")).await?;
+        let channel = match self.handle.channel_open_session().await {
+            Ok(channel) => channel,
+            Err(error) => {
+                return Err(self.channel_failure(&format!("a channel for {what} could not be opened"), &error));
+            }
+        };
+        Ok((channel, held))
     }
 
     /// Opens a subsystem channel — `sftp`, in practice — and hands it over as a byte stream.
@@ -212,11 +258,7 @@ impl SshSession {
     /// seeing the other's traffic. A request that is refused closes the channel before the error
     /// travels, because the stream the caller would have held is the thing that closes it.
     pub async fn open_subsystem_stream(&self, name: &str) -> Result<BoxedStream, ShellError> {
-        let mut channel = self
-            .handle
-            .channel_open_session()
-            .await
-            .map_err(|error| self.channel_failure(&format!("a channel for {name} could not be opened"), &error))?;
+        let (mut channel, held) = self.open_session_channel_for(name, ChannelHolder::Exec).await?;
 
         // A reply is asked for so a server without the subsystem says so, instead of the caller
         // waiting for output that will never come.
@@ -226,7 +268,10 @@ impl SshSession {
             return Err(error);
         }
 
-        Ok(Box::new(channel.into_stream()))
+        Ok(Box::new(GuardedStream {
+            inner: Box::new(channel.into_stream()),
+            _held: held,
+        }))
     }
 
     /// Opens a command as a stream that can be written to as well as read from.
@@ -236,8 +281,11 @@ impl SshSession {
     /// channel differs — it is a session channel with one command on it — so it is opened here,
     /// beside the other channel shapes, and handed over as bytes. A start that is refused closes
     /// the channel, for the same reason a refused subsystem does.
-    pub async fn open_exec_stream(&self, command: &str) -> Result<BoxedStream, ShellError> {
-        let mut channel = self.open_session_channel_for("a command").await?;
+    ///
+    /// The `holder` names the feature that will hold the channel for its life — a log follow, the
+    /// engine's events, a tar listing — because the budget's diagnostics speak in those words.
+    pub async fn open_exec_stream(&self, command: &str, holder: ChannelHolder) -> Result<BoxedStream, ShellError> {
+        let (mut channel, held) = self.open_session_channel_for("a command", holder).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
@@ -249,7 +297,10 @@ impl SshSession {
             close_channel_quietly(&mut channel).await;
             return Err(error);
         }
-        Ok(Box::new(channel.into_stream()))
+        Ok(Box::new(GuardedStream {
+            inner: Box::new(channel.into_stream()),
+            _held: held,
+        }))
     }
 
     /// Opens a channel to a host as it is seen from the far side of this connection.
@@ -357,6 +408,16 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
     drop(credential);
 
     let closing = Arc::new(AtomicBool::new(false));
+    // The budget is a fact about this connection alone, created before any channel of its own is
+    // opened so the terminal's channel is counted like every later one.
+    let ledger = Arc::new(ChannelLedger::default());
+    let terminal_held =
+        match purpose {
+            Purpose::Carrier => None,
+            Purpose::Terminal => Some(ledger.try_acquire(ChannelHolder::Pty).ok_or_else(|| {
+                ledger.refusal(&target.host, target.port, "a session channel for the terminal", None)
+            })?),
+        };
     let (channel, reader) = match purpose {
         Purpose::Carrier => (None, None),
         Purpose::Terminal => {
@@ -398,6 +459,8 @@ async fn open_connection(request: OpenRequest, events: Sender<ChannelEvent>) -> 
         port: target.port,
         upstream,
         remote_accepts,
+        ledger,
+        _terminal_held: terminal_held,
     })
 }
 
@@ -554,6 +617,48 @@ pub(crate) async fn close_channel_quietly(channel: &mut Channel<Msg>) {
 fn keep_first(outcome: &mut Result<(), ShellError>, step: Result<(), ShellError>) {
     if let (true, Err(error)) = (outcome.is_ok(), step) {
         *outcome = Err(error);
+    }
+}
+
+/// A channel handed over as a byte stream, with the budget slot riding on it.
+///
+/// The slot is released when the stream is dropped — which is how a stopped log follow, a closed
+/// file browser or a finished tail ends its channel's hold on the connection's budget. The
+/// delegation is one-to-one: the wrapper exists only so the slot lives exactly as long as the
+/// stream does.
+struct GuardedStream {
+    inner: Box<dyn TunnelStream>,
+    _held: HeldChannel,
+}
+
+impl AsyncRead for GuardedStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for GuardedStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -1365,6 +1470,9 @@ pub struct PtyExecChannel {
     closed: AtomicBool,
     host: String,
     port: u16,
+    /// The budget slot this terminal holds, given back when the terminal ends — by `close` or by
+    /// the drop, whichever comes first, exactly once.
+    held: HeldChannel,
 }
 
 impl PtyExecChannel {
@@ -1458,6 +1566,9 @@ impl PtyExecChannel {
             // end of the terminal.
             reader.abort();
         }
+        // The channel is gone from the server; the budget slot goes with it, and the drop finds
+        // the slot already released.
+        self.held.release();
         outcome
     }
 
@@ -1483,7 +1594,7 @@ impl SshSession {
         columns: u32,
         rows: u32,
     ) -> Result<PtyExecChannel, ShellError> {
-        let mut channel = self.open_session_channel_for("a command").await?;
+        let (mut channel, held) = self.open_session_channel_for("a command", ChannelHolder::Pty).await?;
 
         let early = match self
             .start_pty_command(&mut channel, command, terminal_type, columns, rows)
@@ -1512,6 +1623,7 @@ impl SshSession {
             closed: AtomicBool::new(false),
             host: self.host.clone(),
             port: self.port,
+            held,
         })
     }
 
@@ -1559,7 +1671,7 @@ impl SshSession {
         max_output_bytes: usize,
     ) -> Result<crate::ExecCapture, ShellError> {
         let started = Instant::now();
-        let mut channel = self.open_session_channel_for("a command").await?;
+        let (mut channel, _held) = self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
@@ -1657,7 +1769,7 @@ impl SshSession {
     /// The exit status and the command's own complaints are kept by the reader task, because they
     /// arrive after the last byte and are the only account of why a stream ended early.
     pub async fn open_exec_command(&self, command: &str) -> Result<ExecCommand, ShellError> {
-        let mut channel = self.open_session_channel_for("a command").await?;
+        let (mut channel, held) = self.open_session_channel_for("a command", ChannelHolder::Exec).await?;
         if let Err(error) = channel.exec(true, command.to_owned()).await {
             let error = self.channel_failure(&format!("`{command}` could not be started"), &error);
             close_channel_quietly(&mut channel).await;
@@ -1674,7 +1786,17 @@ impl SshSession {
         let writing = Arc::new(writing);
         let (sender, output) = mpsc::channel(OUTPUT_BACKLOG);
         let tail = Arc::new(Mutex::new(CommandTail::default()));
-        spawn_command_reader(reading, sender, Arc::clone(&tail), early, Arc::clone(&writing));
+        // The slot is shared: the reader holds one, the input half holds the other, and the slot
+        // frees when the last of them ends — a channel whose halves live in two tasks is one
+        // held channel, not two.
+        spawn_command_reader(
+            reading,
+            sender,
+            Arc::clone(&tail),
+            early,
+            Arc::clone(&writing),
+            held.clone(),
+        );
 
         Ok(ExecCommand {
             input: ExecInput {
@@ -1682,6 +1804,7 @@ impl SshSession {
                 ended: AtomicBool::new(false),
                 host: self.host.clone(),
                 port: self.port,
+                _held: held,
             },
             output: ExecOutput { output, tail },
         })
@@ -1718,6 +1841,9 @@ pub struct ExecInput {
     ended: AtomicBool,
     host: String,
     port: u16,
+    /// One of the two holds on the channel's budget slot; the other is with the reader task. The
+    /// slot frees when the last hold ends — the field exists to be held, not to be read.
+    _held: HeldChannel,
 }
 
 impl ExecInput {
@@ -1808,8 +1934,12 @@ fn spawn_command_reader(
     tail: Arc<Mutex<CommandTail>>,
     early: Early,
     writing: Arc<ChannelWriteHalf<Msg>>,
+    held: HeldChannel,
 ) {
     tokio::spawn(async move {
+        // The slot rides with the reader: it is released when this task ends, however it ends —
+        // the channel's own close, or a caller that stopped reading.
+        let _kept_alive = &held;
         for (error, data) in early.chunks {
             if error {
                 record_stderr(&tail, &data);

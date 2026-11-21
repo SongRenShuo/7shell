@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use sevenshell_error::{ErrorCode, ShellError};
+use sevenshell_ssh::ChannelHolder;
 use sevenshell_types::{
     ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest,
     ContainerDetail, ContainerDiskUsage, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer,
@@ -45,7 +46,7 @@ trait CommandRunner: Send + Sync {
     async fn run(&self, argv: &[String]) -> Result<String, ShellError>;
     async fn run_stdin(&self, argv: &[String], input: Vec<u8>) -> Result<String, ShellError>;
     async fn stream_stdin(&self, argv: &[String], input: InputStream) -> Result<String, ShellError>;
-    async fn stream(&self, argv: &[String]) -> Result<LineStream, ShellError>;
+    async fn stream(&self, holder: ChannelHolder, argv: &[String]) -> Result<LineStream, ShellError>;
     async fn open_pty(&self, argv: &[String], columns: u32, rows: u32) -> Result<PtySession, ShellError>;
 }
 
@@ -63,8 +64,8 @@ impl CommandRunner for Runner {
         Runner::run_stream_stdin(self, argv, input).await
     }
 
-    async fn stream(&self, argv: &[String]) -> Result<LineStream, ShellError> {
-        Runner::stream(self, argv).await
+    async fn stream(&self, holder: ChannelHolder, argv: &[String]) -> Result<LineStream, ShellError> {
+        Runner::stream(self, holder, argv).await
     }
 
     async fn open_pty(&self, argv: &[String], columns: u32, rows: u32) -> Result<PtySession, ShellError> {
@@ -269,7 +270,7 @@ impl Provider {
         request: &ContainerImageTransfer,
     ) -> Result<LineStream, ShellError> {
         let argv = commands::transfer(self.runtime, &self.namespace, direction, request)?;
-        self.runner.stream(&argv).await
+        self.runner.stream(ChannelHolder::Exec, &argv).await
     }
 
     /// The two host commands are two calls, so they get two names; the argv is the same builder.
@@ -493,7 +494,7 @@ impl Provider {
     /// Follows a container's log from now on. The caller owns the stream and stops it.
     pub async fn logs(&self, id: &str, tail: u32, timestamps: bool) -> Result<LineStream, ShellError> {
         let argv = commands::logs(self.runtime, &self.namespace, id, tail, true, timestamps)?;
-        self.runner.stream(&argv).await
+        self.runner.stream(ChannelHolder::Logs, &argv).await
     }
 
     /// Follows the engine's event stream from now on, one wire-shaped JSON document per line.
@@ -504,7 +505,7 @@ impl Provider {
     /// nobody, which is the parser's usual answer to a row it cannot use.
     pub async fn events(&self) -> Result<LineStream, ShellError> {
         let argv = commands::events(self.runtime, &self.namespace)?;
-        let stream = self.runner.stream(&argv).await?;
+        let stream = self.runner.stream(ChannelHolder::Events, &argv).await?;
         Ok(stream.mapped(|line| parse::container_event(&line).and_then(|event| serde_json::to_string(&event).ok())))
     }
 
@@ -687,7 +688,7 @@ impl Provider {
         if detach {
             self.runner.run(&argv).await.map(|_| None)
         } else {
-            self.runner.stream(&argv).await.map(Some)
+            self.runner.stream(ChannelHolder::Exec, &argv).await.map(Some)
         }
     }
 
@@ -704,7 +705,7 @@ impl Provider {
     /// Follows one project's logs, newest tail first, from now on. The caller owns the stream.
     pub async fn compose_logs(&self, project: &str, tail: u32) -> Result<LineStream, ShellError> {
         let argv = commands::compose_logs(self.runtime, project, tail)?;
-        self.runner.stream(&argv).await
+        self.runner.stream(ChannelHolder::Logs, &argv).await
     }
 
     /// The argv of an interactive `exec`, for callers that need to see it before running it.
@@ -1129,7 +1130,7 @@ mod tests {
             Ok(self.output.clone())
         }
 
-        async fn stream(&self, argv: &[String]) -> Result<LineStream, ShellError> {
+        async fn stream(&self, _holder: ChannelHolder, argv: &[String]) -> Result<LineStream, ShellError> {
             self.record(argv);
             let (_sender, receiver) = tokio::sync::mpsc::channel(1);
             Ok(LineStream::new(receiver, || {}))

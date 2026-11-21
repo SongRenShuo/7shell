@@ -461,7 +461,9 @@ impl SshSession {
     ) -> Result<TransferReport, ShellError> {
         let command = download_command(remote_path, options)?;
         let transfer = async {
-            let stream = self.open_exec_stream(&command).await?;
+            let stream = self
+                .open_exec_stream(&command, crate::budget::ChannelHolder::Exec)
+                .await?;
             receive(stream, remote_path, into, options, progress).await
         };
         match tokio::time::timeout(timeout, transfer).await {
@@ -481,7 +483,9 @@ impl SshSession {
     ) -> Result<TransferReport, ShellError> {
         let command = upload_command(remote_directory, options)?;
         let transfer = async {
-            let stream = self.open_exec_stream(&command).await?;
+            let stream = self
+                .open_exec_stream(&command, crate::budget::ChannelHolder::Exec)
+                .await?;
             send(stream, source, remote_directory, options, progress).await
         };
         match tokio::time::timeout(timeout, transfer).await {
