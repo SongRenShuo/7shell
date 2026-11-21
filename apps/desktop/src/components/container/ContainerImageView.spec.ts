@@ -19,7 +19,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerRuntimeInfo: vi.fn(async () => null).mockRejectedValue(new Error("no info")),
   containerNamespaces: vi.fn(async () => []),
   containerSetNamespace: vi.fn(async () => {}),
-  containerAction: vi.fn(async () => {}),
+  containerAction: vi.fn(async () => "done"),
   containerRename: vi.fn(async () => {}),
   containerCreate: vi.fn(async () => {}),
   containerInspect: vi.fn(),

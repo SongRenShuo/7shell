@@ -231,9 +231,19 @@ const lines = ref<string[]>([]);
 const backlog = ref<string[]>([]);
 const logFailure = ref<string | null>(null);
 const logEnded = ref(false);
+/** The stream is being reopened for the container it was following: the view says so while it waits. */
+const logReconnecting = ref(false);
 const body = ref<HTMLElement | null>(null);
 let logStream: string | null = null;
 let logGeneration = 0;
+/** How often the view asks whether the container it was following is back. */
+const RESTART_POLL_MS = 1_000;
+/** How long a stopped container's log view waits for it before it settles on the manual button. */
+const RESTART_WINDOW_MS = 30_000;
+/** Auto-reopens that ended without a single line are a stream that cannot hold on: stop trying. */
+const RESTART_MAX_CONSECUTIVE_FAILURES = 3;
+let restartTimer: number | null = null;
+let autoReopensWithoutLines = 0;
 
 const tailOptions = computed(() => LOG_TAILS.map((count) => ({ value: String(count), label: String(count) })));
 
@@ -246,6 +256,7 @@ function scrollToEnd(): void {
 }
 
 function receive(line: string): void {
+  autoReopensWithoutLines = 0;
   if (paused.value) {
     appendLogLine(backlog.value, line);
     return;
@@ -254,8 +265,16 @@ function receive(line: string): void {
   scrollToEnd();
 }
 
+function cancelRestartWatch(): void {
+  if (restartTimer !== null) {
+    window.clearInterval(restartTimer);
+    restartTimer = null;
+  }
+}
+
 async function stopLogs(): Promise<void> {
   logGeneration += 1;
+  cancelRestartWatch();
   const stream = logStream;
   logStream = null;
   if (stream !== null) {
@@ -263,7 +282,65 @@ async function stopLogs(): Promise<void> {
   }
 }
 
-async function startLogs(): Promise<void> {
+/**
+ * Watches for the container the stream was following to come back, and reopens the stream once it
+ * has.
+ *
+ * `docker logs -f` ends when the container stops — a restart, a crash, a compose down. The honest
+ * reading of the ended stream is "the thing it was reading stopped", so the view asks the list (which
+ * the engine's own event stream keeps current) whether the container is running again, and reopens
+ * when it is. One reopen per end, and only for the window below: a container that never comes back
+ * leaves the view at the ended sentence and its manual restart button.
+ */
+function watchForRestart(generation: number): void {
+  cancelRestartWatch();
+  const target = props.target;
+  if (!target) {
+    return;
+  }
+  const deadline = Date.now() + RESTART_WINDOW_MS;
+  restartTimer = window.setInterval(() => {
+    if (generation !== logGeneration || props.mode !== "logs") {
+      cancelRestartWatch();
+      return;
+    }
+    const current = containers
+      .sessionFor(props.tabId)
+      ?.containers.find((container) => container.id === target.id);
+    if (current?.state === "running") {
+      cancelRestartWatch();
+      void autoReopen(generation);
+      return;
+    }
+    if (Date.now() > deadline) {
+      cancelRestartWatch();
+    }
+  }, RESTART_POLL_MS);
+}
+
+/**
+ * The one automatic reopen a stopped stream is allowed.
+ *
+ * A stream that ends again without a single line having arrived is not a restart: it is a stream
+ * that cannot hold on. Three of those in a row hands the view back to the person, with the manual
+ * button that was always there.
+ */
+async function autoReopen(previousGeneration: number): Promise<void> {
+  if (previousGeneration !== logGeneration) {
+    return;
+  }
+  logReconnecting.value = true;
+  try {
+    await startLogs(true);
+  } finally {
+    // The waiting sentence is the reopen's own: it ends when the reopen does, whatever became of
+    // the stream it opened.
+    logReconnecting.value = false;
+  }
+}
+
+/** `auto` marks a reopen the view made by itself, whose ends count against the automatic limit. */
+async function startLogs(auto = false): Promise<void> {
   await stopLogs();
   const target = props.target;
   lines.value = [];
@@ -285,9 +362,19 @@ async function startLogs(): Promise<void> {
         logStream = null;
         if (error) {
           logFailure.value = error;
-        } else {
-          logEnded.value = true;
+          return;
         }
+        logEnded.value = true;
+        if (auto) {
+          // A reopen that ended without a single line is a stream that cannot hold on; three of
+          // those in a row are the limit, and the manual button takes it from there. A line resets
+          // the count — see `receive` — because a stream that carried logs is holding.
+          autoReopensWithoutLines += 1;
+          if (autoReopensWithoutLines >= RESTART_MAX_CONSECUTIVE_FAILURES) {
+            return;
+          }
+        }
+        watchForRestart(generation);
       },
     });
     if (generation !== logGeneration || props.mode !== "logs") {
@@ -516,6 +603,14 @@ onBeforeUnmount(() => {
             <RotateCw :size="11" />
           </button>
           <span v-if="paused" class="text-[10px] text-muted-foreground">{{ t("container.logs.paused") }}</span>
+          <span
+            v-if="logReconnecting"
+            class="flex items-center gap-1 text-[10px] text-muted-foreground"
+            data-logs-reconnecting
+          >
+            <LoaderCircle :size="10" class="animate-spin" />
+            {{ t("container.logs.reconnecting") }}
+          </span>
         </div>
 
         <p
