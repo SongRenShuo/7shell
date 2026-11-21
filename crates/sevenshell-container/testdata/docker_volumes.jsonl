@@ -1,0 +1,4 @@
+{"Availability":null,"CreatedAt":"2026-11-10T10:00:00+08:00","Driver":"local","Labels":null,"Links":null,"Mountpoint":"/var/lib/docker/volumes/site-data/_data","Name":"site-data","Scope":"local","Size":"1.5GB","UsageData":{"Size":"1.5GB","RefCount":1}}
+{"Availability":null,"CreatedAt":"2026-11-19T08:12:44+08:00","Driver":"local","Labels":null,"Links":null,"Mountpoint":"/var/lib/docker/volumes/cache-vol/_data","Name":"cache-vol","Scope":"local","Size":"0B","UsageData":{"Size":"0B","RefCount":0}}
+{"Availability":null,"Driver":"local","Labels":null,"Mountpoint":"/var/lib/docker/volumes/legacy/_data","Name":"legacy","Scope":"local"}
+{"Availability":null,"Driver":"nfs","Labels":{"team":"infra"},"Mountpoint":"/mnt/nfs/share","Name":"nfs-share","Scope":"local"}

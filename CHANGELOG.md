@@ -25,6 +25,27 @@ All notable changes to 7Shell are documented in this file. The format is
   with the count read on the button while it runs and the list usable the whole way (37acbb1).
 - A sweep that finds a newer image tells the notification centre, in its own images group, once per
   finding; re-running the sweep does not repeat what it already said (37acbb1).
+- The Docker window has a cleanup page: the engine's own `system df` reading comes first — four
+  rows, each with what it occupies and what the engine says it could give back — and the prunes sit
+  beside the numbers they would change, one checkbox per tier with the volumes tier out by default
+  and its warning said beside it; every destructive flag leaves only the page's own confirm, one
+  refused tier does not stop the others, and the reading is taken again when the run is over,
+  which is the receipt (d742917).
+- The Docker window reads its volumes: name, driver, mountpoint, and the size when the daemon
+  prints one at all — no create anywhere on the page, and a volume a container still mounts is
+  refused by the engine, its own sentence kept on the strip beside the catalogue's rendering
+  (d742917).
+- A container row's menu carries "upgrade": the transaction pulls the image reference first and
+  nothing destructive happens until the pull has answered — a pull that fails or says up to date
+  leaves the old container untouched — then stops, removes, and creates the replacement from the
+  parameters the inspect read back, item by item; a run that fails past the removal keeps the
+  original request for a retry, and the original image is still on the engine for a manual way
+  back (d742917).
+- The desktop Docker engine answers the lifecycle words behind that page: `system df` and
+  `volume ls` as reads, and the tiered prunes — stopped containers, unmounted volumes (bare, never
+  `--all`), dangling build cache, one named volume at a time — each destructive word behind an
+  acknowledged flag and its own journal entry, with the volumes capability probed once at engine
+  open and `run --entrypoint` carried for the upgrade (22dfd8f).
 
 ### Fixed
 

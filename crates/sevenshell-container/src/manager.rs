@@ -18,9 +18,9 @@ use async_trait::async_trait;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
     ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest,
-    ContainerDetail, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin,
-    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerSummary, ImageLayer,
-    NetworkCreateRequest, NetworkSummary,
+    ContainerDetail, ContainerDiskUsage, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer,
+    ContainerPruneReport, ContainerRegistryLogin, ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo,
+    ContainerStats, ContainerSummary, ImageLayer, NetworkCreateRequest, NetworkSummary, VolumeSummary,
 };
 
 use crate::commands::{self, ImageTransfer};
@@ -527,6 +527,70 @@ impl Provider {
         self.network_remove(name).await
     }
 
+    // -- Disk usage, volumes, prunes -------------------------------------------
+    //
+    // The cleanup page's readings and the volumes page's rows. The prunes are reported verbs: what
+    // came back names what the engine took and what it says it gave back, so the page can put a
+    // number beside the reading it just changed.
+
+    /// The engine's own disk-usage reading: how much each kind of object occupies and how much of
+    /// it the engine says it could give back. Read-only, and the reading that comes before any
+    /// prune — the page shows the numbers first, and the prunes are offered beside the numbers.
+    pub async fn system_df(&self) -> Result<Vec<ContainerDiskUsage>, ShellError> {
+        let argv = commands::system_df(self.runtime)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::disk_usage(&output))
+    }
+
+    /// Removes the stopped containers, and answers what went with them.
+    pub async fn container_prune(&self) -> Result<ContainerPruneReport, ShellError> {
+        let argv = commands::container_prune(self.runtime)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::prune_report(&output))
+    }
+
+    /// The volumes the engine holds. Read-only; the removal's guardrail is the engine's own
+    /// refusal, which the removal answers with unchanged.
+    pub async fn volume_list(&self) -> Result<Vec<VolumeSummary>, ShellError> {
+        let argv = commands::volume_list(self.runtime)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::volumes(&output))
+    }
+
+    /// Removes one named volume. A volume a container still mounts is refused by the engine
+    /// itself — the CLI's own sentence, passed on unchanged, because it names the volume and the
+    /// reason in the daemon's own words.
+    pub async fn volume_remove(&self, name: &str) -> Result<(), ShellError> {
+        let argv = commands::volume_remove(self.runtime, name)?;
+        self.runner.run(&argv).await.map(|_| ())
+    }
+
+    /// Removes the volumes nothing is mounted from — and never the named ones somebody keeps,
+    /// because the bare prune has no `--all` on its command line.
+    pub async fn volume_prune(&self) -> Result<ContainerPruneReport, ShellError> {
+        let argv = commands::volume_prune(self.runtime)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::prune_report(&output))
+    }
+
+    /// Drops the build cache, and answers what it gave back.
+    pub async fn build_cache_prune(&self) -> Result<ContainerPruneReport, ShellError> {
+        let argv = commands::build_cache_prune(self.runtime)?;
+        let output = self.runner.run(&argv).await?;
+        Ok(parse::prune_report(&output))
+    }
+
+    /// Whether this engine's command line can answer a volume request at all — the bit behind the
+    /// volumes page. One network-free probe, the way the events and Compose bits are answered: a
+    /// CLI that refuses is a capability bit turning off, never an error that would refuse an
+    /// engine the person can otherwise use.
+    pub async fn volumes_available(&self) -> bool {
+        match commands::volume_probe(self.runtime) {
+            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Err(_) => false,
+        }
+    }
+
     // -- Compose -------------------------------------------------------------
     //
     // The Compose plugin rides the same engine; whether it is installed is one cheap probe whose
@@ -860,6 +924,7 @@ mod tests {
     use std::sync::Mutex;
 
     use sevenshell_error::ErrorCode;
+    use sevenshell_types::ContainerDiskUsageKind;
 
     use super::*;
 
@@ -1448,6 +1513,100 @@ mod tests {
                 vec!["docker", "network", "inspect", "mem-net"],
                 vec!["docker", "network", "rm", "mem-net"]
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_disk_reading_volumes_and_prune_reports_reach_the_wire_types() {
+        let df = "{\"Type\":\"Images\",\"Count\":\"8\",\"Size\":\"1.634GB\",\"Reclaimable\":\"1.2GB (74%)\",\"Active\":\"3\"}\n\
+                  {\"Type\":\"Local Volumes\",\"Count\":\"4\",\"Size\":\"1.571GB\",\"Reclaimable\":\"1.547GB (98%)\",\"Active\":\"1\"}\n"
+            .to_owned();
+        let recorder = Arc::new(RecordingRunner {
+            output: df,
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let rows = provider.system_df().await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, ContainerDiskUsageKind::Images);
+        assert_eq!(rows[0].reclaimable, 1_200_000_000);
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec!["docker", "system", "df", "--format", "{{json .}}"]
+        );
+
+        let listing = "{\"Driver\":\"local\",\"Mountpoint\":\"/var/lib/docker/volumes/site-data/_data\",\"Name\":\"site-data\",\"Scope\":\"local\"}\n"
+            .to_owned();
+        let recorder = Arc::new(RecordingRunner {
+            output: listing,
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let volumes = provider.volume_list().await.unwrap();
+        assert_eq!(volumes.len(), 1);
+        assert_eq!(volumes[0].name, "site-data");
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec!["docker", "volume", "ls", "--format", "{{json .}}"]
+        );
+
+        let recorder = Arc::new(RecordingRunner {
+            output: "Deleted Volumes:\ncache-vol\n\nTotal reclaimed space: 1.5GB\n".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let report = provider.volume_prune().await.unwrap();
+        assert_eq!(report.reclaimed, 1_500_000_000);
+        assert_eq!(report.deleted, vec!["cache-vol"]);
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec!["docker", "volume", "prune", "-f"]
+        );
+
+        let recorder = Arc::new(RecordingRunner::default());
+        build_provider(ContainerRuntime::Docker, "", &recorder)
+            .volume_remove("site-data")
+            .await
+            .unwrap();
+        assert_eq!(recorder.calls(), vec![vec!["docker", "volume", "rm", "site-data"]]);
+        // An option-shaped name is refused while it is still a string: no rm ever runs.
+        build_provider(ContainerRuntime::Docker, "", &recorder)
+            .volume_remove("--force")
+            .await
+            .unwrap_err();
+        assert_eq!(recorder.calls(), vec![vec!["docker", "volume", "rm", "site-data"]]);
+    }
+
+    #[tokio::test]
+    async fn the_volume_probe_is_the_bit_and_a_refusal_turns_it_off() {
+        let recorder = Arc::new(RecordingRunner::default());
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        assert!(provider.volumes_available().await);
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec!["docker", "volume", "ls", "--help"],
+            "the probe is network-free: a help read, not a listing"
+        );
+
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        assert!(
+            !provider.volumes_available().await,
+            "a CLI that refuses is a bit turning off"
+        );
+
+        let provider = build_provider(ContainerRuntime::Podman, "", &Arc::new(RecordingRunner::default()));
+        assert!(!provider.volumes_available().await);
+        assert!(
+            build_provider(ContainerRuntime::Podman, "", &Arc::new(RecordingRunner::default()))
+                .volume_list()
+                .await
+                .unwrap_err()
+                .code()
+                == ErrorCode::AppUnsupported
         );
     }
 

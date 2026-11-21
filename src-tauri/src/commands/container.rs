@@ -7,9 +7,10 @@
 
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
-    ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings,
-    ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ImageLayer,
+    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerDiskUsage,
+    ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerPruneReport, ContainerRegistryLogin,
+    ContainerRegistrySettings, ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd, ContainerStreamLine,
+    ContainerSummary, ImageLayer, VolumeSummary,
 };
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_dialog::DialogExt;
@@ -238,6 +239,73 @@ pub async fn container_image_prune(
     acknowledged: bool,
 ) -> Result<(), ShellError> {
     state.core().container_image_prune(&connection_id, acknowledged).await
+}
+
+/// The engine's own disk-usage reading, which the cleanup page draws before any prune is offered.
+#[tauri::command]
+pub async fn system_df(
+    state: State<'_, ShellState>,
+    connection_id: String,
+) -> Result<Vec<ContainerDiskUsage>, ShellError> {
+    state.core().container_system_df(&connection_id).await
+}
+
+/// Removes the stopped containers, and answers what went with them.
+#[tauri::command]
+pub async fn container_prune(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    acknowledged: bool,
+) -> Result<ContainerPruneReport, ShellError> {
+    state.core().container_prune(&connection_id, acknowledged).await
+}
+
+/// The volumes the engine holds — the volumes page's own read.
+#[tauri::command]
+pub async fn volume_list(
+    state: State<'_, ShellState>,
+    connection_id: String,
+) -> Result<Vec<VolumeSummary>, ShellError> {
+    state.core().container_volume_list(&connection_id).await
+}
+
+/// Removes one named volume. A volume a container still mounts is refused by the engine, and the
+/// refusal arrives exactly as the daemon worded it.
+#[tauri::command]
+pub async fn volume_remove(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    name: String,
+    acknowledged: bool,
+) -> Result<(), ShellError> {
+    state
+        .core()
+        .container_volume_remove(&connection_id, &name, acknowledged)
+        .await
+}
+
+/// Removes the volumes nothing is mounted from; the acknowledged flag is the confirm dialog's
+/// answer that unmounted volumes go with it.
+#[tauri::command]
+pub async fn volume_prune(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    acknowledged: bool,
+) -> Result<ContainerPruneReport, ShellError> {
+    state.core().container_volume_prune(&connection_id, acknowledged).await
+}
+
+/// Drops the build cache, and answers what it gave back.
+#[tauri::command]
+pub async fn build_cache_prune(
+    state: State<'_, ShellState>,
+    connection_id: String,
+    acknowledged: bool,
+) -> Result<ContainerPruneReport, ShellError> {
+    state
+        .core()
+        .container_build_cache_prune(&connection_id, acknowledged)
+        .await
 }
 
 #[tauri::command]

@@ -25,6 +25,9 @@ pub(crate) struct DesktopEngineCaps {
     /// Whether the engine's event stream can be followed — the container list's automatic state
     /// updates. A CLI that cannot is a list that keeps its manual refresh, not an error.
     pub(crate) events_available: bool,
+    /// Whether the engine's volume surface can be asked at all — the volumes page. A CLI that
+    /// cannot is a page the rail trims, not an error anyone sees.
+    pub(crate) volume_available: bool,
 }
 
 /// The longest Compose file path, and the longest file body, this surface will carry.
@@ -412,6 +415,7 @@ mod tests {
                 compose_available: true,
                 manifest_inspect_available: false,
                 events_available: false,
+                volume_available: false,
             },
         );
         assert!(core.desktop_engine_caps.lock().await.contains_key("desktop-live"));
