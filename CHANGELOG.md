@@ -8,6 +8,21 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Added
 
+- A connection keeps a channel budget: every session channel it opens is counted under the feature
+  that asked (events, logs, pty, exec) and released when the channel ends, an open that would cross
+  the ceiling of eight is refused before the server sees it with an envelope that names the
+  arithmetic and the holders, and a full budget whose holders include the events stream closes it
+  first and gives its slot to the new ask (4ca2007).
+- The container workspace rides the budget: a merged log view asks how much room is left and opens
+  only the streams it fits — one stream is always attempted, the guests are trimmed with the trim
+  named in the merge panel — and the events stream that yielded tells the interface with its end
+  event, which answers by following the list with a read every ten seconds, saying so on a notice
+  banner, and leaving the reconnect to the person (14635b6).
+- The budget's flows are pinned from the ledger to the drawer: the lab proves the count tracks a
+  held stream through its end, an open over the ceiling never reaches the server, and a full
+  budget yields the events stream and hands its slot on; the interface proves the yield degrades
+  to the ten-second refresh without a reconnect, a non-budget refusal keeps the backoff, and the
+  merge opens only what the room covers with the trim named (b34b87c).
 - The system panel opens onto a services summary — how many units run, how many failed, how many
   neither, the failed count the one that acts and narrows the table to the failures — the rows
   wearing the desktop's status light, the machine's own facts (distribution, kernel, uptime,
