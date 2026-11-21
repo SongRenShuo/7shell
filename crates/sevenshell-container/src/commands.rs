@@ -283,6 +283,22 @@ pub(crate) fn image_history(
     Ok(argv)
 }
 
+/// Every tag one repository has on this engine: the images listing, narrowed by the runtime's own
+/// positional filter to the rows whose repository is the one asked about. A read — the drawer's
+/// tags section lists what the engine holds, and the update question is `image_remote_digest`'s.
+pub(crate) fn image_tags(
+    runtime: ContainerRuntime,
+    namespace: &str,
+    repository: &str,
+) -> Result<Vec<String>, ShellError> {
+    let repository = image_reference("the image tags request", repository)?;
+    let mut argv = base(runtime, namespace);
+    argv.push("images".to_owned());
+    argv.extend(json_format_flag(runtime));
+    argv.push(repository.to_owned());
+    Ok(argv)
+}
+
 pub(crate) fn transfer(
     runtime: ContainerRuntime,
     namespace: &str,
