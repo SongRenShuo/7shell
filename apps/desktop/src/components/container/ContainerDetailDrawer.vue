@@ -304,9 +304,7 @@ function watchForRestart(generation: number): void {
       cancelRestartWatch();
       return;
     }
-    const current = containers
-      .sessionFor(props.tabId)
-      ?.containers.find((container) => container.id === target.id);
+    const current = containers.sessionFor(props.tabId)?.containers.find((container) => container.id === target.id);
     if (current?.state === "running") {
       cancelRestartWatch();
       void autoReopen(generation);
