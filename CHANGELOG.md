@@ -177,6 +177,24 @@ All notable changes to 7Shell are documented in this file. The format is
   Docker pages hold the reference manager's 850px floor — below it the content scrolls sideways
   instead of squeezing every column into a sliver. The application tab's layout is untouched
   (e300612).
+- The Docker window's container list follows its engine by itself: the engine's own event stream
+  (new `container_events_start`, probed once at open into an `eventsAvailable` bit) feeds the list,
+  which reads itself once a burst settles (300ms) and realigns with a forced full read the moment
+  the stream comes back — an engine without the bit keeps the manual refresh and is never polled,
+  a hidden window queues nothing and reads once on return, and an ended stream reconnects on a
+  geometric backoff from 1s to a 30s ceiling (204198b, 057958f).
+- A container's log stream mends itself across a restart: when the follow ends because the
+  container stopped, the drawer watches the list for it running again and reopens by itself,
+  saying so while it waits; three reopens that ended without a single line hand the view back to
+  the person, with the restart button that was always there (057958f).
+- A container action that arrives late is a success with a name, not an error: a stop or remove
+  whose container the engine had already settled, a pause that raced its own pause, answer
+  `AlreadySatisfied` through the whole pipe, and a second click on the same write meets the first
+  call — a double click is one stop, not two (204198b, 057958f).
+- A container row draws the engine's healthcheck verdict beside its state (`ps` gains a `.Health`
+  column; `ContainerSummary.health` stays off the wire when there is no healthcheck), and the
+  overview counts a failing healthcheck inside a running container as an unhealthy engine
+  (204198b, 057958f).
 
 #### The file panel and the batch panel remember how they were used
 

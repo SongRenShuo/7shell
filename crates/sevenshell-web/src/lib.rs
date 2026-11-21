@@ -1354,11 +1354,11 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let container_id: String = from_args(&args, "containerId")?;
             let action: String = from_args(&args, "action")?;
             let acknowledged: bool = from_args(&args, "acknowledged")?;
-            state
+            let outcome = state
                 .core
                 .container_action(&connection_id, &container_id, &action, acknowledged)
                 .await?;
-            Ok(Value::Null)
+            to_value(outcome)
         }
         "container_rename" => {
             let connection_id: String = from_args(&args, "connectionId")?;
@@ -1405,6 +1405,14 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
                 .core
                 .container_logs_start(&connection_id, &container_id, tail, timestamps, events, end)
                 .await?;
+            forward_container_stream(state.events.clone(), lines, ends);
+            Ok(json!(stream_id))
+        }
+        "container_events_start" => {
+            let connection_id: String = from_args(&args, "connectionId")?;
+            let (events, lines) = tokio::sync::mpsc::unbounded_channel();
+            let (end, ends) = tokio::sync::mpsc::unbounded_channel();
+            let stream_id = state.core.container_events_start(&connection_id, events, end).await?;
             forward_container_stream(state.events.clone(), lines, ends);
             Ok(json!(stream_id))
         }

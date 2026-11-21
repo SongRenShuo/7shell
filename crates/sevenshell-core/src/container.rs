@@ -16,9 +16,10 @@ use sevenshell_error::ShellError;
 use sevenshell_policy::PolicyTarget;
 use sevenshell_session::{ForwardedControl, ForwardedSession};
 use sevenshell_types::{
-    ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage, ContainerImageTransfer,
-    ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerStreamEnd,
-    ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction, Protocol, RiskAssessment,
+    ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
+    ContainerImageTransfer, ContainerRegistryLogin, ContainerRuntime, ContainerRuntimeInfo, ContainerStats,
+    ContainerStreamEnd, ContainerStreamLine, ContainerSummary, ContainerTransport, ImageLayer, PolicyAction, Protocol,
+    RiskAssessment,
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -142,6 +143,9 @@ impl Core {
         // verdict is about the command line, not about a registry's mood.
         let provider = Provider::new(ContainerRuntime::Docker, "", runner.clone())?;
         let manifest_inspect_available = provider.remote_digest_available().await;
+        // The events bit decides whether the container list follows the engine by itself or keeps
+        // its manual refresh; the probe is the same network-free shape as the other two.
+        let events_available = provider.events_available().await;
         self.containers.add(id.clone(), provider)?;
         self.desktop_engines
             .lock()
@@ -152,6 +156,7 @@ impl Core {
             crate::compose::DesktopEngineCaps {
                 compose_available,
                 manifest_inspect_available,
+                events_available,
             },
         );
         Ok(id)
@@ -186,14 +191,15 @@ impl Core {
         self.container_provider(connection_id)?.inspect(container_id).await
     }
 
-    /// Runs one container action after the policy verdict for it.
+    /// Runs one container action after the policy verdict for it, and answers what it came back
+    /// as. A race the engine settled first is a success with a name, not an error.
     pub async fn container_action(
         &self,
         connection_id: &str,
         container_id: &str,
         action: &str,
         acknowledged: bool,
-    ) -> Result<(), ShellError> {
+    ) -> Result<ContainerActionOutcome, ShellError> {
         let verdict = sevenshell_policy::container_action(action);
         self.container_gate(
             &format!("container.{action}"),
@@ -263,6 +269,7 @@ impl Core {
             // A desktop engine is Docker by construction, so the network surface is always there.
             info.network_available = true;
             info.manifest_inspect_available = caps.manifest_inspect_available;
+            info.events_available = caps.events_available;
         }
         Ok(info)
     }
@@ -357,6 +364,23 @@ impl Core {
             .container_provider(connection_id)?
             .logs(container_id, tail, timestamps)
             .await?;
+        Ok(self.spawn_container_stream(stream, events, end).await)
+    }
+
+    /// Follows the engine's own event stream, one JSON document per line, so the container list
+    /// can follow the engine instead of being refreshed by hand.
+    ///
+    /// The line is the engine's own document, unfixed — the interface reads the kind, action and
+    /// ids off it, because which events a view cares about is a view question. An engine whose
+    /// CLI has no events surface never gets here: the capability bit keeps the interface from
+    /// asking, and the ask would refuse with `AppUnsupported` in any case.
+    pub async fn container_events_start(
+        &self,
+        connection_id: &str,
+        events: UnboundedSender<ContainerStreamLine>,
+        end: UnboundedSender<ContainerStreamEnd>,
+    ) -> Result<String, ShellError> {
+        let stream = self.container_provider(connection_id)?.events().await?;
         Ok(self.spawn_container_stream(stream, events, end).await)
     }
 

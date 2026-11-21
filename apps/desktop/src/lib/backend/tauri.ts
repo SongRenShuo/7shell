@@ -30,6 +30,7 @@ import type { BatchOutcome, BatchProgress, BatchRequest, RiskAssessment } from "
 import type {
   ComposeProject,
   ComposeServiceRow,
+  ContainerActionOutcome,
   ContainerCommitRequest,
   ContainerCreateRequest,
   ContainerDetail,
@@ -1488,8 +1489,8 @@ export function containerAction(
   containerId: string,
   action: string,
   acknowledged: boolean,
-): Promise<void> {
-  return invoke<void>("container_action", { connectionId, containerId, action, acknowledged });
+): Promise<ContainerActionOutcome> {
+  return invoke<ContainerActionOutcome>("container_action", { connectionId, containerId, action, acknowledged });
 }
 
 export function containerRename(connectionId: string, containerId: string, name: string): Promise<void> {
@@ -1523,6 +1524,11 @@ export function containerLogsStart(
   timestamps: boolean,
 ): Promise<string> {
   return invoke<string>("container_logs_start", { connectionId, containerId, tail, timestamps });
+}
+
+/** Follows the engine's own event stream; the lines are the engine's events in the wire shape. */
+export function containerEventsStart(connectionId: string): Promise<string> {
+  return invoke<string>("container_events_start", { connectionId });
 }
 
 export function containerStreamStop(streamId: string): Promise<void> {

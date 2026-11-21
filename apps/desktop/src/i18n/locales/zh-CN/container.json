@@ -160,6 +160,11 @@
       "renaming": "重命名中…",
       "pulling": "正在拉取…"
     },
+    "healthCheck": {
+      "healthy": "健康",
+      "unhealthy": "不健康",
+      "starting": "启动中"
+    },
     "refresh": "重新读取",
     "dismiss": "关闭这条消息",
     "filesTabName": "{name} 的文件",
@@ -381,7 +386,8 @@
       "empty": "还没有输出。",
       "noErrors": "没有读起来像错误的行。",
       "paused": "已暂停——新行会保留，继续后显示。",
-      "ended": "日志流已结束。"
+      "ended": "日志流已结束。容器重新运行后会自动续上。",
+      "reconnecting": "等待容器重新运行…"
     },
     "image": {
       "pull": "拉取",

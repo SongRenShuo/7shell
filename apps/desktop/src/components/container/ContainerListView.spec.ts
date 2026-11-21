@@ -38,7 +38,7 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerRuntimeInfo: vi.fn(async () => null).mockRejectedValue(new Error("no info")),
   containerNamespaces: vi.fn(async () => []),
   containerSetNamespace: vi.fn(async () => {}),
-  containerAction: vi.fn(async () => {}),
+  containerAction: vi.fn(async () => "done"),
   containerRename: vi.fn(async () => {}),
   containerCreate: vi.fn(async () => {}),
   containerInspect: vi.fn(),
@@ -71,6 +71,7 @@ import { i18n } from "@/i18n";
 import { containerAction, containerExecOpen, filesOpenContainer } from "@/lib/backend/tauri";
 import { useContainerStore, type ContainerSession } from "@/stores/container";
 import { useTerminalsStore, type ContainerTab } from "@/stores/terminals";
+import type { ContainerActionOutcome } from "@/types/container";
 
 const actionMock = vi.mocked(containerAction);
 const execMock = vi.mocked(containerExecOpen);
@@ -151,7 +152,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  actionMock.mockResolvedValue(undefined);
+  actionMock.mockResolvedValue("done");
   execMock.mockResolvedValue("pty-1");
   filesMock.mockClear();
 });
@@ -327,6 +328,31 @@ describe("the desktop layout of the same list", () => {
     expect(exited?.className).toContain("wb-tag--neutral");
   });
 
+  it("draws the healthcheck verdict beside the state, and nothing when the engine said none", async () => {
+    const session = await mountDesktop();
+    expect(rowOf("web")?.querySelector("[data-container-health-badge]"), "no healthcheck, no badge").toBeNull();
+
+    // The engine's verdicts arrive with the list row, in the engine's own words.
+    const web = session.containers[0];
+    const old = session.containers[1];
+    if (!web || !old) {
+      throw new Error("the list never arrived");
+    }
+    session.containers = [
+      { ...web, health: "healthy" },
+      { ...old, state: "running", health: "unhealthy" },
+    ];
+    await nextTick();
+    await showEveryState();
+
+    const badges = [...(host?.querySelectorAll<HTMLElement>("[data-container-health-badge]") ?? [])];
+    expect(badges).toHaveLength(2);
+    expect(badges[0]?.textContent?.trim()).toBe("Healthy");
+    expect(badges[0]?.className).toContain("wb-tag--success");
+    expect(badges[1]?.textContent?.trim()).toBe("Unhealthy");
+    expect(badges[1]?.className).toContain("wb-tag--danger");
+  });
+
   it("keeps the flat table's row untouched when no layout is asked for", async () => {
     await mount();
 
@@ -357,10 +383,10 @@ describe("the desktop layout of the same list", () => {
   });
 
   it("says what a write in flight is doing, on the row it is working on", async () => {
-    let settle: ((value: void) => void) | undefined;
+    let settle: ((value: ContainerActionOutcome) => void) | undefined;
     actionMock.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<ContainerActionOutcome>((resolve) => {
           settle = resolve;
         }),
     );
@@ -374,7 +400,7 @@ describe("the desktop layout of the same list", () => {
     const loading = rowOf("old")?.querySelector("[data-container-row-loading]");
     expect(loading?.textContent?.trim()).toBe("Starting…");
 
-    settle?.();
+    settle?.("done");
     await vi.waitFor(() => {
       expect(rowOf("old")?.querySelector("[data-container-row-loading]")).toBeNull();
     });

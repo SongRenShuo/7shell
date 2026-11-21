@@ -21,11 +21,12 @@ vi.mock("@/lib/backend/tauri", () => ({
   containerRuntimeInfo: vi.fn(),
   containerNamespaces: vi.fn(async () => []),
   containerSetNamespace: vi.fn(async () => {}),
-  containerAction: vi.fn(async () => {}),
+  containerAction: vi.fn(async () => "done"),
   containerRename: vi.fn(async () => {}),
   containerCreate: vi.fn(async () => {}),
   containerInspect: vi.fn(),
   containerLogsStart: vi.fn(),
+  containerEventsStart: vi.fn(),
   containerStreamStop: vi.fn(async () => {}),
   containerExecOpen: vi.fn(),
   containerImageInspect: vi.fn(),
@@ -45,6 +46,7 @@ import {
   containerAction,
   containerConnect,
   containerDisconnect,
+  containerEventsStart,
   containerImageCommit,
   containerImagePull,
   containerImages,
@@ -61,6 +63,11 @@ import {
   appendLogLine,
   applyImageProgress,
   CONTAINER_ACTIONS,
+  EVENT_RECONNECT_BASE_MS,
+  EVENT_RECONNECT_MAX_MS,
+  EVENT_REFRESH_DEBOUNCE_MS,
+  eventMovesList,
+  eventsReconnectDelay,
   filterContainers,
   filterImages,
   imageProgressPercent,
@@ -69,6 +76,7 @@ import {
   LOG_LINE_LIMIT,
   matchesImage,
   parseByteSize,
+  parseEngineEvent,
   relatedContainers,
   shortId,
   splitLogLine,
@@ -84,6 +92,7 @@ import {
 } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
 import type {
+  ContainerActionOutcome,
   ContainerImage,
   ContainerRuntimeInfo,
   ContainerStreamEnd,
@@ -100,6 +109,7 @@ const infoMock = vi.mocked(containerRuntimeInfo);
 const namespaceSetMock = vi.mocked(containerSetNamespace);
 const actionMock = vi.mocked(containerAction);
 const logsStartMock = vi.mocked(containerLogsStart);
+const eventsStartMock = vi.mocked(containerEventsStart);
 const streamStopMock = vi.mocked(containerStreamStop);
 const pullMock = vi.mocked(containerImagePull);
 const commitMock = vi.mocked(containerImageCommit);
@@ -224,6 +234,7 @@ beforeEach(() => {
   imagesMock.mockResolvedValue([image()]);
   infoMock.mockResolvedValue(runtimeInfo());
   logsStartMock.mockResolvedValue("log-1");
+  eventsStartMock.mockResolvedValue("events-1");
   pullMock.mockResolvedValue("pull-1");
   streamStopMock.mockResolvedValue(undefined);
 
@@ -425,6 +436,93 @@ describe("container store streams", () => {
   });
 });
 
+describe("the engine's event stream", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets the store's un-awaited event open finish: its chain is microtasks only. */
+  async function flushOpens(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function infoWithEvents(): ContainerRuntimeInfo {
+    return { ...runtimeInfo(), eventsAvailable: true };
+  }
+
+  it("follows an engine that has events: subscribes once, realigns on open, and refreshes after a burst", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    expect(eventsStartMock).toHaveBeenCalledTimes(1);
+    expect(eventsStartMock).toHaveBeenCalledWith("conn-1");
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBe("events-1");
+    const readsAfterConnect = listMock.mock.calls.length;
+
+    // A burst of events (one restart dies and is destroyed) is one read, not one per event.
+    emitLine("events-1", JSON.stringify({ eventType: "container", action: "die", id: "abc" }));
+    emitLine("events-1", JSON.stringify({ eventType: "container", action: "destroy", id: "abc" }));
+    expect(listMock.mock.calls.length, "the burst has not settled yet").toBe(readsAfterConnect);
+    await vi.advanceTimersByTimeAsync(EVENT_REFRESH_DEBOUNCE_MS + 10);
+    expect(listMock.mock.calls.length).toBe(readsAfterConnect + 1);
+
+    // An image event names nothing a container row shows, so the list does not move for it.
+    emitLine("events-1", JSON.stringify({ eventType: "image", action: "pull", id: "sha256:beef" }));
+    await vi.advanceTimersByTimeAsync(EVENT_REFRESH_DEBOUNCE_MS + 10);
+    expect(listMock.mock.calls.length).toBe(readsAfterConnect + 1);
+  });
+
+  it("reconnects an ended stream with a growing delay and realigns once it is back", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    eventsStartMock.mockClear();
+    eventsStartMock.mockResolvedValueOnce("events-1").mockResolvedValueOnce("events-2");
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    emitEnd("events-1");
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBeNull();
+
+    // The first wait is the base: nothing happens just before it, the ask goes out at it.
+    await vi.advanceTimersByTimeAsync(EVENT_RECONNECT_BASE_MS - 10);
+    expect(eventsStartMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(eventsStartMock).toHaveBeenCalledTimes(2);
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBe("events-2");
+    // The read that converges what the broken stream missed is forced, even over a read in flight.
+    expect(listMock).toHaveBeenCalledWith("conn-1");
+  });
+
+  it("an engine without the events bit is never asked, and never becomes a poll", async () => {
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    expect(eventsStartMock).not.toHaveBeenCalled();
+    expect(engine.sessionFor("tab-1")?.eventsStreamId).toBeNull();
+    expect(engine.sessionFor("tab-1")?.error).toBeNull();
+  });
+
+  it("lets go of the stream and its timers when the tab goes away", async () => {
+    infoMock.mockResolvedValue(infoWithEvents());
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await flushOpens();
+
+    engine.forget("tab-1");
+    await vi.advanceTimersByTimeAsync(EVENT_RECONNECT_MAX_MS * 2);
+
+    expect(streamStopMock).toHaveBeenCalledWith("events-1");
+    expect(eventsStartMock, "no reconnect after the session is gone").toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("container store actions", () => {
   it("passes the acknowledgement of a destructive action through and reads the list again", async () => {
     const engine = useContainerStore();
@@ -446,6 +544,35 @@ describe("container store actions", () => {
       code: "APP-INTERNAL",
     });
     expect(engine.sessionFor("tab-1")?.error?.code).toBe("APP-INTERNAL");
+  });
+
+  it("a second ask for the same write while it is still on its way meets the first call", async () => {
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    let release: ((value: ContainerActionOutcome) => void) | undefined;
+    const gate = new Promise<ContainerActionOutcome>((resolve) => {
+      release = resolve;
+    });
+    actionMock.mockImplementationOnce(() => gate);
+
+    const first = engine.action("tab-1", "c1", CONTAINER_ACTIONS.stop, true);
+    const second = engine.action("tab-1", "c1", CONTAINER_ACTIONS.stop, true);
+    release?.('done');
+    await Promise.all([first, second]);
+
+    expect(actionMock, "a double click is one stop, not two").toHaveBeenCalledTimes(1);
+  });
+
+  it("a different container or a settled action still makes its own call", async () => {
+    const engine = useContainerStore();
+    await engine.connect(tab());
+    await engine.action("tab-1", "c1", CONTAINER_ACTIONS.stop, true);
+
+    await engine.action("tab-1", "c2", CONTAINER_ACTIONS.stop, true);
+    expect(actionMock).toHaveBeenCalledTimes(2);
+
+    await engine.action("tab-1", "c1", CONTAINER_ACTIONS.remove, true);
+    expect(actionMock).toHaveBeenCalledTimes(3);
   });
 
   it("switches namespace in the engine and reads both lists again", async () => {
@@ -652,5 +779,34 @@ describe("pure helpers", () => {
     }
     expect(buffer).toHaveLength(LOG_LINE_LIMIT);
     expect(buffer[0]).toBe("line 5");
+  });
+
+  it("reads an engine event off a stream line, and refuses one that names nothing", () => {
+    expect(parseEngineEvent('{"eventType":"container","action":"die","id":"abc","name":"web"}')).toEqual({
+      eventType: "container",
+      action: "die",
+      id: "abc",
+      name: "web",
+    });
+    expect(parseEngineEvent('{"id":"abc"}')).toEqual({ id: "abc" });
+    expect(parseEngineEvent("not json")).toBeNull();
+    expect(parseEngineEvent("{}")).toBeNull();
+    expect(parseEngineEvent('{"action":"die"}')).toBeNull();
+  });
+
+  it("lets a container event move the list and leaves every other kind alone", () => {
+    expect(eventMovesList({ eventType: "container", action: "die", id: "a" })).toBe(true);
+    // A runtime that says no kind at all is speaking its container stream by construction.
+    expect(eventMovesList({ action: "die", id: "a" })).toBe(true);
+    expect(eventMovesList({ eventType: "image", action: "pull", id: "sha256:beef" })).toBe(false);
+    expect(eventMovesList({ eventType: "network", action: "connect", id: "n1" })).toBe(false);
+  });
+
+  it("backs off an ended event stream geometrically, up to the ceiling", () => {
+    expect(eventsReconnectDelay(1)).toBe(EVENT_RECONNECT_BASE_MS);
+    expect(eventsReconnectDelay(2)).toBe(EVENT_RECONNECT_BASE_MS * 2);
+    expect(eventsReconnectDelay(3)).toBe(EVENT_RECONNECT_BASE_MS * 4);
+    expect(eventsReconnectDelay(6)).toBe(EVENT_RECONNECT_MAX_MS);
+    expect(eventsReconnectDelay(20)).toBe(EVENT_RECONNECT_MAX_MS);
   });
 });

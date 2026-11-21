@@ -17,10 +17,10 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ComposeProject, ComposeServiceRow, ContainerCommitRequest, ContainerCreateRequest, ContainerDetail, ContainerImage,
-    ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin, ContainerRegistrySettings,
-    ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerSummary, ImageLayer, NetworkCreateRequest,
-    NetworkSummary,
+    ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest,
+    ContainerDetail, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer, ContainerRegistryLogin,
+    ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerStats, ContainerSummary, ImageLayer,
+    NetworkCreateRequest, NetworkSummary,
 };
 
 use crate::commands::{self, ImageTransfer};
@@ -146,9 +146,26 @@ impl Provider {
         parse::detail(&output)
     }
 
-    pub async fn action(&self, id: &str, action: &str) -> Result<(), ShellError> {
+    /// Runs one action and answers what it came back as.
+    ///
+    /// A race the engine settled first — the container already stopped when the stop arrived, the
+    /// removal another tab made before ours — is [`ContainerActionOutcome::AlreadySatisfied`], a
+    /// success with a name. What the interface must never do with these is error: the person asked
+    /// for a state, and the state is what they have.
+    pub async fn action(&self, id: &str, action: &str) -> Result<ContainerActionOutcome, ShellError> {
         let argv = commands::action(self.runtime, &self.namespace, action, id)?;
-        self.runner.run(&argv).await.map(|_| ())
+        match self.runner.run(&argv).await {
+            Ok(_) => Ok(ContainerActionOutcome::Done),
+            Err(error) => {
+                if already_satisfied(action, &error) {
+                    log::info!(
+                        "[container] the {action} on {id} arrived after the engine had already settled it: {error}"
+                    );
+                    return Ok(ContainerActionOutcome::AlreadySatisfied);
+                }
+                Err(error)
+            }
+        }
     }
 
     pub async fn rename(&self, id: &str, name: &str) -> Result<(), ShellError> {
@@ -429,6 +446,31 @@ impl Provider {
         self.runner.stream(&argv).await
     }
 
+    /// Follows the engine's event stream from now on, one wire-shaped JSON document per line.
+    ///
+    /// The caller owns the stream and stops it; a stream that ends is a reconnection the interface
+    /// schedules, not an error it reports. Each raw line is reduced to the wire shape
+    /// ([`ContainerEvent`]) here, where the dialects live — a line that names nothing reaches
+    /// nobody, which is the parser's usual answer to a row it cannot use.
+    pub async fn events(&self) -> Result<LineStream, ShellError> {
+        let argv = commands::events(self.runtime, &self.namespace)?;
+        let stream = self.runner.stream(&argv).await?;
+        Ok(stream.mapped(|line| parse::container_event(&line).and_then(|event| serde_json::to_string(&event).ok())))
+    }
+
+    /// Whether this engine's command line has an events stream to follow at all.
+    ///
+    /// One network-free probe, the way the Compose and remote-digest bits are answered: a CLI that
+    /// refuses is a capability bit turning off, never an error that would refuse an engine the
+    /// person can otherwise use — the list keeps its manual refresh and draws nothing that would
+    /// fail.
+    pub async fn events_available(&self) -> bool {
+        match commands::events_probe(self.runtime) {
+            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Err(_) => false,
+        }
+    }
+
     // -- Networks ------------------------------------------------------------
     //
     // The network surface belongs to the desktop's Docker engine. Listing folds two calls: the
@@ -690,6 +732,32 @@ fn mebibytes(bytes: u64) -> u64 {
     bytes.div_ceil(1024 * 1024)
 }
 
+/// Whether a failed action is the race it reads as: the engine settled the state before our
+/// command arrived, and its refusal is the CLI's way of saying so.
+///
+/// The verdicts, and what they mean:
+/// - **the container is gone** — `rm` and `stop` asked for a state ("no longer there", "not
+///   running") that being gone satisfies. `start` and `restart` asked for a running container,
+///   which being gone does not deliver, so those stay errors.
+/// - **already paused / not paused** — `pause` and `unpause` asked for exactly that state.
+///
+/// The words are matched the way the engines print them, case-insensitively and anywhere in the
+/// detail, because the sentence arrives with a daemon prefix and a container name around it.
+fn already_satisfied(action: &str, error: &ShellError) -> bool {
+    let detail = error.detail().unwrap_or_default().to_ascii_lowercase();
+    if detail.is_empty() {
+        return false;
+    }
+    let missing = detail.contains("no such container") || detail.contains("no container with name or id");
+    match action.trim().to_ascii_lowercase().as_str() {
+        "rm" | "remove" => missing,
+        "stop" => missing,
+        "pause" => detail.contains("is already paused"),
+        "unpause" => detail.contains("is not paused"),
+        _ => false,
+    }
+}
+
 /// The container manager.
 pub struct ContainerManager {
     state: RwLock<State>,
@@ -807,6 +875,9 @@ mod tests {
         /// With `fail`, the first call that fails. `0` fails every call, which is what the
         /// plain `fail: true` tests mean.
         fail_from_call: usize,
+        /// With `fail`, the detail the failure carries — a runtime's own refusal, which is what
+        /// an idempotency verdict reads.
+        fail_detail: String,
     }
 
     impl RecordingRunner {
@@ -853,7 +924,13 @@ mod tests {
                 calls.len() - 1
             };
             if self.fail && index >= self.fail_from_call {
-                return Err(ShellError::container_unavailable("docker", "the engine is not running"));
+                if self.fail_detail.is_empty() {
+                    return Err(ShellError::container_unavailable("docker", "the engine is not running"));
+                }
+                return Err(ShellError::container_command_failed(
+                    "the command",
+                    self.fail_detail.clone(),
+                ));
             }
             Ok(self.next_output())
         }
@@ -1021,8 +1098,9 @@ mod tests {
     #[tokio::test]
     async fn the_list_field_of_a_split_answer_reaches_the_wire_type() {
         let recorder = Arc::new(RecordingRunner {
-            output: "abc123|nginx:1.27|web|running|Up 1 minute|0.0.0.0:80->80/tcp|2026-08-24 09:15:00 +0800 CST\n"
-                .to_owned(),
+            output:
+                "abc123|nginx:1.27|web|running|Up 1 minute|0.0.0.0:8080->80/tcp|2026-08-24 09:15:00 +0800 CST|healthy\n"
+                    .to_owned(),
             ..RecordingRunner::default()
         });
         let rows = build_provider(ContainerRuntime::Docker, "", &recorder)
@@ -1032,6 +1110,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "web");
         assert_eq!(rows[0].state, "running");
+        assert_eq!(rows[0].health, "healthy");
     }
 
     #[tokio::test]
@@ -1881,5 +1960,125 @@ Digest:    sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886
             Some("sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec")
         );
         assert_eq!(digest_part("busybox"), None, "a record without an @ names no digest");
+    }
+
+    #[tokio::test]
+    async fn a_stop_or_remove_that_raced_the_engine_is_a_success_with_a_name() {
+        // Docker's own refusal when the container went away before the command arrived.
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "Error response from daemon: No such container: web".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let outcome = provider
+            .action("web", "remove")
+            .await
+            .expect("the removal is already satisfied");
+        assert_eq!(outcome, ContainerActionOutcome::AlreadySatisfied);
+        let outcome = provider
+            .action("web", "stop")
+            .await
+            .expect("the stop is already satisfied");
+        assert_eq!(outcome, ContainerActionOutcome::AlreadySatisfied);
+
+        // Podman words the same refusal differently; the verdict is the same one.
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "Error: no container with name or ID \"web\" found".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let outcome = build_provider(ContainerRuntime::Podman, "", &recorder)
+            .action("web", "remove")
+            .await
+            .expect("the removal is already satisfied");
+        assert_eq!(outcome, ContainerActionOutcome::AlreadySatisfied);
+    }
+
+    #[tokio::test]
+    async fn an_action_that_cannot_reach_its_target_state_still_fails() {
+        // Start and restart of a container that no longer exists cannot deliver what was asked;
+        // the honest answer is the error, not a success with nothing behind it.
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "Error response from daemon: No such container: web".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        assert!(provider.action("web", "start").await.is_err());
+        assert!(provider.action("web", "restart").await.is_err());
+
+        // A failure that is not a race is never rewritten into a success.
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "the daemon is not running".to_owned(),
+            ..RecordingRunner::default()
+        });
+        assert!(
+            build_provider(ContainerRuntime::Docker, "", &recorder)
+                .action("web", "remove")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pause_that_raced_the_engine_is_already_in_its_target_state() {
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "Error response from daemon: Container web is already paused".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let outcome = provider
+            .action("web", "pause")
+            .await
+            .expect("already paused is the target state");
+        assert_eq!(outcome, ContainerActionOutcome::AlreadySatisfied);
+
+        let recorder = Arc::new(RecordingRunner {
+            fail: true,
+            fail_detail: "Error response from daemon: Container web is not paused".to_owned(),
+            ..RecordingRunner::default()
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let outcome = provider
+            .action("web", "unpause")
+            .await
+            .expect("already running is the target state");
+        assert_eq!(outcome, ContainerActionOutcome::AlreadySatisfied);
+    }
+
+    #[tokio::test]
+    async fn the_events_stream_follows_the_engine_and_the_probe_answers_its_capability() {
+        let recorder = Arc::new(RecordingRunner::default());
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        assert!(provider.events_available().await, "the probe ran and answered");
+        assert_eq!(
+            recorder.calls()[0],
+            vec!["docker", "events", "--help"],
+            "the probe is network-free"
+        );
+
+        provider.events().await.expect("docker has an events stream");
+        assert_eq!(
+            recorder.calls().last().unwrap(),
+            &vec!["docker", "events", "--format", "{{json .}}"],
+            "the stream is one long-lived events call"
+        );
+
+        // WSLC is refused before any process: the capability bit turns off, nothing errors.
+        let recorder = Arc::new(RecordingRunner::default());
+        let provider = build_provider(ContainerRuntime::Wslc, "", &recorder);
+        let Err(error) = provider.events().await else {
+            panic!("an untested events surface is refused, not guessed at");
+        };
+        assert_eq!(error.code(), ErrorCode::AppUnsupported);
+        assert!(!provider.events_available().await);
+        assert!(
+            recorder.calls().is_empty(),
+            "the refusal happened before the runner was reached"
+        );
     }
 }

@@ -87,9 +87,17 @@ function round(value: number): string {
 }
 
 /**
- * Whether the engine is healthy: nothing is dead. An engine that answered with no containers at
- * all is healthy too — nothing running is not an unhealthy engine, and the summary rows say so.
+ * Whether the engine is healthy: nothing is dead, and no healthcheck is failing.
+ *
+ * An engine that answered with no containers at all is healthy too — nothing running is not an
+ * unhealthy engine, and the summary rows say so. A container whose healthcheck reports `unhealthy`
+ * is an engine that is not: the process answers, but the service inside it has said otherwise.
  */
-export function engineHealthy(states: readonly string[]): boolean {
-  return !states.some((state) => state === "dead" || state === "error");
+export function engineHealthy(containers: readonly { state: string; health?: string }[]): boolean {
+  return !containers.some(
+    (container) =>
+      container.state === "dead" ||
+      container.state === "error" ||
+      (container.state === "running" && container.health === "unhealthy"),
+  );
 }

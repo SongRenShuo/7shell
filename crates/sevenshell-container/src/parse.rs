@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value};
 use sevenshell_error::ShellError;
 use sevenshell_types::{
-    ComposeProject, ComposeServiceRow, ContainerDetail, ContainerImage, ContainerMount, ContainerPort,
+    ComposeProject, ComposeServiceRow, ContainerDetail, ContainerEvent, ContainerImage, ContainerMount, ContainerPort,
     ContainerRegistrySettings, ContainerRuntime, ContainerRuntimeInfo, ContainerStateCount, ContainerStats,
     ContainerSummary, ImageLayer, NetworkSummary,
 };
@@ -56,10 +56,10 @@ fn docker_containers(output: &str) -> Vec<ContainerSummary> {
         if line.is_empty() {
             continue;
         }
-        // `splitn` rather than `split`: the last field is a timestamp, and a value containing the
-        // separator would otherwise shift every field after it.
-        let fields: Vec<&str> = line.splitn(7, '|').collect();
-        if fields.len() != 7 {
+        // `splitn` rather than `split`: the last field is the health verdict, and a value
+        // containing the separator would otherwise shift every field after it.
+        let fields: Vec<&str> = line.splitn(8, '|').collect();
+        if fields.len() != 8 {
             log::debug!("[container] skipped a malformed ps line: {line}");
             continue;
         }
@@ -71,12 +71,30 @@ fn docker_containers(output: &str) -> Vec<ContainerSummary> {
             status: fields[4].trim().to_owned(),
             ports: fields[5].trim().to_owned(),
             created_at: normalize_timestamp(fields[6]),
+            // The verdict as the engine spells it; empty when there is no healthcheck. A verdict
+            // the engine qualifies (`(health: starting)`) is reduced to the bare word the badge
+            // names — the status column already carries the sentence.
+            health: normalize_health(fields[7]),
         });
         if list.len() >= MAX_ITEMS {
             break;
         }
     }
     list
+}
+
+/// The health word a row badge names, or nothing when the engine said nothing.
+///
+/// Docker renders `.Health` bare for `ps`; some runtimes qualify it inside the status sentence.
+/// Anything that is not one of the three words is left as it arrived: a verdict nobody named must
+/// not be guessed at a translation.
+fn normalize_health(field: &str) -> String {
+    let field = field.trim();
+    if matches!(field, "healthy" | "unhealthy" | "starting") {
+        field.to_owned()
+    } else {
+        String::new()
+    }
 }
 
 fn container_summary(map: &Map<String, Value>) -> ContainerSummary {
@@ -97,7 +115,50 @@ fn container_summary(map: &Map<String, Value>) -> ContainerSummary {
         status,
         ports,
         created_at: created_at(map),
+        health: normalize_health(&text(map, &["Health", "health"])),
     }
+}
+
+/// One line of an `events` stream, as far as the interface follows it.
+///
+/// The three dialects that speak events name their fields differently: Docker puts the action in
+/// `status` (older) or `Action` and the name inside `Actor.Attributes`; Podman puts `status` and a
+/// top-level `name`. A line that does not parse — a trailing partial line from a closed channel,
+/// a shape this build never met — is dropped rather than reported: an event the list cannot use
+/// has no honest sentence to show.
+pub(crate) fn container_event(line: &str) -> Option<ContainerEvent> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let document: Value = serde_json::from_str(line).ok()?;
+    let map = document.as_object()?;
+    let actor = child(map, &["Actor"]);
+    let attributes = actor.and_then(|actor| child(actor, &["Attributes"]));
+
+    let mut id = text(map, &["id", "ID", "Id"]);
+    seed(
+        &mut id,
+        actor.map_or_else(String::new, |actor| text(actor, &["ID", "id"])),
+    );
+    // An event with no id names nothing the list could follow; dropping it here is the same
+    // decision the parser makes for a malformed row.
+    if id.is_empty() {
+        return None;
+    }
+
+    let mut name = text(map, &["name", "Name"]);
+    seed(
+        &mut name,
+        attributes.map_or_else(String::new, |attrs| text(attrs, &["name", "Name"])),
+    );
+
+    Some(ContainerEvent {
+        event_type: text(map, &["Type", "type"]),
+        action: text(map, &["status", "Status", "Action", "action"]),
+        id,
+        name,
+    })
 }
 
 /// Podman prints ports as objects and WSLC prints them with numeric protocols; both are folded
@@ -418,6 +479,8 @@ pub(crate) fn runtime_info(
         compose_available: false,
         network_available: false,
         manifest_inspect_available: false,
+        // The events bit is decided by the probe at engine open, never parsed from `info`.
+        events_available: false,
     };
 
     if let Some(document) = documents(info.unwrap_or_default()).into_iter().next() {
@@ -1398,6 +1461,20 @@ mod tests {
     }
 
     #[test]
+    fn the_health_verdict_travels_with_the_row_and_no_healthcheck_is_no_verdict() {
+        let rows = containers(ContainerRuntime::Docker, DOCKER_PS);
+        assert_eq!(rows[0].health, "healthy", "the engine's own word, as printed");
+        assert_eq!(rows[1].health, "", "a container without a healthcheck draws no badge");
+        assert_eq!(rows[2].health, "starting");
+
+        // A word the engine qualifies inside the status sentence is still reduced to the bare
+        // word, and a word nobody named is left blank rather than guessed at.
+        let line = "abc123|nginx:1.27|web|running|Up 1 minute (health: starting)||2026-08-24 09:15:00 +0800 CST|(health: starting)";
+        let rows = containers(ContainerRuntime::Docker, line);
+        assert_eq!(rows[0].health, "");
+    }
+
+    #[test]
     fn podman_ps_object_ports_and_names_are_flattened() {
         let rows = containers(ContainerRuntime::Podman, PODMAN_PS);
         assert_eq!(rows.len(), 2);
@@ -1908,5 +1985,46 @@ mod tests {
             "\"Descriptor\":{\"digest\":\"sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\"}}]"
         );
         assert_eq!(manifest_inspect_digest(list), None);
+    }
+
+    #[test]
+    fn an_event_line_names_its_kind_action_and_container_whatever_the_dialect() {
+        // Docker's modern shape: the action in `Action`, the ids under `Actor`.
+        let docker = container_event(concat!(
+            "{\"status\":\"start\",\"id\":\"7c1a2b3c4d5e\",\"Type\":\"container\",",
+            "\"Actor\":{\"ID\":\"7c1a2b3c4d5e\",\"Attributes\":{\"name\":\"web\",\"image\":\"nginx:1.27\"}}}"
+        ))
+        .expect("a docker event line parses");
+        assert_eq!(docker.event_type, "container");
+        assert_eq!(docker.action, "start");
+        assert_eq!(docker.id, "7c1a2b3c4d5e");
+        assert_eq!(docker.name, "web");
+
+        // Podman's shape: the name sits at the top level and there is no kind word.
+        let podman = container_event("{\"status\":\"die\",\"id\":\"abc123\",\"name\":\"queue\"}")
+            .expect("a podman event line parses");
+        assert_eq!(podman.event_type, "");
+        assert_eq!(podman.action, "die");
+        assert_eq!(podman.id, "abc123");
+        assert_eq!(podman.name, "queue");
+
+        // A non-container kind is still answered: filtering by kind is the view's decision.
+        let image = container_event(
+            "{\"Type\":\"image\",\"Action\":\"pull\",\"Actor\":{\"ID\":\"sha256:abc\",\"Attributes\":{}}}",
+        )
+        .expect("an image event line parses");
+        assert_eq!(image.event_type, "image");
+        assert_eq!(image.action, "pull");
+    }
+
+    #[test]
+    fn an_event_line_that_names_nothing_is_dropped() {
+        assert_eq!(container_event(""), None, "a trailing partial line");
+        assert_eq!(container_event("not json at all"), None);
+        assert_eq!(
+            container_event("{}"),
+            None,
+            "an event with no id names nothing to follow"
+        );
     }
 }
