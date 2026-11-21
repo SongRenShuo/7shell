@@ -430,7 +430,13 @@ function onResizePointerUp(event: PointerEvent): void {
       corner, and nothing it draws reaches the frame.
     -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
-      <div class="min-h-0 flex-1 overflow-auto">
+      <!--
+        The frame clips both axes: every pane owns its own scrollers (the file list, the Docker
+        table), and a body that scrolled would let a wide pane shove the toolbar's own buttons out
+        past the window's right edge — the Docker window's create button rendered 60px outside the
+        frame because its table demanded more width than the window had.
+      -->
+      <div class="min-h-0 flex-1 overflow-hidden">
         <slot />
       </div>
     </div>

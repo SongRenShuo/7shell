@@ -320,35 +320,25 @@ onBeforeUnmount(() => {
       create wizard's entry — the one primary button the reference manager puts on that page's
       header. A runtime without namespaces and a flat layout get no strip, exactly as before.
     -->
+    <!--
+      Only the namespace picker lives here now: a runtime whose create entry sat alone on this row
+      drew a full-width header for one button, while the containers page's own toolbar — where the
+      reference manager puts the create action — already carries the entry through the list's
+      `toolbar-end` slot.
+    -->
     <header
-      v-if="
-        session?.connectionId &&
-        (desktop ? view === 'containers' || supportsNamespace(runtime) : supportsNamespace(runtime))
-      "
+      v-if="session?.connectionId && supportsNamespace(runtime)"
       class="flex shrink-0 items-center justify-end gap-2 border-b border-border px-3 py-[var(--panel-header-y)]"
     >
-      <WbButton
-        v-if="desktop && view === 'containers'"
-        variant="primary"
-        data-container-wizard-open
-        @click="
-          wizardPrefill = null;
-          wizardOpen = true;
-        "
-      >
-        {{ t("container.wizard.open") }}
-      </WbButton>
-      <template v-if="supportsNamespace(runtime)">
-        <span class="shrink-0 text-[10px] text-muted-foreground">{{ t("container.namespace") }}</span>
-        <Select
-          :model-value="session.namespace"
-          :options="namespaceOptions"
-          size="compact"
-          class="w-32"
-          :aria-label="t('container.namespace')"
-          @update:model-value="chooseNamespace"
-        />
-      </template>
+      <span class="shrink-0 text-[10px] text-muted-foreground">{{ t("container.namespace") }}</span>
+      <Select
+        :model-value="session.namespace"
+        :options="namespaceOptions"
+        size="compact"
+        class="w-32"
+        :aria-label="t('container.namespace')"
+        @update:model-value="chooseNamespace"
+      />
     </header>
 
     <!-- The connection as it is being made, and as it failed to be made. -->
@@ -462,53 +452,73 @@ onBeforeUnmount(() => {
           into a sliver. The flat layout has no floor of its own — it is the arrangement this
           application has always drawn, and nothing about it changes.
         -->
-        <div class="flex min-h-0 flex-1 flex-col overflow-x-auto">
-          <div :class="cn('flex min-h-0 flex-1 flex-col', desktop && 'min-w-[850px]')">
-            <ContainerOverview
-              v-show="!desktop && view === 'overview'"
-              :tab="props.tab"
-              :session="session"
-              @show-state="showState"
-              @show-images="view = 'images'"
-            />
-            <DockerOverview
-              v-show="desktop && view === 'overview'"
-              :tab="props.tab"
-              :session="session"
-              :active="props.active"
-              @show-state="showState"
-              @show-images="view = 'images'"
-            />
-            <!-- v-show, not v-if: a pull in progress and a filter being typed survive a view switch. -->
-            <ContainerListView
-              v-show="view === 'containers'"
-              :tab="props.tab"
-              :session="session"
-              :layout="layout"
-              :image-filter="imageFilter"
-              :state-filter="stateFilter"
-              @clear-image-filter="imageFilter = null"
-              @clear-state-filter="stateFilter = null"
-              @filter-state="stateFilter = $event"
-              @clone="cloneContainer"
-              @monitor="openMonitor"
-            />
-            <ContainerImageView
-              v-show="!desktop && view === 'images'"
-              :tab="props.tab"
-              :session="session"
-              @view-related="showRelatedContainers"
-            />
-            <DockerImages
-              v-show="desktop && view === 'images'"
-              :tab="props.tab"
-              :session="session"
-              @view-related="showRelatedContainers"
-            />
-            <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
-            <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
-            <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
-          </div>
+        <!--
+          No minimum width on this column: the toolbar must lay out at the width the window
+          actually shows, or its right-end actions (create, refresh) scroll out of the frame with
+          the table. The table carries its own min width and scrolls inside the list's scroller.
+        -->
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ContainerOverview
+            v-show="!desktop && view === 'overview'"
+            :tab="props.tab"
+            :session="session"
+            @show-state="showState"
+            @show-images="view = 'images'"
+          />
+          <DockerOverview
+            v-show="desktop && view === 'overview'"
+            :tab="props.tab"
+            :session="session"
+            :active="props.active"
+            @show-state="showState"
+            @show-images="view = 'images'"
+          />
+          <!-- v-show, not v-if: a pull in progress and a filter being typed survive a view switch. -->
+          <ContainerListView
+            v-show="view === 'containers'"
+            :tab="props.tab"
+            :session="session"
+            :layout="layout"
+            :image-filter="imageFilter"
+            :state-filter="stateFilter"
+            @clear-image-filter="imageFilter = null"
+            @clear-state-filter="stateFilter = null"
+            @filter-state="stateFilter = $event"
+            @clone="cloneContainer"
+            @monitor="openMonitor"
+          >
+            <!-- The create entry lives on the containers page's own toolbar, where the reference
+                   manager puts it; the pane only owns the wizard it opens. The slot follows the
+                   view, because the list stays mounted across views (v-show) and an entry that
+                   only the containers page owns must not linger on the overview. -->
+            <template v-if="desktop && view === 'containers'" #toolbar-end>
+              <WbButton
+                variant="primary"
+                data-container-wizard-open
+                @click="
+                  wizardPrefill = null;
+                  wizardOpen = true;
+                "
+              >
+                {{ t("container.wizard.open") }}
+              </WbButton>
+            </template>
+          </ContainerListView>
+          <ContainerImageView
+            v-show="!desktop && view === 'images'"
+            :tab="props.tab"
+            :session="session"
+            @view-related="showRelatedContainers"
+          />
+          <DockerImages
+            v-show="desktop && view === 'images'"
+            :tab="props.tab"
+            :session="session"
+            @view-related="showRelatedContainers"
+          />
+          <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
+          <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
+          <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
         </div>
       </div>
     </div>
