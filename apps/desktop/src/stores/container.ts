@@ -693,15 +693,10 @@ export const useContainerStore = defineStore("container", () => {
     }
     const connectionId = session.connectionId;
     try {
-      const streamId = await openStream(
-        tabId,
-        session,
-        () => backend.containers.eventsStart(connectionId),
-        {
-          onLine: (line) => handleEngineEvent(tabId, session, line),
-          onEnd: () => scheduleEventsReconnect(tabId, session),
-        },
-      );
+      const streamId = await openStream(tabId, session, () => backend.containers.eventsStart(connectionId), {
+        onLine: (line) => handleEngineEvent(tabId, session, line),
+        onEnd: () => scheduleEventsReconnect(tabId, session),
+      });
       if (streamId !== null) {
         session.eventsStreamId = streamId;
         const state = eventsStateOf(session);
@@ -1021,12 +1016,7 @@ export const useContainerStore = defineStore("container", () => {
    * where the person is looking, so it can say so in a toast without the pane's banner having to
    * be read first.
    */
-  function action(
-    tabId: string,
-    containerId: string,
-    name: ContainerActionName,
-    acknowledged = false,
-  ): Promise<void> {
+  function action(tabId: string, containerId: string, name: ContainerActionName, acknowledged = false): Promise<void> {
     const session = sessions.value[tabId];
     if (!session?.connectionId) {
       return Promise.resolve();

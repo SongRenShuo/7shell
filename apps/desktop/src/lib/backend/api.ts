@@ -875,7 +875,12 @@ export const backend = {
       forward("container_list", () => desktop.containerList(connectionId)),
     inspect: (connectionId: string, containerId: string): Promise<ContainerDetail> =>
       forward("container_inspect", () => desktop.containerInspect(connectionId, containerId)),
-    action: (connectionId: string, containerId: string, action: string, acknowledged: boolean): Promise<ContainerActionOutcome> =>
+    action: (
+      connectionId: string,
+      containerId: string,
+      action: string,
+      acknowledged: boolean,
+    ): Promise<ContainerActionOutcome> =>
       forward("container_action", () => desktop.containerAction(connectionId, containerId, action, acknowledged)),
     rename: (connectionId: string, containerId: string, name: string): Promise<void> =>
       forward("container_rename", () => desktop.containerRename(connectionId, containerId, name)),

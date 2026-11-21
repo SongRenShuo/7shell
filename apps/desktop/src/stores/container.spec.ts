@@ -557,7 +557,7 @@ describe("container store actions", () => {
 
     const first = engine.action("tab-1", "c1", CONTAINER_ACTIONS.stop, true);
     const second = engine.action("tab-1", "c1", CONTAINER_ACTIONS.stop, true);
-    release?.('done');
+    release?.("done");
     await Promise.all([first, second]);
 
     expect(actionMock, "a double click is one stop, not two").toHaveBeenCalledTimes(1);
