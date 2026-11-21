@@ -578,13 +578,19 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
 
       <div class="min-w-0 flex-1"></div>
 
+      <!--
+        The desktop layout's create entry arrives through `toolbar-end` (the pane's wizard); the
+        flat workspace keeps its own dialog, which is the only create it has ever had.
+      -->
       <button
+        v-if="!desktop"
         type="button"
         class="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] transition-colors hover:bg-accent"
         @click="creating = true"
       >
         {{ t("container.create.title") }}
       </button>
+      <slot name="toolbar-end"></slot>
       <button
         type="button"
         class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

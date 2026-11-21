@@ -178,7 +178,7 @@ describe("container pane", () => {
 });
 
 describe("the desktop layout", () => {
-  it("keeps the reference's floor: the content scrolls sideways instead of squeezing", async () => {
+  it("keeps the reference's floor: the table scrolls sideways instead of squeezing, while the toolbar stays put", async () => {
     const engine = tab("docker");
     app = createApp({ render: () => h(ContainerPane, { tab: engine, active: true, layout: "desktop" }) });
     app.use(i18n);
@@ -192,11 +192,15 @@ describe("the desktop layout", () => {
       expect(document.querySelector('[data-side-nav-item="overview"]')).not.toBeNull();
     });
 
-    const floored = [...(host?.querySelectorAll("div") ?? [])].find((element) =>
+    // The floor lives on the table now, and the list's own scroller is what scrolls: a floor on the
+    // whole content column would carry the toolbar's right-end actions out of the window with it —
+    // the create and refresh buttons the toolbar owns must stay where the window can reach them.
+    const table = host?.querySelector("table");
+    expect(table?.style.minWidth, "the table holds its floor and scrolls inside the list").toBe("760px");
+    const squeezed = [...(host?.querySelectorAll("div") ?? [])].find((element) =>
       element.className.includes("min-w-[850px]"),
     );
-    expect(floored, "the six pages hold the 850px floor the reference draws them at").not.toBeUndefined();
-    expect(floored?.parentElement?.className, "and the box around them is what scrolls").toContain("overflow-x-auto");
+    expect(squeezed, "the toolbar lays out at the visible width, not the table's").toBeUndefined();
   });
 
   it("is not what an unset layout draws: the flat workspace keeps its compact rail and its overview", async () => {
@@ -287,7 +291,7 @@ describe("the desktop layout", () => {
     expect(document.querySelector('[data-side-nav-item="containers"]'), "the rest of the rail stands").not.toBeNull();
   });
 
-  it("puts the create wizard's entry on the containers page's header, and nowhere else", async () => {
+  it("puts the create wizard's entry on the containers page's toolbar, and nowhere else", async () => {
     // The flat workspace never draws the entry: its own dialog is the only create it has.
     await mount(tab("docker"));
     expect(document.querySelector("[data-container-wizard-open]")).toBeNull();
@@ -302,7 +306,7 @@ describe("the desktop layout", () => {
     railButton("Containers").click();
     await nextTick();
     const entry = document.querySelector("[data-container-wizard-open]");
-    expect(entry, "the containers page's header carries the one primary button").not.toBeNull();
+    expect(entry, "the containers page's toolbar carries the one primary button").not.toBeNull();
 
     (entry as HTMLElement).click();
     await nextTick();
