@@ -1455,9 +1455,9 @@ function translate(key: string, params?: Record<string, string>): string {
     </section>
 
     <!--
-      The one way out that throws something away, and it asks first. Three answers rather than two:
-      the choices can be written, dropped, or left where they are — and "Cancel" would have to mean
-      one of those without saying which.
+      The one way out that throws something away, and it asks first. Three answers rather than two,
+      each named by the verb the question used — save, discard, stay — so no button asks to be
+      translated from the sentence above it before it can be pressed.
     -->
     <ConfirmDialog
       v-if="leaving"
@@ -1466,6 +1466,7 @@ function translate(key: string, params?: Record<string, string>): string {
       :message="t('settings.leaving.message')"
       :confirm-label="t('settings.leaving.write')"
       :discard-label="t('settings.leaving.drop')"
+      :cancel-label="t('settings.leaving.stay')"
       @confirm="writeAndClose()"
       @discard="discardAndClose()"
       @update:open="leaving = false"
