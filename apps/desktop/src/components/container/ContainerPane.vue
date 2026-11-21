@@ -77,6 +77,16 @@ const upgradeOpen = ref(false);
 const session = computed(() => containers.sessionFor(props.tab.id));
 const runtime = computed(() => props.tab.session.container?.runtime ?? "docker");
 const problem = computed(() => (session.value?.error ? describeShellError(translate, session.value.error) : null));
+/**
+ * The engine's own reason, drawn under the summary sentence: the summary names the operation the
+ * runtime refused, the detail is what the engine actually said — "no such container", a template
+ * error, a channel that ended without a status. The fallback rendering (a key with no translation)
+ * puts the detail in the message already, and the same sentence twice says nothing new.
+ */
+const problemDetail = computed(() => {
+  const detail = problem.value?.detail;
+  return detail && detail !== problem.value?.message ? detail : null;
+});
 
 const rail = computed(() => [
   {
@@ -389,6 +399,9 @@ onBeforeUnmount(() => {
       <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
         <p class="text-xs text-muted-foreground">{{ t("container.connectFailed") }}</p>
         <p v-if="problem" class="max-w-xl text-xs text-destructive select-text">{{ problem.message }}</p>
+        <p v-if="problemDetail" class="max-w-xl break-all text-[10px] text-destructive/90 select-text">
+          {{ problemDetail }}
+        </p>
         <p v-if="problem" class="font-mono text-[10px] text-muted-foreground">{{ problem.code }}</p>
         <button
           type="button"
@@ -449,6 +462,12 @@ onBeforeUnmount(() => {
         >
           <span class="min-w-0 flex-1">
             <span class="block text-[11px]">{{ problem.message }}</span>
+            <span
+              v-if="problemDetail"
+              class="mt-0.5 block max-h-20 overflow-y-auto break-all text-[10px] text-destructive/90 select-text"
+            >
+              {{ problemDetail }}
+            </span>
             <span class="mt-0.5 block font-mono text-[10px] text-muted-foreground">{{ problem.code }}</span>
           </span>
           <button

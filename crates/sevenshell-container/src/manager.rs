@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use sevenshell_error::ShellError;
+use sevenshell_error::{ErrorCode, ShellError};
 use sevenshell_types::{
     ComposeProject, ComposeServiceRow, ContainerActionOutcome, ContainerCommitRequest, ContainerCreateRequest,
     ContainerDetail, ContainerDiskUsage, ContainerImage, ContainerImageRemoteDigest, ContainerImageTransfer,
@@ -124,6 +124,28 @@ impl Provider {
         &self.namespace
     }
 
+    /// Runs one read, asking a second time when the first attempt ended without a verdict.
+    ///
+    /// The remote runner marks the shape where the SSH channel ended before the server said how
+    /// the command did — a transport ending, not the runtime's refusal. A read whose argv only asks
+    /// ([`commands::is_idempotent_read`]) may be repeated as it is: the same words on the same
+    /// connection, once. This is the transient behind a Docker window that opens to a banner and an
+    /// empty list while the same command a moment later answers fine. A verb that changes the
+    /// engine is never repeated — the first run may have taken effect, and a lost status is not this
+    /// layer's permission to run it again.
+    async fn read(&self, argv: &[String]) -> Result<String, ShellError> {
+        match self.runner.run(argv).await {
+            Ok(output) => Ok(output),
+            Err(error) => {
+                if commands::is_idempotent_read(argv) && lost_status(&error) {
+                    log::info!("[container] the read ended without a verdict; asking again once: {error}");
+                    return self.runner.run(argv).await;
+                }
+                Err(error)
+            }
+        }
+    }
+
     /// The runner this provider was built from, for a caller that has to keep using the same
     /// connection — the file browser runs one `exec` per file operation on it.
     ///
@@ -136,13 +158,13 @@ impl Provider {
     }
 
     pub async fn list(&self) -> Result<Vec<ContainerSummary>, ShellError> {
-        let output = self.runner.run(&commands::list(self.runtime, &self.namespace)).await?;
+        let output = self.read(&commands::list(self.runtime, &self.namespace)).await?;
         Ok(parse::containers(self.runtime, &output))
     }
 
     pub async fn inspect(&self, id: &str) -> Result<ContainerDetail, ShellError> {
         let argv = commands::inspect(self.runtime, &self.namespace, id)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         parse::detail(&output)
     }
 
@@ -179,14 +201,13 @@ impl Provider {
     }
 
     pub async fn stats(&self) -> Result<Vec<ContainerStats>, ShellError> {
-        let output = self.runner.run(&commands::stats(self.runtime, &self.namespace)).await?;
+        let output = self.read(&commands::stats(self.runtime, &self.namespace)).await?;
         Ok(parse::stats(&output))
     }
 
     pub async fn images(&self) -> Result<Vec<ContainerImage>, ShellError> {
         let output = self
-            .runner
-            .run(&commands::images(self.runtime, &self.namespace))
+            .read(&commands::images(self.runtime, &self.namespace))
             .await?;
         Ok(parse::images(&output))
     }
@@ -195,18 +216,18 @@ impl Provider {
     /// the inspection tab shows it as printed.
     pub async fn image_inspect(&self, image: &str) -> Result<String, ShellError> {
         let argv = commands::image_inspect(self.runtime, &self.namespace, image)?;
-        self.runner.run(&argv).await
+        self.read(&argv).await
     }
 
     pub async fn image_history(&self, image: &str) -> Result<Vec<ImageLayer>, ShellError> {
         if self.runtime == ContainerRuntime::Wslc {
             // No `history` subcommand; the layer digests are all its inspect carries.
             let argv = commands::wslc_image_inspect(&self.namespace, image)?;
-            let output = self.runner.run(&argv).await?;
+            let output = self.read(&argv).await?;
             return parse::image_layers_from_inspect(&output);
         }
         let argv = commands::image_history(self.runtime, &self.namespace, image)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::image_history(&output))
     }
 
@@ -215,7 +236,7 @@ impl Provider {
     /// [`Self::image_remote_digest`]'s to answer, one tag at a time.
     pub async fn image_tags(&self, repository: &str) -> Result<Vec<ContainerImage>, ShellError> {
         let argv = commands::image_tags(self.runtime, &self.namespace, repository)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::images(&output))
     }
 
@@ -330,7 +351,7 @@ impl Provider {
         if self.runtime != ContainerRuntime::Nerdctl {
             return Err(ShellError::app_unsupported("container namespaces on this runtime"));
         }
-        let output = self.runner.run(&commands::namespaces(self.runtime)).await?;
+        let output = self.read(&commands::namespaces(self.runtime)).await?;
         Ok(parse::namespaces(&output))
     }
 
@@ -340,7 +361,7 @@ impl Provider {
     pub async fn runtime_info(&self) -> Result<ContainerRuntimeInfo, ShellError> {
         let info = commands::info(self.runtime, &self.namespace);
         let version = commands::version(self.runtime, &self.namespace);
-        let (info, version) = tokio::join!(self.runner.run(&info), self.runner.run(&version));
+        let (info, version) = tokio::join!(self.read(&info), self.read(&version));
         let (info, version) = match (info, version) {
             (Ok(info), Ok(version)) => (Some(info), Some(version)),
             (Ok(info), Err(_)) => (Some(info), None),
@@ -356,7 +377,7 @@ impl Provider {
     /// not this build's business.
     pub async fn registry_settings(&self) -> Result<ContainerRegistrySettings, ShellError> {
         let argv = commands::info(self.runtime, &self.namespace);
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::registry_settings(&output))
     }
 
@@ -372,7 +393,7 @@ impl Provider {
             return false;
         };
         for argv in probes {
-            if self.runner.run(&argv).await.is_ok() {
+            if self.read(&argv).await.is_ok() {
                 return true;
             }
         }
@@ -396,7 +417,7 @@ impl Provider {
         // the second one to know where to ask, but the first is independent of both.
         let local_argv = commands::image_inspect(self.runtime, &self.namespace, &reference)?;
         let info_argv = commands::info(self.runtime, &self.namespace);
-        let (local, info) = tokio::join!(self.runner.run(&local_argv), self.runner.run(&info_argv));
+        let (local, info) = tokio::join!(self.read(&local_argv), self.read(&info_argv));
         let local_digests = local.map(|output| parse::repo_digests(&output)).unwrap_or_default();
         let mirrors = match info {
             Ok(output) => parse::registry_settings(&output).mirrors,
@@ -410,8 +431,7 @@ impl Provider {
         let mut remote_digest = None;
         if let Ok(argv) = commands::imagetools_inspect(self.runtime, &query_reference) {
             remote_digest = self
-                .runner
-                .run(&argv)
+                .read(&argv)
                 .await
                 .ok()
                 .as_deref()
@@ -421,8 +441,7 @@ impl Provider {
             && let Ok(argv) = commands::manifest_inspect(self.runtime, &query_reference)
         {
             remote_digest = self
-                .runner
-                .run(&argv)
+                .read(&argv)
                 .await
                 .ok()
                 .as_deref()
@@ -475,7 +494,7 @@ impl Provider {
     /// fail.
     pub async fn events_available(&self) -> bool {
         match commands::events_probe(self.runtime) {
-            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Ok(argv) => self.read(&argv).await.is_ok(),
             Err(_) => false,
         }
     }
@@ -487,7 +506,7 @@ impl Provider {
     // of them at once.
 
     pub async fn network_list(&self) -> Result<Vec<NetworkSummary>, ShellError> {
-        let ls_output = self.runner.run(&commands::network_ls(self.runtime)?).await?;
+        let ls_output = self.read(&commands::network_ls(self.runtime)?).await?;
         let names = parse::network_names(&ls_output);
         let inspect_output = if names.is_empty() {
             String::new()
@@ -495,7 +514,7 @@ impl Provider {
             // A network that vanished between the two calls makes the whole inspect exit non-zero
             // while still answering the ones it found. The list degrades to rows without
             // addresses rather than failing: the removal guardrail inspects again on its own.
-            match self.runner.run(&commands::network_inspect(self.runtime, &names)?).await {
+            match self.read(&commands::network_inspect(self.runtime, &names)?).await {
                 Ok(output) => output,
                 Err(error) => {
                     log::warn!("[container] the network inspect behind a list failed: {error}");
@@ -509,7 +528,7 @@ impl Provider {
     /// The removal guardrail's evidence: how many containers the engine says are attached.
     pub async fn network_container_count(&self, name: &str) -> Result<u32, ShellError> {
         let argv = commands::network_inspect(self.runtime, &[name.to_owned()])?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         parse::network_container_count(&output, name)
     }
 
@@ -547,7 +566,7 @@ impl Provider {
     /// prune — the page shows the numbers first, and the prunes are offered beside the numbers.
     pub async fn system_df(&self) -> Result<Vec<ContainerDiskUsage>, ShellError> {
         let argv = commands::system_df(self.runtime)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::disk_usage(&output))
     }
 
@@ -562,7 +581,7 @@ impl Provider {
     /// refusal, which the removal answers with unchanged.
     pub async fn volume_list(&self) -> Result<Vec<VolumeSummary>, ShellError> {
         let argv = commands::volume_list(self.runtime)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::volumes(&output))
     }
 
@@ -595,7 +614,7 @@ impl Provider {
     /// engine the person can otherwise use.
     pub async fn volumes_available(&self) -> bool {
         match commands::volume_probe(self.runtime) {
-            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Ok(argv) => self.read(&argv).await.is_ok(),
             Err(_) => false,
         }
     }
@@ -608,14 +627,14 @@ impl Provider {
     /// Whether the Compose plugin answers on this engine.
     pub async fn compose_available(&self) -> bool {
         match commands::compose_version(self.runtime) {
-            Ok(argv) => self.runner.run(&argv).await.is_ok(),
+            Ok(argv) => self.read(&argv).await.is_ok(),
             Err(_) => false,
         }
     }
 
     pub async fn compose_ls(&self) -> Result<Vec<ComposeProject>, ShellError> {
-        let ls_output = self.runner.run(&commands::compose_ls(self.runtime)?).await?;
-        let ps_output = match self.runner.run(&commands::compose_labelled_ps(self.runtime)?).await {
+        let ls_output = self.read(&commands::compose_ls(self.runtime)?).await?;
+        let ps_output = match self.read(&commands::compose_labelled_ps(self.runtime)?).await {
             Ok(output) => output,
             Err(error) => {
                 log::warn!("[container] the labelled ps behind a compose list failed: {error}");
@@ -627,7 +646,7 @@ impl Provider {
 
     pub async fn compose_ps(&self, project: &str) -> Result<Vec<ComposeServiceRow>, ShellError> {
         let argv = commands::compose_ps(self.runtime, project)?;
-        let output = self.runner.run(&argv).await?;
+        let output = self.read(&argv).await?;
         Ok(parse::compose_services(&output))
     }
 
@@ -805,6 +824,15 @@ fn mebibytes(bytes: u64) -> u64 {
     bytes.div_ceil(1024 * 1024)
 }
 
+/// Whether this failure is the transport's ending rather than the runtime's verdict: the channel
+/// closed before the exit status arrived, which the remote runner marks on the envelope. Only that
+/// marked shape may trigger a repeat, and only for a read — a runtime that refused is answering,
+/// and an unmarked ending is treated as its answer too.
+fn lost_status(error: &ShellError) -> bool {
+    error.code() == ErrorCode::ContainerCommandFailed
+        && error.diagnostics().get("outcome").map(String::as_str) == Some("no-status")
+}
+
 /// Whether a failed action is the race it reads as: the engine settled the state before our
 /// command arrived, and its refusal is the CLI's way of saying so.
 ///
@@ -952,6 +980,10 @@ mod tests {
         /// With `fail`, the detail the failure carries — a runtime's own refusal, which is what
         /// an idempotency verdict reads.
         fail_detail: String,
+        /// Failures handed out one per call, in order, until the script runs out: `no-status` is
+        /// the lost-status shape the remote runner marks, `exit-1` a refusal the runtime itself
+        /// reported. After the script, every call answers `output`.
+        script: Mutex<VecDeque<&'static str>>,
     }
 
     impl RecordingRunner {
@@ -976,6 +1008,22 @@ mod tests {
             }
         }
 
+        /// The first calls fail with the scripted shapes, in order; the rest answer `output`.
+        fn with_script(script: &[&'static str]) -> Self {
+            Self {
+                script: Mutex::new(script.iter().copied().collect()),
+                ..Self::default()
+            }
+        }
+
+        /// The scripted failure for this call, if one is queued.
+        fn next_scripted(&self) -> Option<&'static str> {
+            self.script
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .pop_front()
+        }
+
         fn next_output(&self) -> String {
             if let Some(answer) = self
                 .queue
@@ -997,6 +1045,20 @@ mod tests {
                 calls.push(argv.to_vec());
                 calls.len() - 1
             };
+            match self.next_scripted() {
+                Some("no-status") => {
+                    return Err(ShellError::container_command_failed(
+                        "the command",
+                        "the command ended without reporting an exit status",
+                    )
+                    .with_diagnostic("outcome", "no-status"));
+                }
+                Some("exit-1") => {
+                    return Err(ShellError::container_command_failed("the command", "no such object"));
+                }
+                Some(other) => panic!("a script shape the tests do not know: {other}"),
+                None => {}
+            }
             if self.fail && index >= self.fail_from_call {
                 if self.fail_detail.is_empty() {
                     return Err(ShellError::container_unavailable("docker", "the engine is not running"));
@@ -1081,6 +1143,77 @@ mod tests {
             "a rejected identifier still reached the runner: {:?}",
             recorder.calls()
         );
+    }
+
+    /// One ps row in the eight fields the Docker template prints, as the engine receives it.
+    fn ps_row() -> String {
+        "7c1a2b3c4d5e|nginx:1.27|web|running|Up 12 minutes|0.0.0.0:8080->80/tcp|2026-08-24 09:15:00 +0800 CST|healthy\n"
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn a_read_that_ended_without_a_status_is_asked_once_more() {
+        // The first-open shape behind the banner: the channel ended before the exit status arrived,
+        // and the same command a moment later answers. The list loads instead of erroring.
+        let recorder = Arc::new(RecordingRunner {
+            output: ps_row(),
+            ..RecordingRunner::with_script(&["no-status"])
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let rows = provider.list().await.expect("the repeated read answers");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "web");
+
+        let calls = recorder.calls();
+        assert_eq!(calls.len(), 2, "one repeat, not more: {calls:?}");
+        assert_eq!(calls[0], calls[1], "the repeat is the same command line");
+    }
+
+    #[tokio::test]
+    async fn a_read_the_runtime_refused_is_not_asked_again() {
+        // A non-zero exit is the runtime's own verdict; the detail travels and nothing repeats it.
+        let recorder = Arc::new(RecordingRunner {
+            output: ps_row(),
+            ..RecordingRunner::with_script(&["exit-1"])
+        });
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        let error = provider.list().await.expect_err("a refusal is not an answer");
+        assert_eq!(error.code(), ErrorCode::ContainerCommandFailed);
+        assert!(error.detail().unwrap_or_default().contains("no such object"));
+        assert_eq!(recorder.calls().len(), 1, "{:?}", recorder.calls());
+    }
+
+    #[tokio::test]
+    async fn a_mutation_that_ended_without_a_status_is_never_repeated() {
+        // A create whose status went missing may have created the container: running it again would
+        // make a second one. The lost status is an error, not this layer's permission.
+        let recorder = Arc::new(RecordingRunner::with_script(&["no-status"]));
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+        let request = ContainerCreateRequest {
+            image: "nginx:1.27".to_owned(),
+            name: "web".to_owned(),
+            ..ContainerCreateRequest::default()
+        };
+
+        let error = provider.create(&request).await.expect_err("a lost status is an error");
+        assert_eq!(error.code(), ErrorCode::ContainerCommandFailed);
+        assert_eq!(recorder.calls().len(), 1, "{:?}", recorder.calls());
+    }
+
+    #[tokio::test]
+    async fn a_capability_probe_that_lost_its_status_is_asked_again_instead_of_turning_off() {
+        // A probe that answers with a transport ending would otherwise switch a capability bit off
+        // for the whole life of the connection.
+        let recorder = Arc::new(RecordingRunner::with_script(&["no-status"]));
+        let provider = build_provider(ContainerRuntime::Docker, "", &recorder);
+
+        assert!(
+            provider.compose_available().await,
+            "a transient ending does not switch the bit off"
+        );
+        assert_eq!(recorder.calls().len(), 2, "{:?}", recorder.calls());
     }
 
     #[tokio::test]
