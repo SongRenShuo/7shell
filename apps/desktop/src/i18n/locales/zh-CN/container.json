@@ -9,6 +9,8 @@
       "overview": "概览",
       "containers": "容器",
       "images": "镜像",
+      "volumes": "卷",
+      "cleanup": "清理中心",
       "networks": "网络",
       "compose": "Compose"
     },
@@ -28,7 +30,100 @@
       "starting": "容器启动中",
       "stopping": "容器停止中"
     },
+    "upgrade": {
+      "title": "升级“{name}”",
+      "checking": "正在读取容器并询问镜像仓库…",
+      "imageLine": "运行镜像 {image}；升级会拉取该引用，然后按容器原参数重建。",
+      "tagMoved": "仓库显示该标签有比引擎更新版本。",
+      "tagCurrent": "仓库显示该标签已是引擎现有版本。重建不会带来任何变化，还会丢掉容器自己的数据层，因此升级保持关闭。",
+      "tagUnverified": "仓库没有应答；由拉取本身判断，如果拉取发现没有新版本，事务会在动任何东西之前停下。",
+      "consequence": "执行时会发生：",
+      "kept": {
+        "mounts": "挂载按原样重建——绑定挂载回原路径，卷按卷名重新挂载，数据保留。",
+        "params": "端口、环境变量、重启策略、网络等逐项取自 inspect 回读。"
+      },
+      "lost": {
+        "layer": "容器内未挂载的数据随旧容器一起消失。",
+        "downtime": "重建期间容器停机，新容器建成后自动启动。"
+      },
+      "phase": {
+        "pulling": "正在拉取镜像…",
+        "stopping": "正在停止容器…",
+        "removal": "正在删除旧容器…",
+        "creating": "正在按原参数创建新容器…",
+        "starting": "正在启动新容器…"
+      },
+      "failed": {
+        "pulling": "拉取失败。什么都没有动——{name} 仍按原样运行。",
+        "stopping": "停止失败。没有删除任何东西——{name} 还在。",
+        "removing": "删除失败。没有删除任何东西——{name} 还在。",
+        "creating": "旧容器已删除，新容器未能创建。原镜像仍在引擎上，可以手动用它重建；下面的按钮会用原参数重试。",
+        "starting": "新容器已创建但未能启动。原镜像仍在引擎上，手动回退的路径仍在。"
+      },
+      "pullSaidCurrent": "拉取答复镜像已是最新，事务就此停下——旧容器没有被触碰。",
+      "retryCreate": "用原参数重建",
+      "run": "升级",
+      "done": "{name} 已升级。",
+      "upToDateToast": "{name} 已经是最新镜像；没有做任何改动。"
+    },
     "desktop": {
+      "volumes": {
+        "search": "按卷名筛选",
+        "driver": "驱动",
+        "mountpoint": "引擎宿主上的挂载点",
+        "size": "大小",
+        "createdAt": "创建时间",
+        "menu": "卷 {name}",
+        "remove": "删除",
+        "removeTitle": "删除卷“{name}”？",
+        "removeMessage": "卷及其中的数据将被删除。仍有容器挂载时引擎会拒绝删除，其拒绝原文会显示在横幅上。",
+        "removeVerb": "删除",
+        "loading": "正在读取卷…",
+        "none": "该引擎还没有可显示的卷。",
+        "noMatch": "没有卷匹配该筛选。"
+      },
+      "cleanup": {
+        "kindColumn": "类别",
+        "count": "数量",
+        "size": "占用",
+        "reclaimable": "可回收",
+        "share": "占比",
+        "shareLabel": "{kind} 的可回收占比",
+        "kind": {
+          "images": "镜像",
+          "containers": "已停止容器",
+          "volumes": "未挂载卷",
+          "buildCache": "构建缓存"
+        },
+        "tier": {
+          "images": "清理镜像",
+          "containers": "清理已停止容器",
+          "volumes": "清理未挂载卷",
+          "buildCache": "清理构建缓存"
+        },
+        "tierHint": {
+          "images": "只清无标签镜像；有标签的保留。",
+          "containers": "不在运行中的容器。",
+          "volumes": "所有没有容器挂载的卷——包括有名字的。",
+          "buildCache": "构建器判为悬空的缓存。"
+        },
+        "volumeWarning": "这一项会带走数据：所有没有容器挂载的卷都会被删除，包括有名字的卷。确认这正是你要的再勾选。",
+        "tiersTitle": "本次清理的范围",
+        "expected": "引擎显示勾选的类别可回收 {size}。",
+        "reclaimableShort": "可回收 {size}",
+        "unknown": "引擎没有给出读数",
+        "run": "开始清理",
+        "running": "正在清理…",
+        "loading": "正在读取引擎磁盘占用…",
+        "none": "引擎没有给出可统计的数据。",
+        "lastRun": "上次清理",
+        "tierDone": "{tier}：回收 {size}",
+        "tierDonePlain": "{tier}：完成",
+        "tierFailed": "{tier} 被拒绝：",
+        "deletedCount": "（{count} 项）",
+        "confirmTitle": "清理勾选的类别？",
+        "confirmMessage": "每一类删掉的东西都拿不回来。数字是引擎自己的读数；执行结束后会重新读取一遍作为对账。"
+      },
       "networks": {
         "search": "按网络名筛选",
         "create": "新建网络",
@@ -246,6 +341,7 @@
       "rename": "重命名",
       "commit": "提交为镜像",
       "clone": "复制容器",
+      "upgrade": "升级 {name}",
       "remove": "删除",
       "more": "{name} 的更多操作",
       "menu": "{name} 的操作",

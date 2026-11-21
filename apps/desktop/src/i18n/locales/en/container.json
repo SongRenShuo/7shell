@@ -9,6 +9,8 @@
       "overview": "Overview",
       "containers": "Containers",
       "images": "Images",
+      "volumes": "Volumes",
+      "cleanup": "Cleanup",
       "networks": "Networks",
       "compose": "Compose"
     },
@@ -28,7 +30,100 @@
       "starting": "Starting",
       "stopping": "Stopping"
     },
+    "upgrade": {
+      "title": "Upgrade “{name}”",
+      "checking": "Reading the container and asking the registry…",
+      "imageLine": "Runs the image {image}; the upgrade pulls that reference, then rebuilds the container from its own parameters.",
+      "tagMoved": "The registry says this tag has a newer image than the engine has.",
+      "tagCurrent": "The registry says this tag is already what the engine has. Rebuilding would change nothing and cost the container's own layer, so the upgrade stays closed.",
+      "tagUnverified": "The registry did not answer; the pull itself decides, and a pull that finds nothing new stops the transaction before anything is touched.",
+      "consequence": "What happens when it runs:",
+      "kept": {
+        "mounts": "Mounts are rebuilt the same way — bind mounts to their paths, volumes remounted by name, so their data stays.",
+        "params": "Ports, environment, restart policy, networks and the rest are the ones the inspect read back."
+      },
+      "lost": {
+        "layer": "Data written inside the container that is not on a mount goes with the old container.",
+        "downtime": "The container stops while the new one is built, and is started again when it is built."
+      },
+      "phase": {
+        "pulling": "Pulling the image…",
+        "stopping": "Stopping the container…",
+        "removal": "Removing the old container…",
+        "creating": "Creating the replacement with the original parameters…",
+        "starting": "Starting the replacement…"
+      },
+      "failed": {
+        "pulling": "The pull failed. Nothing was touched — {name} is still running as it was.",
+        "stopping": "The stop failed. Nothing was removed — {name} is still there.",
+        "removing": "The removal failed. Nothing was removed — {name} is still there.",
+        "creating": "The old container is removed and the new one could not be built. The original image is still on the engine, so it can be recreated by hand; the button below sends the original parameters again.",
+        "starting": "The replacement is built but did not start. The original image is still on the engine, so a way back by hand exists."
+      },
+      "pullSaidCurrent": "The pull answered that the image is already current, so the transaction stopped here — the old container was not touched.",
+      "retryCreate": "Rebuild with the original parameters",
+      "run": "Upgrade",
+      "done": "{name} is upgraded.",
+      "upToDateToast": "{name} is already on the newest image; nothing was changed."
+    },
     "desktop": {
+      "volumes": {
+        "search": "Filter by volume name",
+        "driver": "Driver",
+        "mountpoint": "Mountpoint on the engine's host",
+        "size": "Size",
+        "createdAt": "Created",
+        "menu": "Volume {name}",
+        "remove": "Remove",
+        "removeTitle": "Remove the volume “{name}”?",
+        "removeMessage": "The volume and everything stored in it goes away. The engine refuses to remove a volume while a container still mounts it, and its refusal is the sentence the strip shows.",
+        "removeVerb": "Remove",
+        "loading": "Reading volumes…",
+        "none": "This engine has no volumes of its own to show.",
+        "noMatch": "No volume matches this filter."
+      },
+      "cleanup": {
+        "kindColumn": "Kind",
+        "count": "Count",
+        "size": "Occupied",
+        "reclaimable": "Reclaimable",
+        "share": "Share",
+        "shareLabel": "Reclaimable share of {kind}",
+        "kind": {
+          "images": "Images",
+          "containers": "Stopped containers",
+          "volumes": "Unmounted volumes",
+          "buildCache": "Build cache"
+        },
+        "tier": {
+          "images": "Prune images",
+          "containers": "Prune stopped containers",
+          "volumes": "Prune unmounted volumes",
+          "buildCache": "Prune build cache"
+        },
+        "tierHint": {
+          "images": "Untagged images only — tagged ones stay.",
+          "containers": "Containers that are not running.",
+          "volumes": "Every volume nothing is mounted from, named or not.",
+          "buildCache": "Build cache the builder counts as dangling."
+        },
+        "volumeWarning": "This one takes data with it: every volume no container mounts is deleted, including named ones. Confirm only when that is what you want.",
+        "tiersTitle": "What this run takes",
+        "expected": "The engine says the checked tiers could give back {size}.",
+        "reclaimableShort": "{size} reclaimable",
+        "unknown": "a reading the engine gave none",
+        "run": "Clean up",
+        "running": "Cleaning…",
+        "loading": "Reading the engine's disk usage…",
+        "none": "The engine answered with nothing to count.",
+        "lastRun": "Last run",
+        "tierDone": "{tier}: gave back {size}",
+        "tierDonePlain": "{tier}: done",
+        "tierFailed": "{tier} refused:",
+        "deletedCount": "({count} items)",
+        "confirmTitle": "Clean up the checked tiers?",
+        "confirmMessage": "What each tier takes cannot be taken back. The numbers are the engine's own reading; the reading is taken again when the run is over."
+      },
       "networks": {
         "search": "Filter by network name",
         "create": "Create network",
@@ -246,6 +341,7 @@
       "rename": "Rename",
       "commit": "Commit as an image",
       "clone": "Clone container",
+      "upgrade": "Upgrade {name}",
       "remove": "Remove",
       "more": "More actions for {name}",
       "menu": "Actions for {name}",
