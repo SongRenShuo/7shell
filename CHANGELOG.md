@@ -107,6 +107,12 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ### Fixed
 
+- A docker window that opens to a command with no verdict no longer stops at "the container
+  runtime refused docker ps": the channel ending before the server said how the command did
+  travels marked on the envelope, an idempotent read is asked again once on the same connection
+  (a verb that changes the engine is never repeated), and the banner and connect-failed block
+  draw what the engine actually said on a line under the summary sentence, so the reason a
+  refusal happened is readable at last (c811b1d).
 - A window coming back to the desk can no longer hang off its edge: restoring a maximised window
   and showing a minimised one clamp the geometry they were remembered at into the work area as it
   is now — the forwards window that used to reopen with its title half off the desk, and a desk
