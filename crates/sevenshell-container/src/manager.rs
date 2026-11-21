@@ -206,9 +206,7 @@ impl Provider {
     }
 
     pub async fn images(&self) -> Result<Vec<ContainerImage>, ShellError> {
-        let output = self
-            .read(&commands::images(self.runtime, &self.namespace))
-            .await?;
+        let output = self.read(&commands::images(self.runtime, &self.namespace)).await?;
         Ok(parse::images(&output))
     }
 
