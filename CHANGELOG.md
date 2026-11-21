@@ -15,6 +15,10 @@ All notable changes to 7Shell are documented in this file. The format is
   menu — instead of a lone ellipsis, and a memory column shows each container's share once the
   engine's stats answer arrives (114ad96).
 - A container's logs open from that row's own button and stream in the desktop window (114ad96).
+- The desktop's transfers window says what an idle panel means — nothing is moving, and where a
+  transfer would come from — instead of drawing a blank frame.
+- The container list's memory sampling skips itself while the engine connection is not open,
+  instead of asking the backend with a connection that isn't there.
 
 - The scrollbar is the application's own everywhere: thin, translucent and inside the panel's
   borders, on every surface that scrolls (8205762, 35bf33d, 48360a3).
