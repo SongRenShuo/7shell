@@ -8,7 +8,9 @@
       "title": "主机",
       "all": "全选",
       "none": "全不选",
-      "empty": "还没有保存的会话。",
+      "empty": "会话库还没有保存的会话。",
+      "emptyNoSsh": "保存的会话里还没有 SSH 会话。",
+      "emptyHint": "批量执行把一条命令通过 SSH 连接送到多台机器。新建一台 SSH 会话，再回到这里勾选。",
       "selected": "已选 {count} 台"
     },
     "command": {
