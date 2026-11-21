@@ -19,6 +19,14 @@ pub struct Session {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// Where the session sits among the sessions of its group, lowest first.
+    ///
+    /// `None` is "nobody has placed this one": it is drawn level with order zero, so it stays where
+    /// it was created relative to the sessions that were never dragged. A reorder writes a number
+    /// for every session it moves, so the arrangement somebody dragged the list into is what is
+    /// stored rather than an index into an order that changes underneath it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
     pub protocol: Protocol,
     pub host: String,
     pub port: u16,
@@ -52,6 +60,10 @@ pub struct Session {
     /// The HTTP folder a WebDAV browser opens. Ignored by every other protocol.
     #[serde(default, skip_serializing_if = "WebDavSettings::is_empty")]
     pub webdav: WebDavSettings,
+    /// Which virtual machine this session stands for, and how to reach its guest.
+    /// Ignored by every other protocol.
+    #[serde(default, skip_serializing_if = "crate::VmwareSettings::is_empty")]
+    pub vmware: crate::VmwareSettings,
     /// Whether an FTP session asks for TLS before the login. Ignored by every other protocol.
     #[serde(default, skip_serializing_if = "FtpSettings::is_empty")]
     pub ftp: FtpSettings,
@@ -150,6 +162,12 @@ pub struct SessionAuth {
     pub key: Option<KeyInfo>,
     /// Whether a password or passphrase is stored for this session.
     pub has_secret: bool,
+    /// Whether the host, account and identity come from this machine's `~/.ssh/config`.
+    ///
+    /// The session stores the alias in `host`; the values are resolved again on every connection,
+    /// so editing the configuration changes the connection without editing the session.
+    #[serde(default)]
+    pub ssh_config: bool,
 }
 
 impl SessionAuth {
@@ -158,6 +176,7 @@ impl SessionAuth {
             method,
             key: None,
             has_secret: false,
+            ssh_config: false,
         }
     }
 }
@@ -258,6 +277,12 @@ pub struct CreatedKey {
 pub struct TerminalSettings {
     pub terminal_type: String,
     pub keepalive_seconds: u16,
+    /// The encoding the far side prints and expects.
+    #[serde(default)]
+    pub encoding: TerminalEncoding,
+    /// What the Backspace key sends to this host.
+    #[serde(default)]
+    pub backspace: BackspaceMode,
     /// Whether the far side may use the key agent on this machine while the session lasts.
     ///
     /// Off by default, and off is the safe answer: while it is on, anything running on that server
@@ -278,6 +303,8 @@ impl Default for TerminalSettings {
         Self {
             terminal_type: "xterm-256color".to_owned(),
             keepalive_seconds: 30,
+            encoding: TerminalEncoding::Utf8,
+            backspace: BackspaceMode::Del,
             forward_agent: false,
             record: false,
         }
@@ -306,6 +333,22 @@ pub enum BackspaceMode {
     #[default]
     Del,
     CtrlH,
+}
+
+/// The character encoding a terminal session speaks.
+///
+/// Most hosts are UTF-8. Network hardware often is not: a Chinese switch may print and expect GBK
+/// while the terminal beside it still speaks UTF-8, which is why this is a per-session choice
+/// rather than a build-wide assumption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TerminalEncoding {
+    #[default]
+    #[serde(rename = "utf-8")]
+    Utf8,
+    #[serde(rename = "gbk")]
+    Gbk,
+    #[serde(rename = "gb18030")]
+    Gb18030,
 }
 
 /// How a serial frame checks itself.
@@ -346,6 +389,8 @@ pub struct TelnetSettings {
     pub enter: EnterMode,
     #[serde(default)]
     pub backspace: BackspaceMode,
+    #[serde(default)]
+    pub encoding: TerminalEncoding,
 }
 
 /// A serial port and the line parameters it was chosen with.
@@ -602,6 +647,17 @@ pub struct PresentedHostKey {
     pub fingerprint: String,
 }
 
+impl KnownHostEntry {
+    /// Whether this record is a statement about the key the server just presented.
+    ///
+    /// The algorithm is part of the comparison: a record of a different algorithm says nothing
+    /// about this key, and OpenSSH treats that as unseen rather than changed. Comparing only the
+    /// public key would turn a server that added or switched a key type into a false alarm.
+    pub fn accepts(&self, presented: &PresentedHostKey) -> bool {
+        self.key_type == presented.key_type && self.public_key == presented.public_key
+    }
+}
+
 /// What the interface is told when opening a session needs a decision, or has succeeded.
 ///
 /// A decision carries no handle: the interface either trusts the key (and asks to open again) or
@@ -629,6 +685,32 @@ pub enum OpenOutcome {
         /// The forwards that did not come up, each with its reason. A port already in use is
         /// worth saying out loud; it is not worth losing the terminal over.
         tunnel_failures: Vec<TunnelFailure>,
+    },
+}
+
+/// What testing a saved session's connection answered.
+///
+/// The two host key variants are the same decisions [`OpenOutcome`] carries, for the same reason:
+/// an unknown key is a question for a person, and a changed key is a stop. The difference is that
+/// a test sends no terminal request after authenticating — what is being tested is the connection,
+/// not the shell.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ConnectionTestOutcome {
+    /// The connection came up. `authenticated` is false for transports that have no login.
+    Connected {
+        latency_ms: u64,
+        authenticated: bool,
+        /// The server key that was verified, when the transport presents one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
+    },
+    /// The host key has never been seen. Nothing was sent to the server.
+    HostKeyUnknown { key: PresentedHostKey },
+    /// The presented key differs from the trusted one. A hard stop, not a prompt.
+    HostKeyMismatch {
+        key: PresentedHostKey,
+        trusted: KnownHostEntry,
     },
 }
 
@@ -875,6 +957,45 @@ pub enum VaultState {
     Missing,
     Locked,
     Unlocked,
+}
+
+/// One host an OpenSSH configuration names, as the picker may show it.
+///
+/// The alias is what a saved session stores and what a person recognises. `host`, `user` and
+/// `port` are the resolved values shown beside it; identity files and any other local path stay in
+/// the process, because the interface never holds one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConfigHost {
+    pub alias: String,
+    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Directives this build cannot honour: the entry is listed, but connecting will refuse.
+    ///
+    /// Always serialized, including when empty: the picker reads the list to decide whether a row
+    /// is selectable, and an omitted field is an `undefined` in the interface, not an empty list.
+    #[serde(default)]
+    pub unsupported: Vec<String>,
+    /// The `ProxyJump` value as written, when the configuration routes this alias through a jump
+    /// host. Absent for an alias that connects directly; `none` is reported as absent too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_jump: Option<String>,
+}
+
+/// Whether the system's own store can open the vault on this machine.
+///
+/// `available` is the platform's answer — a machine with no keychain says no — and `enrolled` is
+/// whether an entry exists **for the vault that is in place now**. A stale entry left by a vault
+/// that was set aside is not an enrollment of its replacement, and reporting it as one would claim
+/// an automatic unlock that the next start would not be able to deliver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultKeychainStatus {
+    pub available: bool,
+    pub enrolled: bool,
 }
 
 /// One archived vault file that sits beside the active one.

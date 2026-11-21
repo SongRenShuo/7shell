@@ -458,7 +458,8 @@ fn category_rank(category: CatalogCategory) -> u8 {
         CatalogCategory::Files => 2,
         CatalogCategory::Containers => 3,
         CatalogCategory::Kubernetes => 4,
-        CatalogCategory::External => 5,
+        CatalogCategory::VirtualMachines => 5,
+        CatalogCategory::External => 6,
     }
 }
 
@@ -515,8 +516,8 @@ mod tests {
             "from the descriptor, not from the catalogue"
         );
 
-        assert_eq!(catalog.counts.total, 10, "every built-in is drawn");
-        assert_eq!(catalog.counts.enabled, 9);
+        assert_eq!(catalog.counts.total, 27, "every built-in is drawn");
+        assert_eq!(catalog.counts.enabled, 26);
         assert!(find(&catalog, "sshell_sessions_list").enabled);
     }
 
@@ -547,8 +548,11 @@ mod tests {
         assert_eq!(switched_off.source.as_deref(), Some("tickets"));
         assert!(!switched_off.enabled, "a switched-off server offers nothing");
 
-        assert_eq!(catalog.counts.total, 13, "ten built-ins and three external tools");
-        assert_eq!(catalog.counts.enabled, 12);
+        assert_eq!(
+            catalog.counts.total, 30,
+            "twenty-seven built-ins and three external tools"
+        );
+        assert_eq!(catalog.counts.enabled, 29);
     }
 
     #[test]
@@ -563,10 +567,10 @@ mod tests {
         );
 
         assert!(!find(&catalog, "mcp__files__read").enabled);
-        assert_eq!(catalog.counts.total, 11);
+        assert_eq!(catalog.counts.total, 28);
         assert_eq!(
-            catalog.counts.enabled, 10,
-            "the ten built-ins are untouched by an external tool's switch"
+            catalog.counts.enabled, 27,
+            "the twenty-seven built-ins are untouched by an external tool switch"
         );
     }
 
@@ -618,7 +622,7 @@ mod tests {
             first["source"].is_null(),
             "a built-in tool names no server, and the page matches on null rather than a missing field"
         );
-        assert_eq!(rendered["counts"]["total"], serde_json::json!(10));
-        assert_eq!(rendered["counts"]["enabled"], serde_json::json!(10));
+        assert_eq!(rendered["counts"]["total"], serde_json::json!(27));
+        assert_eq!(rendered["counts"]["enabled"], serde_json::json!(27));
     }
 }

@@ -100,6 +100,8 @@ async fn lab() -> Option<Lab> {
         ftp: sevenshell_types::FtpSettings::default(),
         jump: Vec::new(),
         forwards: Vec::new(),
+        order: None,
+        vmware: sevenshell_types::VmwareSettings::default(),
         updated_at: 0,
     };
     vault

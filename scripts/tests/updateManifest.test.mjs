@@ -65,6 +65,36 @@ test("a Windows build publishes both installers, and the plain key names the rec
   assert.equal(keys["windows-x86_64-msi"].signature, "msi-signature");
 });
 
+test("the portable archive gets its own key and never becomes the plain one", async () => {
+  const root = await bundle();
+  await writeArtifact(path.join(root, "nsis"), "7Shell_0.3.0_x64-setup.exe", "nsis-signature");
+  await writeArtifact(path.join(root, "msi"), "7Shell_0.3.0_x64_en-US.msi", "msi-signature");
+  // Signed by the same key as the installers: a portable copy downloads it by name and replaces
+  // itself with it, and nothing on the installed side may be handed an archive it cannot run.
+  await writeArtifact(path.join(root, "portable"), "7Shell_0.3.0_x64-portable.zip", "portable-signature");
+
+  const entry = await platformEntries({
+    bundleDir: root,
+    platform: "windows-x86_64",
+    tag: TAG,
+    repository: "7wdn/7shell",
+  });
+  const keys = manifestKeys(entry);
+
+  assert.deepEqual(Object.keys(keys).sort(), [
+    "windows-x86_64",
+    "windows-x86_64-msi",
+    "windows-x86_64-nsis",
+    "windows-x86_64-portable",
+  ]);
+  assert.equal(keys["windows-x86_64-portable"].signature, "portable-signature");
+  assert.equal(
+    keys["windows-x86_64"].url.endsWith("-setup.exe"),
+    true,
+    "an installed build must keep being offered the installer, not the portable archive",
+  );
+});
+
 test("an installer with no signature beside it is not published", async () => {
   const root = await bundle();
   // A build with no signing key writes the installers and nothing else: a release people can download
@@ -148,6 +178,31 @@ test("a macOS build publishes the application archive under its own target", asy
 
   assert.deepEqual(Object.keys(keys).sort(), ["darwin-aarch64", "darwin-aarch64-app"]);
   assert.equal(keys["darwin-aarch64"].signature, "mac-signature");
+});
+
+test("a macOS archive named with its arch publishes under both keys with that name", async () => {
+  // The collect step renames the bundler's `7Shell.app.tar.gz` the way the dmg beside it is named,
+  // and builds the manifest entry over the renamed file. The entry must keep pointing at whatever
+  // name it was given, or the URL and the attached file part ways again — which is what 0.4.0 did
+  // to Apple Silicon (issue #15).
+  const root = await bundle();
+  await writeArtifact(path.join(root, "macos"), "7Shell_0.4.0_aarch64.app.tar.gz", "mac-signature");
+
+  const entry = await platformEntries({
+    bundleDir: root,
+    platform: "darwin-aarch64",
+    tag: "v0.4.0",
+    repository: "7wdn/7shell",
+  });
+  const keys = manifestKeys(entry);
+
+  assert.deepEqual(Object.keys(keys).sort(), ["darwin-aarch64", "darwin-aarch64-app"]);
+  assert.equal(
+    keys["darwin-aarch64-app"].url,
+    "https://github.com/7wdn/7shell/releases/download/v0.4.0/7Shell_0.4.0_aarch64.app.tar.gz",
+    "both keys name the archive that was actually attached, not the bundler's original name",
+  );
+  assert.equal(keys["darwin-aarch64"].url, keys["darwin-aarch64-app"].url);
 });
 
 test("an ARM64 Windows build publishes under its own platform key", async () => {
@@ -310,4 +365,36 @@ test("the workflow's own command lines produce files, flag for flag", async () =
   assert.equal(manifest.pub_date, "2026-10-12T00:00:00Z");
   assert.equal(manifest.platforms["windows-x86_64"].signature, "signature");
   assert.match(manifest.platforms["windows-x86_64"].url, /^https:\/\/github\.com\/7wdn\/7shell\/releases\/download\//);
+});
+
+test("the workflow renames the macOS archive before anything names it", async () => {
+  // The manifest script is name-agnostic, so this failure mode is invisible to every test above:
+  // both macOS legs bundle an archive called `7Shell.app.tar.gz`, the release merges the legs into
+  // one directory, and 0.4.0 shipped one arch's archive while both entries kept their own
+  // signatures. The guard lives where the collision happened — the collect step must give the
+  // archive the arch, and build the darwin entry over the renamed directory.
+  const workflow = await readFile(
+    fileURLToPath(new URL("../../.github/workflows/release.yml", import.meta.url)),
+    "utf8",
+  );
+  const collect = workflow
+    .split(/(?=      - name: )/)
+    .find((step) => step.startsWith("      - name: Collect the installers"));
+  assert.ok(collect, "the Collect the installers step is where the rename lives");
+
+  assert.match(
+    collect,
+    /for suffix in \.app\.tar\.gz \.app\.tar\.gz\.sig; do/,
+    "the macOS updater archive and its signature are renamed together",
+  );
+  assert.match(
+    collect,
+    /mv "release-artifacts\/7Shell\$suffix" "release-artifacts\/7Shell_\$\{version\}_\$\{arch\}\$suffix"/,
+    "the new name carries the version and the arch, like the dmg beside it",
+  );
+  assert.match(
+    collect,
+    /bundle="release-artifacts"/,
+    "the darwin entry describes the renamed release directory, not the bundler's tree",
+  );
 });

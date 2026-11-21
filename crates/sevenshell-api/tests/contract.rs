@@ -2,7 +2,7 @@
 //!
 //! What is frozen here is what a later change is not allowed to move without saying so:
 //!
-//! * the list — ten tools, `sshell_`-prefixed;
+//! * the list — the declared tools, `sshell_`-prefixed;
 //! * the argument schemas — closed objects whose required fields are the ones the input types
 //!   refuse to live without;
 //! * the refusal of `acknowledged` — an agent cannot agree on a person's behalf;
@@ -62,6 +62,56 @@ fn minimal_arguments() -> Vec<(&'static str, Value)> {
             "sshell_batch_exec",
             json!({ "sessionIds": ["lab"], "command": "uptime" }),
         ),
+        ("sshell_vms_list", json!({})),
+        ("sshell_vm_status", json!({ "sessionId": "lab" })),
+        ("sshell_vm_power", json!({ "sessionId": "lab", "action": "start" })),
+        ("sshell_vm_snapshots", json!({ "sessionId": "lab" })),
+        (
+            "sshell_vm_snapshot_change",
+            json!({ "sessionId": "lab", "action": "take", "name": "before" }),
+        ),
+        (
+            "sshell_vm_guest_read",
+            json!({ "sessionId": "lab", "action": "processes" }),
+        ),
+        (
+            "sshell_vm_guest_write",
+            json!({ "sessionId": "lab", "action": "toolsInstall" }),
+        ),
+        ("sshell_vm_send_key", json!({ "sessionId": "lab", "sequence": "esc" })),
+        (
+            "sshell_vm_config_read",
+            json!({ "sessionId": "lab", "action": "config" }),
+        ),
+        (
+            "sshell_vm_config_write",
+            json!({ "sessionId": "lab", "action": "toolsUpgrade" }),
+        ),
+        (
+            "sshell_vm_host_read",
+            json!({ "sessionId": "lab", "action": "networks" }),
+        ),
+        (
+            "sshell_vm_host_write",
+            json!({
+                "sessionId": "lab",
+                "action": "deletePortForward",
+                "network": "vmnet8",
+                "protocol": "tcp",
+                "hostPort": 2222
+            }),
+        ),
+        ("sshell_vm_image", json!({ "sessionId": "lab", "action": "delete" })),
+        ("sshell_host_locations_list", json!({})),
+        (
+            "sshell_vm_screenshot",
+            json!({ "sessionId": "lab", "token": "location-1" }),
+        ),
+        ("sshell_vmrest_read", json!({ "action": "vms" })),
+        (
+            "sshell_vmrest_network_create",
+            json!({ "name": "vmnet-test", "kind": "nat" }),
+        ),
     ]
 }
 
@@ -77,6 +127,7 @@ fn sample_session(id: &str, name: &str) -> Session {
         id: id.to_owned(),
         name: name.to_owned(),
         group_id: None,
+        order: None,
         protocol: Protocol::Ssh,
         host: "127.0.0.1".to_owned(),
         port: 2222,
@@ -93,6 +144,7 @@ fn sample_session(id: &str, name: &str) -> Session {
         kubernetes: KubernetesSettings::default(),
         webdav: WebDavSettings::default(),
         ftp: FtpSettings::default(),
+        vmware: sevenshell_types::VmwareSettings::default(),
         jump: Vec::new(),
         forwards: Vec::new(),
         updated_at: 0,
@@ -163,12 +215,12 @@ fn error_of(outcome: ToolOutcome) -> ToolError {
 // -- The list -----------------------------------------------------------
 
 #[test]
-fn the_registry_lists_exactly_the_ten_declared_tools() {
+fn the_registry_lists_exactly_the_declared_tools() {
     let registry = local::default_registry();
     let descriptors = registry.descriptors();
 
-    assert_eq!(descriptors.len(), 10, "the first wave is ten tools");
-    assert_eq!(registry.len(), 10);
+    assert_eq!(descriptors.len(), 27, "every declared tool is registered");
+    assert_eq!(registry.len(), 27);
 
     for descriptor in &descriptors {
         assert!(

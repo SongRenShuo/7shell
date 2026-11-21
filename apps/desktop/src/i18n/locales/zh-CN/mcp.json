@@ -33,19 +33,30 @@
       "copied": "已复制到剪贴板。",
       "copyFailed": "剪贴板拒绝了这段文本。",
       "unavailable": "现在读不到桥的位置。打开监听器，或者安装打包版本，配置片段就会出现。",
+      "recommended": "荐",
       "name": {
+        "qoder": "Qoder",
         "claudeCode": "Claude Code",
         "cursor": "Cursor",
+        "codebuddy": "CodeBuddy Code CLI",
+        "zcode": "ZCode",
+        "trae": "TRAE",
         "vscode": "VS Code",
         "windsurf": "Windsurf",
-        "qoder": "Qoder",
-        "codex": "Codex"
+        "codex": "Codex",
+        "deepseekHarness": "DeepSeek Harness",
+        "opencode": "OpenCode",
+        "pi": "Pi",
+        "cherryStudio": "Cherry Studio",
+        "workbuddy": "WorkBuddy",
+        "antigravity": "Antigravity"
       }
     },
     "capabilities": {
       "title": "Agent 可以调用的工具",
       "description": "关闭 Agent 不应调用的工具。桥、内置助手和外部客户端共用这份清单；被关闭的工具会被拒绝，而不只是隐藏。",
       "search": "搜索工具",
+      "clear": "清除搜索",
       "onlyEnabled": "只看已开启",
       "refresh": "刷新",
       "counts": "已开启 {enabled} / 共 {total} 个工具",
@@ -63,6 +74,7 @@
         "files": "文件",
         "containers": "容器",
         "kubernetes": "集群",
+        "virtualMachines": "虚拟机",
         "external": "外部服务器"
       },
       "risk": {
@@ -86,6 +98,7 @@
       "sessionsTitle": "会话与组",
       "sessionsDescription": "取消勾选后，Agent 看不到该会话。组设置会覆盖组内会话；下拉框设置本行层级，右侧显示实际生效的层级。",
       "search": "搜索会话",
+      "clear": "清除搜索",
       "onlyOverrides": "只看有例外的",
       "inherit": "继承",
       "sessionScope": "这个会话的层级",

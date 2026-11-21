@@ -207,13 +207,16 @@ describe("the directory's search field", () => {
     await render(entries);
 
     await typeSearch("no-such-entry");
-    const empty = listing()?.querySelector("p");
-    expect(empty?.textContent?.trim()).toBe("No entries matching no-such-entry.");
+    // The empty states are list rows in the merged manager's markup; the sentence is what matters.
+    const sentences = [...(listing()?.querySelectorAll<HTMLElement>("li") ?? [])].map((row) => row.textContent?.trim());
+    expect(sentences).toContain("No entries matching no-such-entry.");
   });
 
   it("leaves the empty directory its own sentence, not the search field's", async () => {
     await render([]);
-    expect(listing()?.querySelector("p")?.textContent?.trim()).toBe("This directory is empty.");
+    const sentences = [...(listing()?.querySelectorAll<HTMLElement>("li") ?? [])].map((row) => row.textContent?.trim());
+    expect(sentences).toContain("This directory is empty.");
+    expect(sentences.some((sentence) => sentence?.startsWith("No entries matching"))).toBe(false);
   });
 
   it("keeps the selection and the menus inside the filtered rows", async () => {

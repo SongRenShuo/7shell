@@ -20,6 +20,7 @@ pub mod service_risk;
 pub mod tail_risk;
 pub mod trash_risk;
 pub mod tunnel_risk;
+pub mod vm_risk;
 pub mod workbench_risk;
 
 pub use command_risk::classify;
@@ -32,6 +33,7 @@ pub use sevenshell_types::{RiskAssessment, RiskLevel, RiskReason};
 pub use tail_risk::tail_open;
 pub use trash_risk::trash_action;
 pub use tunnel_risk::{tunnel_open, tunnel_stop};
+pub use vm_risk::{vm_action, vm_config, vm_guest, vm_host, vm_image, vm_snapshot};
 pub use workbench_risk::workbench_action;
 
 /// Where a policy decision goes once it has been made.

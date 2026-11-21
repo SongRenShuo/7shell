@@ -80,9 +80,11 @@ import type {
   AiToolResultEvent,
 } from "@/types/ai";
 import type { HostSystem } from "@/types/system";
+import type { HostLocationKind, HostLocationView, VmInfo, VmPowerAction, VmStatus } from "@/types/vmware";
 import type { UpdateCheck, UpdateProgress } from "@/types/update";
 import type {
   CreatedKey,
+  ConnectionTestOutcome,
   DownloadFolderView,
   ForwardRequest,
   KeyAlgorithm,
@@ -104,14 +106,17 @@ import type {
   SessionGroup,
   SessionImportOutcome,
   SessionImportSummary,
+  SshConfigHost,
   TerminalClosed,
   TerminalData,
+  TerminalEncoding,
   TrashEmptyOutcome,
   TrashEntry,
   UploadAnswer,
   UploadOutcome,
   WorkbenchPowerOutcome,
   VaultArchive,
+  VaultKeychainStatus,
   VaultState,
   ZmodemEvent,
 } from "@/types/session";
@@ -393,6 +398,18 @@ export const backend = {
     create: (password: string): Promise<VaultState> => forward("vault_create", () => desktop.vaultCreate(password)),
     unlock: (password: string): Promise<VaultState> => forward("vault_unlock", () => desktop.vaultUnlock(password)),
     lock: (): Promise<VaultState> => forward("vault_lock", () => desktop.vaultLock()),
+    /**
+     * Whether this machine can keep the unlock key in its own store, and whether it does for the
+     * open vault. A browser host reports unavailable: it has no keychain to ask.
+     */
+    keychainStatus: (): Promise<VaultKeychainStatus> =>
+      forward("vault_keychain_status", () => desktop.vaultKeychainStatus()),
+    /** Seals the open vault's derived key, after the person asked for an automatic unlock. */
+    keychainEnroll: (): Promise<VaultKeychainStatus> =>
+      forward("vault_keychain_enroll", () => desktop.vaultKeychainEnroll()),
+    /** Removes the sealed key; the vault keeps its password and stays open. */
+    keychainForget: (): Promise<VaultKeychainStatus> =>
+      forward("vault_keychain_forget", () => desktop.vaultKeychainForget()),
     changePassword: (current: string, next: string): Promise<void> =>
       forward("vault_change_password", () => desktop.vaultChangePassword(current, next)),
     /**
@@ -619,10 +636,20 @@ export const backend = {
 
   sessions: {
     list: (): Promise<Session[]> => forward("sessions_list", () => desktop.sessionsList()),
+    /** The aliases in this machine's ~/.ssh/config, with the values they resolve to. */
+    sshConfigHosts: (): Promise<SshConfigHost[]> => forward("ssh_config_hosts", () => desktop.sshConfigHosts()),
     /** Absent `secret` means "leave the stored one alone", which is not the same as blank. */
     save: (session: Session, secret?: SecretInput): Promise<Session> =>
       forward("session_save", () => desktop.sessionSave(session, secret)),
     remove: (id: string): Promise<void> => forward("session_delete", () => desktop.sessionDelete(id)),
+    /**
+     * Tests a draft's connection: the key, the route and the credential, with no shell opened.
+     *
+     * `secret` is a password typed into the editor; absent means "use the stored one", the same
+     * rule a save follows. A typed secret is used once and stored nowhere.
+     */
+    test: (session: Session, secret?: SecretInput): Promise<ConnectionTestOutcome> =>
+      forward("session_test", () => desktop.sessionTest(session, secret)),
 
     /**
      * Writes the library to a file the user picks. The dialog runs in Rust, and the secrets are read
@@ -985,6 +1012,34 @@ export const backend = {
     onWatch: (listener: (payload: K8sWatchEvent) => void): Promise<() => void> => desktop.onK8sWatch(listener),
   },
 
+  vmware: {
+    /** Every machine Workstation on this machine knows about. */
+    scan: (): Promise<VmInfo[]> => forward("vmware_scan", () => desktop.vmwareScan()),
+    /** What one machine is doing now, including the guest's address. */
+    status: (vmId: string): Promise<VmStatus> => forward("vmware_status", () => desktop.vmwareStatus(vmId)),
+    /** Starts, stops or suspends one machine. `acknowledged` answers the policy question. */
+    power: (vmId: string, action: VmPowerAction, acknowledged: boolean): Promise<void> =>
+      forward("vmware_power", () => desktop.vmwarePower(vmId, action, acknowledged)),
+    /** Removes the lock an unfinished run left behind, on a machine that is not running. */
+    takeOwnership: (vmId: string, acknowledged: boolean): Promise<void> =>
+      forward("vmware_take_ownership", () => desktop.vmwareTakeOwnership(vmId, acknowledged)),
+  },
+
+  hostLocations: {
+    list: (): Promise<HostLocationView[]> => forward("host_locations_list", () => desktop.hostLocationsList()),
+    choose: (kind: HostLocationKind, title: string): Promise<HostLocationView | null> =>
+      forward("host_location_choose", () => desktop.hostLocationChoose(kind, title)),
+    forget: (token: string): Promise<boolean> =>
+      forward("host_location_forget", () => desktop.hostLocationForget(token)),
+  },
+
+  vmrest: {
+    configSet: (user: string, password: string): Promise<void> =>
+      forward("vmrest_config_set", () => desktop.vmrestConfigSet(user, password)),
+    status: (): Promise<void> => forward("vmrest_status", () => desktop.vmrestStatus()),
+    start: (): Promise<void> => forward("vmrest_start", () => desktop.vmrestStart()),
+  },
+
   knownHosts: {
     list: (): Promise<KnownHostEntry[]> => forward("known_hosts_list", () => desktop.knownHostsList()),
     trust: (key: PresentedHostKey): Promise<void> => forward("known_host_trust", () => desktop.knownHostTrust(key)),
@@ -1002,6 +1057,9 @@ export const backend = {
     system: (handle: string): Promise<HostSystem> => forward("session_system", () => desktop.sessionSystem(handle)),
     write: (handle: string, base64: string): Promise<void> =>
       forward("terminal_write", () => desktop.terminalWrite(handle, base64)),
+    /** Types text in the session's own encoding; the bytes are made where the setting is read. */
+    writeText: (handle: string, text: string, encoding: TerminalEncoding): Promise<void> =>
+      forward("terminal_write_text", () => desktop.terminalWriteText(handle, text, encoding)),
     resize: (handle: string, columns: number, rows: number): Promise<void> =>
       forward("terminal_resize", () => desktop.terminalResize(handle, columns, rows)),
     close: (handle: string): Promise<void> => forward("terminal_close", () => desktop.terminalClose(handle)),

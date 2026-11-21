@@ -72,6 +72,8 @@ struct Host {
     session_id: String,
     /// The saved session, or why it could not be read.
     session: Result<Session, ShellError>,
+    /// The address a policy rule must see: an OpenSSH alias would otherwise hide the real host.
+    target: Option<(String, u16)>,
 }
 
 impl Host {
@@ -110,9 +112,14 @@ impl Core {
         let hosts: Vec<Host> = request
             .session_ids
             .iter()
-            .map(|session_id| Host {
-                session_id: session_id.clone(),
-                session: self.session(session_id),
+            .map(|session_id| {
+                let session = self.session(session_id);
+                let target = session.as_ref().ok().map(|session| self.policy_target_for(session));
+                Host {
+                    session_id: session_id.clone(),
+                    session,
+                    target,
+                }
             })
             .collect();
 
@@ -321,14 +328,14 @@ async fn connect_one(core: &Core, session: Session) -> HostConnection {
 /// only the global rule decides about it. That host's own error is still its row; this is only
 /// about whether the run as a whole may go ahead.
 fn host_target(host: &Host) -> PolicyTarget<'_> {
-    match &host.session {
-        Ok(session) => PolicyTarget {
+    match (&host.session, &host.target) {
+        (Ok(session), Some((target, port))) => PolicyTarget {
             group_id: session.group_id.as_deref(),
-            host: Some(session.host.as_str()),
-            port: Some(session.port),
+            host: Some(target.as_str()),
+            port: Some(*port),
             directory: None,
         },
-        Err(_) => PolicyTarget::default(),
+        _ => PolicyTarget::default(),
     }
 }
 
@@ -461,6 +468,7 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             group_id: None,
+            order: None,
             protocol: Protocol::Ssh,
             host: "127.0.0.1".to_owned(),
             port: 2222,
@@ -477,6 +485,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 0,

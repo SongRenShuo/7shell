@@ -103,6 +103,46 @@ impl SessionLayout {
     }
 }
 
+/// Where the file panel sits while a terminal is open.
+///
+/// A remembered answer rather than a per-tab control: somebody who wants the files beside the shell
+/// wants them there for every host, and a choice that had to be made again on each tab would be one
+/// people stop making. `tab` is the existing standalone file manager — the same browser in a tab of
+/// its own — offered here so the four positions are one answer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalPanelPlacement {
+    /// Under the terminal, the shape the split layout has always drawn.
+    #[default]
+    Bottom,
+    Left,
+    Right,
+    /// A file manager tag of its own, with no panel under this terminal.
+    Tab,
+}
+
+impl TerminalPanelPlacement {
+    pub const ALL: &'static [TerminalPanelPlacement] = &[
+        TerminalPanelPlacement::Bottom,
+        TerminalPanelPlacement::Left,
+        TerminalPanelPlacement::Right,
+        TerminalPanelPlacement::Tab,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bottom => "bottom",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Tab => "tab",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|placement| placement.as_str() == id)
+    }
+}
+
 /// What opening a session that is already open does, from the session list's own menu.
 ///
 /// The answer only ever applies to that menu. Clicking a session row is not a decision about the
@@ -466,7 +506,7 @@ impl TabLayout {
 /// the right is drawn as a column, which is also why wrapping is a choice only the horizontal ones
 /// have.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum TabPlacement {
     /// Across the top of the panel. What this build has always drawn, so a fresh install gets it.
     #[default]
@@ -477,6 +517,11 @@ pub enum TabPlacement {
     Left,
     /// Down the right, which is the same column on the other side.
     Right,
+    /// In the window's own title bar, replacing the separate strip with the same row.
+    ///
+    /// The opt-in layout: the title bar also carries the window's actions, so this trades the full
+    /// width of a separate row for the empty room the bar usually has.
+    TitleBar,
 }
 
 impl TabPlacement {
@@ -485,6 +530,7 @@ impl TabPlacement {
         TabPlacement::Bottom,
         TabPlacement::Left,
         TabPlacement::Right,
+        TabPlacement::TitleBar,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -493,6 +539,7 @@ impl TabPlacement {
             Self::Bottom => "bottom",
             Self::Left => "left",
             Self::Right => "right",
+            Self::TitleBar => "titleBar",
         }
     }
 
@@ -1123,6 +1170,12 @@ pub struct TerminalSchemeProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheme_light: Option<String>,
     pub scheme_background: TerminalSchemeBackground,
+    /// The text colour set beside the scheme slots, in the same two halves. `None` is the
+    /// palette's own text colour, which is what "follow the interface" means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_dark: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_light: Option<String>,
 }
 
 /// How many of somebody's own scheme choices this build keeps.
@@ -1435,6 +1488,20 @@ pub struct AppSettings {
     /// this one is a habit of the person, which is what this file holds.
     #[serde(default)]
     pub files_delete_mode: FilesDeleteMode,
+    /// Whether the directory tree is drawn beside a file listing.
+    ///
+    /// The tree is the default; folding it away is a workspace choice, not a change to the layout
+    /// itself, so it is remembered separately and follows every file browser.
+    #[serde(default = "files_tree_on")]
+    pub files_tree_visible: bool,
+    /// File-browser columns somebody folded away.
+    ///
+    /// Names rather than an enum because a newer build may know a column this one does not: an
+    /// unknown name is ignored by the interface instead of refusing the whole settings file. The
+    /// three extra columns start folded away, as the reference file list draws name, size and
+    /// modified; showing them is a remembered choice.
+    #[serde(default = "files_columns_hidden_by_default")]
+    pub files_hidden_columns: Vec<String>,
     /// How a session opens: the terminal on its own, or the terminal with its file panel under it.
     #[serde(default)]
     pub session_layout: SessionLayout,
@@ -1445,6 +1512,25 @@ pub struct AppSettings {
     /// somebody to dismiss a dialog they have already answered.
     #[serde(default)]
     pub session_reopen: SessionReopen,
+    /// Where the file panel sits while a terminal is open.
+    ///
+    /// Absent in a file written before the panel could move, which reads as the bottom — the only
+    /// position that build knew.
+    #[serde(default)]
+    pub terminal_panel_placement: TerminalPanelPlacement,
+    /// Where the commands panel sits while a terminal is open.
+    ///
+    /// The file half can also be the standalone manager tab; the commands half has no tab of its
+    /// own, so the three docked positions are the vocabulary they share. Absent reads as the bottom.
+    #[serde(default)]
+    pub terminal_command_panel_placement: TerminalPanelPlacement,
+    /// How wide the file panel is when it sits on the left or right, in pixels.
+    ///
+    /// Its own size rather than a share of the height's: a panel beside the terminal is measured
+    /// across, and a width chosen on one side is the same width on the other. Absent means nobody
+    /// has moved the line yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_panel_width: Option<u32>,
     /// How tall the file panel under a terminal is, in pixels.
     ///
     /// A wish rather than a measurement: the interface clamps it against the window it has, so a
@@ -1668,6 +1754,18 @@ pub struct AppSettings {
     /// background, and a dark scheme worn on a light terminal is the one combination nobody drew.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_scheme_light: Option<String>,
+    /// The colour the terminal prints its text in, while the interface palette supplies it.
+    ///
+    /// Absent means the palette's own text colour. A chosen colour replaces only the text: the
+    /// background and the sixteen ANSI colours stay with the palette, which is what somebody who
+    /// wants the window's colours everywhere but a different terminal font is asking for. Two
+    /// values rather than one for the same reason the scheme slots have two: the two halves of the
+    /// palette are chosen apart, and a colour readable on one is not necessarily readable on the
+    /// other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_foreground_dark: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_foreground_light: Option<String>,
     /// What a chosen scheme replaces. Absent means the whole look, which is what choosing a scheme
     /// is normally for.
     #[serde(default)]
@@ -1864,6 +1962,23 @@ pub fn sidebar_on() -> bool {
     true
 }
 
+/// The directory tree's default, which is "shown beside the listing".
+///
+/// A named function for the same reason as the two above: the type's own default and the settings
+/// file's default are two readers of one decision.
+pub fn files_tree_on() -> bool {
+    true
+}
+
+/// The columns the file browser starts with folded away.
+///
+/// The reference list is name, size and modified; kind, permissions and owner are there when
+/// somebody asks for them. A named function for the same reason as `files_tree_on`: the type's own
+/// default and the settings file's default are two readers of one decision.
+pub fn files_columns_hidden_by_default() -> Vec<String> {
+    vec!["kind".to_owned(), "mode".to_owned(), "owner".to_owned()]
+}
+
 /// Whether the shell keeps an icon in the system tray.
 ///
 /// A named function for the same reason as the two above: it is a default two readers have to agree
@@ -1890,8 +2005,13 @@ impl Default for AppSettings {
             terminal_theme: ThemeMode::default(),
             files_layout: FilesLayout::default(),
             files_delete_mode: FilesDeleteMode::default(),
+            files_tree_visible: files_tree_on(),
+            files_hidden_columns: files_columns_hidden_by_default(),
             session_layout: SessionLayout::default(),
             session_reopen: SessionReopen::default(),
+            terminal_panel_placement: TerminalPanelPlacement::default(),
+            terminal_command_panel_placement: TerminalPanelPlacement::default(),
+            terminal_panel_width: None,
             terminal_panel_height: None,
             sidebar_width: None,
             files_tree_width: None,
@@ -1933,6 +2053,8 @@ impl Default for AppSettings {
             terminal_scheme_source: TerminalSchemeSource::default(),
             terminal_scheme_dark: None,
             terminal_scheme_light: None,
+            terminal_foreground_dark: None,
+            terminal_foreground_light: None,
             terminal_scheme_background: TerminalSchemeBackground::default(),
             terminal_custom_schemes: Vec::new(),
             terminal_scheme_profiles: Vec::new(),
@@ -2001,6 +2123,8 @@ impl AppSettings {
             && self.terminal_scheme_source == TerminalSchemeSource::Host
             && self.terminal_scheme_dark.is_none()
             && self.terminal_scheme_light.is_none()
+            && self.terminal_foreground_dark.is_none()
+            && self.terminal_foreground_light.is_none()
             && self.terminal_scheme_background == TerminalSchemeBackground::Scheme
             && self.terminal_custom_schemes.is_empty()
             && self.terminal_scheme_profiles.is_empty()
@@ -2257,8 +2381,10 @@ mod tests {
             "a bar down one side is drawn as a column"
         );
         assert!(
-            !TabPlacement::Top.is_vertical() && !TabPlacement::Bottom.is_vertical(),
-            "and a bar across the window is drawn as a row"
+            !TabPlacement::Top.is_vertical()
+                && !TabPlacement::Bottom.is_vertical()
+                && !TabPlacement::TitleBar.is_vertical(),
+            "and a bar across the window, or inside its title bar, is drawn as a row"
         );
     }
 

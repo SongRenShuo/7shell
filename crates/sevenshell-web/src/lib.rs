@@ -33,13 +33,14 @@ use sevenshell_core::{BatchEvent, Core, CoreEvent};
 use sevenshell_error::ShellError;
 use sevenshell_session::TerminalEvent;
 use sevenshell_types::{
-    AppInfo, AppSettings, AuthMethod, BatchRequest, CompletionExecuteRequest, CompletionWord, ContainerCommitRequest,
-    ContainerCreateRequest, ContainerImageTransfer, ContainerRegistryLogin, ContainerStreamEnd, ContainerStreamLine,
-    CreatedKey, DownloadFolderView, EntryKind, K8sExecRequest, K8sLogRequest, K8sRequest, K8sStreamEnd, K8sStreamLine,
-    K8sWatchEvent, KeyAlgorithm, KeyInfo, LocalForward, NetworkCreateRequest, PresentedHostKey, Protocol, SecretInput,
-    SendTarget, Session, SessionExportSummary, SessionGroup, SessionImportOutcome, Snippet, SnippetGroup,
-    SyncSelection, TailStreamEnd, TailStreamLine, TransferState, TrashMoveRequest, UpdateCheck, UploadAnswer,
-    UploadOutcome, VaultState,
+    AppInfo, AppSettings, AuthMethod, BatchRequest, CompletionExecuteRequest, CompletionWord, ConnectionTestOutcome,
+    ContainerCommitRequest, ContainerCreateRequest, ContainerImageTransfer, ContainerRegistryLogin, ContainerStreamEnd,
+    ContainerStreamLine, CreatedKey, DownloadFolderView, EntryKind, K8sExecRequest, K8sLogRequest, K8sRequest,
+    K8sStreamEnd, K8sStreamLine, K8sWatchEvent, KeyAlgorithm, KeyInfo, LocalForward, NetworkCreateRequest,
+    PresentedHostKey, Protocol, SecretInput, SendTarget, Session, SessionExportSummary, SessionGroup,
+    SessionImportOutcome, Snippet, SnippetGroup, SyncSelection, TailStreamEnd, TailStreamLine, TerminalEncoding,
+    TransferState, TrashMoveRequest, UpdateCheck, UploadAnswer, UploadOutcome, VaultKeychainStatus, VaultState,
+    VmPowerAction,
 };
 use sevenshell_vault::{ExportProtection, OpenedBundle, SessionSecret, Vault, VaultStatus};
 use std::collections::HashMap;
@@ -524,10 +525,18 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             state.vault.change_password(&current, &next)?;
             Ok(Value::Null)
         }
+        // A browser host keeps no system keychain of its own: the package is used from a desktop
+        // session this process cannot ask, and the fallback is the password the vault already has.
+        "vault_keychain_status" => to_value(VaultKeychainStatus {
+            available: false,
+            enrolled: false,
+        }),
+        "vault_keychain_enroll" | "vault_keychain_forget" => Err(ShellError::vault_keychain_unavailable()),
         "vault_set_aside" => to_value(state.vault.set_aside()?),
         "vault_archives" => to_value(state.vault.archives()?),
 
         "sessions_list" => to_value(state.vault.sessions()?),
+        "ssh_config_hosts" => to_value(sevenshell_core::openssh::hosts()),
         "sessions_export_browser" => {
             let file_name: String =
                 optional_args(&args, "fileName")?.unwrap_or_else(|| "7shell-sessions.json".to_owned());
@@ -620,6 +629,12 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let session_id: String = from_args(&args, "sessionId")?;
             Ok(json!(state.core.cancel_open(&session_id).await))
         }
+        "session_test" => {
+            let session: Session = from_args(&args, "session")?;
+            let secret: Option<SecretInput> = optional_args(&args, "secret")?;
+            let outcome: ConnectionTestOutcome = state.core.test_session(&session, secret).await?;
+            to_value(outcome)
+        }
         "session_system" => {
             let handle: String = from_args(&args, "handle")?;
             to_value(state.core.host_system(&handle).await?)
@@ -638,6 +653,13 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let columns: u32 = from_args(&args, "columns")?;
             let rows: u32 = from_args(&args, "rows")?;
             state.core.resize(&handle, columns, rows).await?;
+            Ok(Value::Null)
+        }
+        "terminal_write_text" => {
+            let handle: String = from_args(&args, "handle")?;
+            let text: String = from_args(&args, "text")?;
+            let encoding: TerminalEncoding = from_args(&args, "encoding")?;
+            state.core.write_text(&handle, &text, encoding).await?;
             Ok(Value::Null)
         }
         "terminal_close" => {
@@ -1265,6 +1287,44 @@ async fn dispatch(state: &WebState, cmd: &str, args: Value) -> Result<Value, She
             let handle: String = from_args(&args, "handle")?;
             let entries: Vec<TrashMoveRequest> = from_args(&args, "entries")?;
             to_value(state.core.move_to_trash(&handle, &entries).await?)
+        }
+
+        "vmrest_config_set" => {
+            let user: String = from_args(&args, "user")?;
+            let password: String = from_args(&args, "password")?;
+            state.core.set_vmrest_auth(user, password)?;
+            Ok(Value::Null)
+        }
+        "vmrest_status" => {
+            state.core.vmrest_probe().await?;
+            Ok(Value::Null)
+        }
+        "vmrest_start" => Err(ShellError::app_unsupported("starting vmrest needs the desktop shell")),
+        "host_location_choose" => Err(ShellError::app_unsupported(
+            "choosing a host location needs the desktop shell",
+        )),
+        "host_locations_list" => to_value(state.core.host_locations()?),
+        "host_location_forget" => {
+            let token: String = from_args(&args, "token")?;
+            Ok(json!(state.core.host_location_forget(&token)?))
+        }
+        "vmware_scan" => to_value(state.core.vmware_scan().await?),
+        "vmware_status" => {
+            let vm_id: String = from_args(&args, "vmId")?;
+            to_value(state.core.vmware_status(&vm_id).await?)
+        }
+        "vmware_power" => {
+            let vm_id: String = from_args(&args, "vmId")?;
+            let action: VmPowerAction = from_args(&args, "action")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            state.core.vmware_power(&vm_id, action, acknowledged).await?;
+            Ok(Value::Null)
+        }
+        "vmware_take_ownership" => {
+            let vm_id: String = from_args(&args, "vmId")?;
+            let acknowledged: bool = from_args(&args, "acknowledged")?;
+            state.core.vmware_take_ownership(&vm_id, acknowledged).await?;
+            Ok(Value::Null)
         }
 
         "container_connect" => {

@@ -33,19 +33,30 @@
       "copied": "Copied to the clipboard.",
       "copyFailed": "The clipboard refused the text.",
       "unavailable": "The bridge's location cannot be read right now. Turn the listener on, or install the packaged build, and the snippets will appear.",
+      "recommended": "Recommended",
       "name": {
+        "qoder": "Qoder",
         "claudeCode": "Claude Code",
         "cursor": "Cursor",
+        "codebuddy": "CodeBuddy Code CLI",
+        "zcode": "ZCode",
+        "trae": "TRAE",
         "vscode": "VS Code",
         "windsurf": "Windsurf",
-        "qoder": "Qoder",
-        "codex": "Codex"
+        "codex": "Codex",
+        "deepseekHarness": "DeepSeek Harness",
+        "opencode": "OpenCode",
+        "pi": "Pi",
+        "cherryStudio": "Cherry Studio",
+        "workbuddy": "WorkBuddy",
+        "antigravity": "Antigravity"
       }
     },
     "capabilities": {
       "title": "Tools an agent may call",
       "description": "Turn off tools that agents may not call. The bridge, the in-app assistant and external clients share this list; a disabled tool is refused, not just hidden.",
       "search": "Search tools",
+      "clear": "Clear the search",
       "onlyEnabled": "Only enabled",
       "refresh": "Refresh",
       "counts": "{enabled} of {total} tools enabled",
@@ -63,6 +74,7 @@
         "files": "Files",
         "containers": "Containers",
         "kubernetes": "Kubernetes",
+        "virtualMachines": "Virtual machines",
         "external": "External servers"
       },
       "risk": {
@@ -86,6 +98,7 @@
       "sessionsTitle": "Sessions and groups",
       "sessionsDescription": "Unticking hides the session from agents. A group setting covers its sessions; the dropdown sets this row's tier, and the text beside it shows the tier in force.",
       "search": "Search sessions",
+      "clear": "Clear the search",
       "onlyOverrides": "Only exceptions",
       "inherit": "Inherit",
       "sessionScope": "This session's tier",

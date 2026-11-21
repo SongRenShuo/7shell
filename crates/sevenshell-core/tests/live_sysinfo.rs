@@ -68,7 +68,6 @@ fn lab() -> Option<Lab> {
         auth: SessionAuth::with_password(AuthMethod::Password),
         terminal: TerminalSettings::default(),
         desktop: sevenshell_types::DesktopSettings::default(),
-        workbench: sevenshell_types::WorkbenchSettings::default(),
         telnet: sevenshell_types::TelnetSettings::default(),
         serial: sevenshell_types::SerialSettings::default(),
         local: sevenshell_types::LocalSettings::default(),
@@ -79,6 +78,9 @@ fn lab() -> Option<Lab> {
         ftp: sevenshell_types::FtpSettings::default(),
         jump: Vec::new(),
         forwards: Vec::new(),
+        order: None,
+        vmware: sevenshell_types::VmwareSettings::default(),
+        workbench: sevenshell_types::WorkbenchSettings::default(),
         updated_at: 0,
     };
     vault

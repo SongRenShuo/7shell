@@ -12,7 +12,9 @@
 //! Every other platform refuses: the product offers remote desktops on Windows only, rather than
 //! pretending a different client would behave the same.
 
-// Only the Windows path below uses these; elsewhere the module is just the refusal.
+// Both are only reached from the Windows half of this module, so the other platforms must not
+// import them: a warning is an error in CI, and "unused on every platform but one" is a build
+// failure waiting for the first Linux run.
 #[cfg(windows)]
 use std::time::Duration;
 
@@ -248,6 +250,7 @@ mod tests {
             id: "desktop-1".to_owned(),
             name: "desktop".to_owned(),
             group_id: None,
+            order: None,
             protocol: Protocol::Rdp,
             host: "desktop.example".to_owned(),
             port: 3389,
@@ -264,6 +267,7 @@ mod tests {
             kubernetes: sevenshell_types::KubernetesSettings::default(),
             webdav: sevenshell_types::WebDavSettings::default(),
             ftp: sevenshell_types::FtpSettings::default(),
+            vmware: sevenshell_types::VmwareSettings::default(),
             jump: Vec::new(),
             forwards: Vec::new(),
             updated_at: 0,
