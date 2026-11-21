@@ -32,6 +32,7 @@ const LABELS = {
 const GROUPS = {
   transfer: "Transfers",
   container: "Containers",
+  image: "Images",
   tail: "Log tracking",
   power: "System",
   browser: "Browser handover",

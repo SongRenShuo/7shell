@@ -18,6 +18,12 @@
  * under the one menu, a write in flight names itself on the row it is working on, and the removal
  * confirmation carries the consequence the reference Docker manager states plainly — the
  * container's data goes with it. The rows, the filters and the dialogs are the same in both.
+ *
+ * Rows can be ticked, and a ticked list is a batch: start runs at once, stop and remove are asked
+ * about once with the consequence said for the lot, and the engine's answers come back sorted —
+ * done, already-satisfied, refused — into one summary line the toast says out loud. The batch is
+ * this view's own orchestration over the same one-container action the rows use; the engine gains
+ * no batch verb, and every destructive answer still travels with its `acknowledged`.
  */
 import {
   Activity,
@@ -47,10 +53,12 @@ import Select from "@/components/ui/Select.vue";
 import WbEmpty from "@/components/ui/WbEmpty.vue";
 import WbTag, { type WbTagTone } from "@/components/ui/WbTag.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
+import { useToast } from "@/composables/useToast";
 import { describeShellError } from "@/i18n/errors";
 import { asShellError } from "@/lib/backend/errors";
 import { backend } from "@/lib/backend/api";
 import type { MenuEntry } from "@/lib/menu/types";
+import { runLimited } from "@/lib/concurrency";
 import { TABLE, rowClass } from "@/lib/table";
 import { cn } from "@/lib/utils";
 import {
@@ -100,6 +108,7 @@ const { t } = useI18n();
 const containers = useContainerStore();
 const terminals = useTerminalsStore();
 const { openMenu } = useContextMenu();
+const { toast } = useToast();
 
 const text = ref("");
 const filterField = ref<HTMLInputElement | null>(null);
@@ -237,21 +246,27 @@ const renameText = ref("");
 const renameProblem = ref<string | null>(null);
 const renameBusy = ref(false);
 const confirming = ref<{ kind: "stop" | "restart" | "remove"; container: ContainerSummary } | null>(null);
+
 /**
- * The write in flight, named on the row it is working on. The desktop's row says what it is
- * waiting for — starting, stopping, removing — instead of a spinner that could mean anything.
+ * The writes in flight, named on the rows they are working on. The desktop's row says what it is
+ * waiting for — starting, stopping, removing — instead of a spinner that could mean anything. A
+ * map rather than a single slot, because a batch has several rows waiting at once and each of
+ * them is owed its own word.
  */
-const pendingAction = ref<{ containerId: string; key: (typeof CONTAINER_LOADING_KEYS)[ContainerActionName] } | null>(
-  null,
-);
+const pendingActions = ref(new Map<string, (typeof CONTAINER_LOADING_KEYS)[ContainerActionName]>());
+
+function setPending(containerId: string, key: (typeof CONTAINER_LOADING_KEYS)[ContainerActionName]): void {
+  pendingActions.value.set(containerId, key);
+}
+
+function clearPending(containerId: string): void {
+  pendingActions.value.delete(containerId);
+}
 
 /** The loading words for a row's write in flight, in the desktop's own phrasing. */
 function loadingText(containerId: string): string | null {
-  const pending = pendingAction.value;
-  if (pending === null || pending.containerId !== containerId) {
-    return null;
-  }
-  return t(pending.key);
+  const key = pendingActions.value.get(containerId);
+  return key === undefined ? null : t(key);
 }
 
 function openDetail(container: ContainerSummary): void {
@@ -339,13 +354,13 @@ async function perform(
   container: ContainerSummary,
   acknowledged: boolean,
 ): Promise<void> {
-  pendingAction.value = { containerId: container.id, key: CONTAINER_LOADING_KEYS[name] };
+  setPending(container.id, CONTAINER_LOADING_KEYS[name]);
   try {
     await containers.action(props.tab.id, container.id, name, acknowledged);
   } catch {
     // The store kept the envelope and the pane's banner is showing it; nothing more to say here.
   } finally {
-    pendingAction.value = null;
+    clearPending(container.id);
   }
 }
 
@@ -413,6 +428,162 @@ async function confirmAction(): Promise<void> {
     return;
   }
   await perform(CONTAINER_ACTIONS.remove, pending.container, true);
+}
+
+// -- multi-select and batch actions ---------------------------------------------
+
+/**
+ * The rows the person has ticked, by container id.
+ *
+ * Only rows on screen carry a checkbox — the select-all answers for exactly those — but a tick
+ * survives a refresh: a re-read that lands mid-choice must not wipe the choice, and a container
+ * that left the list while ticked is reported as such when the batch runs, not dropped silently.
+ */
+const selectedIds = ref(new Set<string>());
+
+const selectedCount = computed(() => selectedIds.value.size);
+
+const allVisibleSelected = computed(
+  () => rows.value.length > 0 && rows.value.every((container) => selectedIds.value.has(container.id)),
+);
+
+function onRowCheck(container: ContainerSummary, event: Event): void {
+  const checked = (event.target as HTMLInputElement | null)?.checked === true;
+  const next = new Set(selectedIds.value);
+  if (checked) {
+    next.add(container.id);
+  } else {
+    next.delete(container.id);
+  }
+  selectedIds.value = next;
+}
+
+function toggleSelectAll(): void {
+  const next = new Set(selectedIds.value);
+  if (allVisibleSelected.value) {
+    for (const container of rows.value) {
+      next.delete(container.id);
+    }
+  } else {
+    for (const container of rows.value) {
+      next.add(container.id);
+    }
+  }
+  selectedIds.value = next;
+}
+
+function clearSelection(): void {
+  selectedIds.value = new Set();
+}
+
+/**
+ * How many rows one batch keeps in flight at once. A daemon answers one write at a time faster
+ * than four would queue them, but four is where a hundred-row sweep stops crawling; the store's
+ * per-container in-flight dedup makes the overlap safe.
+ */
+const BATCH_CONCURRENCY = 4;
+
+const batchBusy = ref(false);
+/** The destructive batch that is being asked about, or null while none is. */
+const batchConfirming = ref<"stop" | "remove" | null>(null);
+
+/** One container's answer inside a batch, kept apart for the summary. */
+interface BatchItemResult {
+  readonly name: string;
+  readonly ok: boolean;
+  readonly alreadySatisfied: boolean;
+  readonly message: string;
+}
+
+function beginBatch(name: "start" | "stop" | "remove"): void {
+  if (batchBusy.value || selectedCount.value === 0) {
+    return;
+  }
+  if (name === "start") {
+    // Starting is not destructive: nothing is asked about, the batch just runs.
+    void runBatch(CONTAINER_ACTIONS.start);
+    return;
+  }
+  batchConfirming.value = name;
+}
+
+/**
+ * Runs one action over the whole selection, a few rows at a time.
+ *
+ * The gate stays per-batch, not per-row: the destructive verbs are asked about once, with the
+ * consequence said for the lot, and each answer the engine gives is sorted into the summary —
+ * `done`, `alreadySatisfied` (a race the engine settled first, still a success) or a refusal.
+ * The toast is where the summary lives because a finished batch leaves no other trace: rows
+ * change state under the person's eyes and the list re-reads itself.
+ */
+async function runBatch(name: ContainerActionName): Promise<void> {
+  batchConfirming.value = null;
+  if (batchBusy.value || selectedCount.value === 0) {
+    return;
+  }
+  const acknowledged = name !== CONTAINER_ACTIONS.start;
+  batchBusy.value = true;
+  const results = await runLimited([...selectedIds.value], BATCH_CONCURRENCY, async (id): Promise<BatchItemResult> => {
+    const container = props.session.containers.find((entry) => entry.id === id);
+    if (container === undefined) {
+      return { name: shortId(id), ok: false, alreadySatisfied: false, message: t("container.batch.gone") };
+    }
+    try {
+      setPending(container.id, CONTAINER_LOADING_KEYS[name]);
+      const outcome = await containers.action(props.tab.id, container.id, name, acknowledged);
+      return { name: container.name, ok: true, alreadySatisfied: outcome === "alreadySatisfied", message: "" };
+    } catch (error) {
+      return {
+        name: container.name,
+        ok: false,
+        alreadySatisfied: false,
+        message: describeShellError(translate, asShellError(error, "container_action")).message,
+      };
+    } finally {
+      clearPending(container.id);
+    }
+  });
+  batchBusy.value = false;
+  clearSelection();
+  summarizeBatch(results);
+}
+
+/** Says the batch's outcome in one line, with the first ten refusals named after it. */
+function summarizeBatch(results: BatchItemResult[]): void {
+  const succeeded = results.filter((result) => result.ok);
+  const already = succeeded.filter((result) => result.alreadySatisfied).length;
+  const failed = results.filter((result) => !result.ok);
+  const head =
+    t("container.batch.summary", { ok: String(succeeded.length), failed: String(failed.length) }) +
+    (already > 0 ? ` ${t("container.batch.already", { count: String(already) })}` : "");
+  const lines = failed
+    .slice(0, 10)
+    .map((result) => t("container.batch.failureLine", { name: result.name, message: result.message }));
+  toast([head, ...lines].join("\n"), failed.length > 0 ? "failure" : "result");
+}
+
+const batchConfirmTitle = computed(() =>
+  batchConfirming.value === "stop"
+    ? t("container.batch.stopTitle", { count: String(selectedCount.value) })
+    : t("container.batch.removeTitle", { count: String(selectedCount.value) }),
+);
+
+const batchConfirmMessage = computed(() =>
+  batchConfirming.value === "stop"
+    ? t("container.batch.stopMessage", { count: String(selectedCount.value) })
+    : t("container.batch.removeMessage", { count: String(selectedCount.value) }),
+);
+
+const batchConfirmLabel = computed(() =>
+  batchConfirming.value === "stop" ? t("container.action.stopVerb") : t("container.action.removeVerb"),
+);
+
+async function confirmBatch(): Promise<void> {
+  const kind = batchConfirming.value;
+  if (kind === null) {
+    return;
+  }
+  await runBatch(kind === "stop" ? CONTAINER_ACTIONS.stop : CONTAINER_ACTIONS.remove);
 }
 
 // -- rename -------------------------------------------------------------------
@@ -651,6 +822,55 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       <div class="min-w-0 flex-1"></div>
 
       <!--
+        The batch bar, both layouts: what is ticked, and the three verbs a ticked list is for.
+        Starting just runs; stopping and removing ask once, together, and the answers are what
+        carries `acknowledged` for every row the batch touches.
+      -->
+      <span v-if="selectedCount > 0" data-container-batch-bar class="flex flex-wrap items-center gap-1.5">
+        <span class="text-[11px] text-muted-foreground" data-container-batch-count>
+          {{ t("container.batch.selected", { count: String(selectedCount) }) }}
+        </span>
+        <button
+          type="button"
+          data-container-batch-start
+          class="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="batchBusy"
+          @click="beginBatch('start')"
+        >
+          {{ t("container.batch.start") }}
+        </button>
+        <button
+          type="button"
+          data-container-batch-stop
+          class="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="batchBusy"
+          @click="beginBatch('stop')"
+        >
+          {{ t("container.batch.stop") }}
+        </button>
+        <button
+          type="button"
+          data-container-batch-remove
+          class="flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-[11px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="batchBusy"
+          @click="beginBatch('remove')"
+        >
+          {{ t("container.batch.remove") }}
+        </button>
+        <button
+          type="button"
+          data-container-batch-clear
+          class="grid size-5 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          :title="t('container.batch.clear')"
+          :aria-label="t('container.batch.clear')"
+          :disabled="batchBusy"
+          @click="clearSelection()"
+        >
+          <X :size="11" />
+        </button>
+      </span>
+
+      <!--
         The desktop layout's create entry arrives through `toolbar-end` (the pane's wizard); the
         flat workspace keeps its own dialog, which is the only create it has ever had.
       -->
@@ -682,7 +902,18 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       >
         <thead :class="TABLE.page.head">
           <tr :class="TABLE.page.headRow">
-            <th class="w-[18%]" :class="TABLE.page.headCell">{{ t("container.col.name") }}</th>
+            <th class="w-[2rem]" :class="TABLE.page.headCell">
+              <input
+                type="checkbox"
+                data-container-select-all
+                class="size-3 accent-[var(--primary)]"
+                :aria-label="t('container.select.all')"
+                :checked="allVisibleSelected"
+                @click.stop
+                @change="toggleSelectAll()"
+              />
+            </th>
+            <th class="w-[16%]" :class="TABLE.page.headCell">{{ t("container.col.name") }}</th>
             <th class="w-[22%]" :class="TABLE.page.headCell">{{ t("container.col.image") }}</th>
             <th class="w-[8%]" :class="TABLE.page.headCell">{{ t("container.col.id") }}</th>
             <th class="w-[9%]" :class="TABLE.page.headCell">{{ t("container.col.state") }}</th>
@@ -699,6 +930,18 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             :class="cn(rowClass('page', { clickable: true, striped: desktop }))"
             @click="openDetail(container)"
           >
+            <!-- The tick is the row's first cell; the click that chooses stays out of the click
+                 that opens the container, which is why the cell stops the row's own handler. -->
+            <td :class="TABLE.page.cell" @click.stop>
+              <input
+                type="checkbox"
+                data-container-select
+                class="size-3 accent-[var(--primary)]"
+                :aria-label="t('container.select.row', { name: container.name })"
+                :checked="selectedIds.has(container.id)"
+                @change="onRowCheck(container, $event)"
+              />
+            </td>
             <td :class="TABLE.page.cell">
               <span class="block truncate" :title="container.name">{{ container.name }}</span>
             </td>
@@ -878,7 +1121,7 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td :colspan="7" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
+            <td :colspan="9" :class="cn(TABLE.page.cell, TABLE.page.emptyCell)">
               <WbEmpty scenario="noData" size="sm" :description="t('container.filters.none')" class="mx-auto" />
             </td>
           </tr>
@@ -947,6 +1190,20 @@ function openRowMenu(event: MouseEvent, container: ContainerSummary): void {
       danger
       @confirm="confirmAction()"
       @update:open="confirming = null"
+    />
+
+    <!--
+      The batch's own gate, for the two destructive verbs: asked once for the whole selection, with
+      the consequence said for the lot — one answer is what every row's `acknowledged` travels on.
+    -->
+    <ConfirmDialog
+      :open="batchConfirming !== null"
+      :title="batchConfirmTitle"
+      :message="batchConfirmMessage"
+      :confirm-label="batchConfirmLabel"
+      danger
+      @confirm="confirmBatch()"
+      @update:open="batchConfirming = null"
     />
   </div>
 </template>

@@ -118,8 +118,10 @@
         "tagPlaceholder": "latest",
         "tagInvalid": "标签格式不正确：以字母或数字开头，只能包含字母、数字、点、连字符和下划线。",
         "checkUpdate": "检查更新",
+        "checkingProgress": "检查中 {done}/{total}",
         "update": "更新此镜像",
         "checkingTag": "检查中…",
+        "unknownTag": "未检查",
         "updateTag": "有新版本",
         "currentTag": "已是最新",
         "undecidedTag": "无法比对",
@@ -209,9 +211,29 @@
       "created": "创建时间",
       "repository": "仓库",
       "tag": "标签",
+      "update": "更新",
       "size": "大小",
       "related": "容器数",
       "actions": "操作"
+    },
+    "select": {
+      "all": "全选当前显示的行",
+      "row": "选择容器 {name}"
+    },
+    "batch": {
+      "selected": "已选 {count} 个",
+      "start": "启动所选",
+      "stop": "停止所选",
+      "remove": "删除所选",
+      "clear": "清除选择",
+      "stopTitle": "停止 {count} 个容器？",
+      "stopMessage": "所选的 {count} 个容器将被停止；其中正在运行的进程会立即结束。",
+      "removeTitle": "删除 {count} 个容器？",
+      "removeMessage": "所选的 {count} 个容器及其可写层将被删除，容器中的所有数据将丢失。",
+      "summary": "批量操作完成：成功 {ok} / 失败 {failed}",
+      "already": "（其中 {count} 个已是目标状态）",
+      "failureLine": "{name}：{message}",
+      "gone": "容器已不在列表中"
     },
     "action": {
       "exec": "在 {name} 中打开 Shell",

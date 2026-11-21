@@ -6,6 +6,18 @@ All notable changes to 7Shell are documented in this file. The format is
 
 ## [Unreleased]
 
+### Added
+
+- A ticked container list is a batch: start runs at once; stop and remove are asked about once with
+  the consequence said for the lot; every row carries its own loading word while it waits; and the
+  engine's answers come back sorted into one summary — succeeded, already-in-the-requested-state,
+  refused, with the first ten refusals named (37acbb1).
+- The image list's update column always answers — not checked, up to date, new version — and the
+  page's own check-for-updates button sweeps every image the engine can question, a few at a time,
+  with the count read on the button while it runs and the list usable the whole way (37acbb1).
+- A sweep that finds a newer image tells the notification centre, in its own images group, once per
+  finding; re-running the sweep does not repeat what it already said (37acbb1).
+
 ### Fixed
 
 - A terminal's connection can no longer be driven out of channels by its own monitor: a command

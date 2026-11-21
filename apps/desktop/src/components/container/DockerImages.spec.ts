@@ -33,10 +33,12 @@ vi.mock("@/lib/backend/tauri", () => ({
 import DockerImages from "@/components/container/DockerImages.vue";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useContainerStore } from "@/stores/container";
+import { useNotificationsStore } from "@/stores/notifications";
 import { i18n } from "@/i18n";
 import { containerImagePull, containerImageRemove, dockerInfo, imageRemoteDigest } from "@/lib/backend/tauri";
 import type { ContainerSession } from "@/stores/container";
 import type { ContainerTab } from "@/stores/terminals";
+import type { ContainerImageRemoteDigest } from "@/types/container";
 
 const pullMock = vi.mocked(containerImagePull);
 const removeMock = vi.mocked(containerImageRemove);
@@ -174,8 +176,8 @@ describe("the image list", () => {
 
     const nginxRow = rows().find((row) => row.textContent?.includes("nginx:latest"));
     const redisRow = rows().find((row) => row.textContent?.includes("redis:7"));
-    expect(nginxRow?.querySelector("[data-wb-tag]")?.textContent?.trim()).toBe("In use");
-    expect(redisRow?.querySelector("[data-wb-tag]")?.textContent?.trim()).toBe("Unused");
+    expect(nginxRow?.querySelector("[data-docker-image-used]")?.textContent?.trim()).toBe("In use");
+    expect(redisRow?.querySelector("[data-docker-image-used]")?.textContent?.trim()).toBe("Unused");
   });
 
   it("keeps the workspace's removal gate: a consequence, then the acknowledged call", async () => {
@@ -431,7 +433,8 @@ describe("the update flow", () => {
       streamError: null,
     });
     await nextTick();
-    expect(updateTag()).toBeNull();
+    // The badge is gone; the column falls back to what it says about a row it has not asked.
+    expect(updateTag()).toBe("Not checked");
   });
 
   it("offers the manual pull only when the engine cannot answer the check", async () => {
@@ -460,5 +463,128 @@ describe("the update flow", () => {
     expect(ids).toContain("remove");
     menu.closeMenu();
     await nextTick();
+    // The full sweep is the same question at a larger scale: the capability bit trims it too.
+    expect(document.querySelector("[data-docker-images-checkall]")).toBeNull();
+  });
+});
+
+describe("the update column", () => {
+  it("reads not-checked until asked, then the answer, in its own colour", async () => {
+    await mount();
+
+    expect(updateTag(), "a row the engine has not asked says so").toBe("Not checked");
+
+    await checkRedis();
+    await vi.waitFor(() => expect(updateTag()).toBe("New version"));
+    const newer = rows()
+      .find((row) => row.textContent?.includes("redis:7"))
+      ?.querySelector("[data-docker-image-update]");
+    expect(newer?.className).toContain("wb-tag--warning");
+
+    remoteDigestMock.mockImplementation(async (_connectionId: string, image: string) => ({
+      reference: image,
+      remoteDigest: "sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+      upToDate: true,
+      source: "docker.gmssh.com",
+    }));
+    await checkRedis();
+    await vi.waitFor(() => expect(updateTag()).toBe("Up to date"));
+    const current = rows()
+      .find((row) => row.textContent?.includes("redis:7"))
+      ?.querySelector("[data-docker-image-update]");
+    expect(current?.className).toContain("wb-tag--success");
+  });
+
+  it("keeps the check's refusal as its own word in the unknown's wash", async () => {
+    remoteDigestMock.mockRejectedValue({ code: "IMAGE-MANIFEST-UNAVAILABLE" });
+    await mount();
+    await checkRedis();
+    await vi.waitFor(() => expect(updateTag()).toBe("Check failed"));
+    const failed = rows()
+      .find((row) => row.textContent?.includes("redis:7"))
+      ?.querySelector("[data-docker-image-update]");
+    expect(failed?.className).toContain("wb-tag--neutral");
+    expect(failed?.getAttribute("title"), "the refusal's sentence is the tooltip").toBeTruthy();
+  });
+});
+
+describe("the full check", () => {
+  function checkAllButton(): HTMLElement {
+    const element = document.querySelector("[data-docker-images-checkall]");
+    if (!element) {
+      throw new Error("the toolbar has no check-all button");
+    }
+    return element as HTMLElement;
+  }
+
+  function checkAllLabel(): string {
+    return checkAllButton().textContent?.trim() ?? "";
+  }
+
+  it("asks every image the engine can question, a few at a time, and says how far it has got", async () => {
+    const resolvers: Array<(value: ContainerImageRemoteDigest) => void> = [];
+    remoteDigestMock.mockImplementation(
+      () =>
+        new Promise<ContainerImageRemoteDigest>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    await mount();
+
+    checkAllButton().click();
+    await vi.waitFor(() => expect(checkAllLabel()).toBe("Checking 0/2"));
+    expect(updateTag(), "the row waiting on its question says so").toBe("Checking…");
+    expect(remoteDigestMock).toHaveBeenCalledTimes(2);
+
+    for (const resolve of resolvers) {
+      resolve({
+        reference: "redis:7",
+        remoteDigest: "sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+        upToDate: false,
+        source: "docker.gmssh.com",
+      });
+    }
+    await vi.waitFor(() => expect(checkAllLabel()).toBe("Check for updates"));
+    expect(updateTag()).toBe("New version");
+  });
+
+  it("will not start a second sweep while one is on its way", async () => {
+    remoteDigestMock.mockImplementation(
+      () =>
+        new Promise<ContainerImageRemoteDigest>(() => {
+          // Never answers: the sweep stays on its way for the length of the test.
+        }),
+    );
+    await mount();
+
+    checkAllButton().click();
+    await vi.waitFor(() => expect(remoteDigestMock).toHaveBeenCalledTimes(2));
+
+    const disabled = checkAllButton() as HTMLButtonElement;
+    expect(disabled.disabled, "the sweep's own button steps aside while it runs").toBe(true);
+    disabled.click();
+    expect(remoteDigestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells the notification centre what it found newer, once per finding", async () => {
+    await mount();
+    const notifications = useNotificationsStore();
+    const imageNotices = () => notifications.notices.filter((notice) => notice.source === "image");
+
+    checkAllButton().click();
+    await vi.waitFor(() => expect(imageNotices(), "both fixture images came back newer").toHaveLength(2));
+    await vi.waitFor(() => expect(checkAllLabel()).toBe("Check for updates"));
+    expect(imageNotices().every((notice) => notice.titleKey === "workbench.notices.image.update")).toBe(true);
+    expect(
+      imageNotices()
+        .map((notice) => notice.params?.image)
+        .sort(),
+    ).toEqual(["nginx:latest", "redis:7"]);
+
+    // The second sweep finds the same answers; what it found is not news twice.
+    checkAllButton().click();
+    await vi.waitFor(() => expect(remoteDigestMock).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(checkAllLabel()).toBe("Check for updates"));
+    expect(imageNotices()).toHaveLength(2);
   });
 });

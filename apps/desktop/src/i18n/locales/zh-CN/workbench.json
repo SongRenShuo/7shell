@@ -259,6 +259,7 @@
       "group": {
         "transfer": "传输",
         "container": "容器",
+        "image": "镜像",
         "tail": "日志追踪",
         "power": "系统",
         "browser": "浏览器交接"
@@ -280,6 +281,10 @@
         "ended": "容器任务已结束",
         "failed": "容器任务失败",
         "error": "{error}"
+      },
+      "image": {
+        "update": "镜像有新版本",
+        "updateDetail": "{image}"
       },
       "power": {
         "issuedReboot": "已向 {name} 发送重启指令。",
