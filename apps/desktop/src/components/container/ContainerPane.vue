@@ -88,6 +88,13 @@ const problemDetail = computed(() => {
   return detail && detail !== problem.value?.message ? detail : null;
 });
 
+/**
+ * How many Compose projects are running, as the Compose page last read them — the number the
+ * rail's Compose badge draws. Null until the page has read a list; a read that failed answers
+ * null too, which is the badge not being drawn rather than a zero.
+ */
+const composeRunning = ref<number | null>(null);
+
 const rail = computed(() => [
   {
     view: "overview" as const,
@@ -149,7 +156,10 @@ const sideRail = computed<readonly SideNavItem[]>(() => {
     items.push({ id: "networks", label: t("container.rail.networks"), icon: Waypoints, count: null });
   }
   if (current.info?.composeAvailable !== false) {
-    items.push({ id: "compose", label: t("container.rail.compose"), icon: Blocks, count: null });
+    // The badge counts the running projects. The number belongs to the Compose page — it reads
+    // the project list — and arrives here as the page's own hand-up; before it has read anything
+    // the badge is simply not drawn.
+    items.push({ id: "compose", label: t("container.rail.compose"), icon: Blocks, count: composeRunning.value });
   }
   return items;
 });
@@ -557,7 +567,12 @@ onBeforeUnmount(() => {
           />
           <!-- v-show, like the rest: a network the page was about to create survives a look away. -->
           <DockerNetworks v-show="desktop && view === 'networks'" :tab="props.tab" :session="session" />
-          <DockerCompose v-show="desktop && view === 'compose'" :tab="props.tab" :session="session" />
+          <DockerCompose
+            v-show="desktop && view === 'compose'"
+            :tab="props.tab"
+            :session="session"
+            @running-count="composeRunning = $event"
+          />
           <!-- The volumes page reads and asks about removals; the cleanup page reads first and
                prunes second. Both stay mounted across views like every other page here. -->
           <DockerVolumes v-show="desktop && view === 'volumes'" :session="session" />

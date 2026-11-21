@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  composeRunningCount,
   composeStatusTone,
   composeYmlPath,
   composeYmlProblem,
@@ -111,5 +112,13 @@ describe("filtering", () => {
   it("keeps the names that carry the text, in the order they came in", () => {
     expect(filterComposeProjects(PROJECTS, "MON").map((project) => project.name)).toEqual(["monitoring"]);
     expect(filterComposeProjects(PROJECTS, "test").map((project) => project.name)).toEqual(["mem-compose-test"]);
+  });
+});
+
+describe("the running count the rail's badge carries", () => {
+  it("counts the projects whose status line starts with the word", () => {
+    expect(composeRunningCount([{ status: "running(2)" }, { status: "exited(1)" }, { status: "running(4)" }])).toBe(2);
+    expect(composeRunningCount([{ status: "created" }])).toBe(0);
+    expect(composeRunningCount([])).toBe(0);
   });
 });
