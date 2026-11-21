@@ -133,7 +133,9 @@ fn unquote(value: &str) -> String {
 }
 
 fn file_stem(path: &str) -> String {
-    Path::new(path)
+    // The inventory and the .vmx are Windows documents: their separators stay backslashes no matter
+    // which platform this build runs on, so the name is read with both separators understood.
+    Path::new(&path.replace('\\', "/"))
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_owned())
