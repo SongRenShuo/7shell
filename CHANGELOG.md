@@ -4,9 +4,23 @@ All notable changes to 7Shell are documented in this file. The format is
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-22
 
-### Added
+### English
+
+The desktop-workbench release. The Linux desktop grows into a full operating-system shell —
+floating windows, a starter, a taskbar, widgets, wallpaper, trash, a Docker manager, forwards,
+services, logs, batch execution — and the whole desktop can be handed to a system browser at a
+loopback address. The Docker window speaks the reference manager's language end to end: event-fed
+lists, a create wizard with templates, batch actions, the update sweep with a notification group,
+the cleanup centre, the volumes page, the upgrade transaction, a Compose page whose YAML edits
+behind a rebuild gate, and the logs' search, merge, copy and download. The interface's charts draw
+from one six-primitive vocabulary on one threshold. Underneath it all, the SSH connection learns
+to mind its own session slots: a budget with the events stream's graceful yield, and a carrier
+pool that rides a second connection when the first is one slot from full.
+
+
+#### Added
 
 - A host keeps a carrier pool: the carriers a fresh open would have opened one at a time belong to
   a group keyed by the peer they serve (host, port, account, credential kind, route), every channel
@@ -142,7 +156,7 @@ All notable changes to 7Shell are documented in this file. The format is
   under 900px — no card rearrangement, the table stays a table — and a column the person shows or
   hides is remembered in localStorage, the primary columns never hiding (79523cc).
 
-### Fixed
+#### Fixed
 
 - A docker engine that renamed the health column refuses the container list's template with
   "can't evaluate field Health"; the list is asked once more with the renamed column and the
@@ -211,9 +225,9 @@ All notable changes to 7Shell are documented in this file. The format is
 - The VMware inventory's Windows-style separators are understood on every platform, so a machine's
   name falls back correctly wherever the host runs (7e020e3).
 
-### Added
+##### Added
 
-#### The charts stop being three private shapes
+##### The charts stop being three private shapes
 
 - The desktop's charts draw from one vocabulary now — a bar row, an area, a ring gauge, a mini bar,
   a stat tile and a widgets' trend strip, all painted from the theme's tokens and all asking the
@@ -505,7 +519,7 @@ All notable changes to 7Shell are documented in this file. The format is
   own sentence when nothing matches; the field is session state — clearing it hands the whole
   directory back, and walking into another directory empties it (c086a1b).
 
-### Fixed
+#### Fixed
 
 - The starter sheet's tiles are drawn at the same plate opacity as the icon grid and the taskbar,
   which is what the "same tone everywhere" contract always said and the sheet quietly rounded off.
@@ -523,6 +537,95 @@ All notable changes to 7Shell are documented in this file. The format is
   the whole desk and took every click even while the sheet inside it was closed and inert. The
   layer is now click-through, and the taskbar's side margins narrow with a narrow window instead of
   leaving a sliver of bar (5fb0c12).
+
+### 中文
+
+桌面工作台版本。Linux 桌面长成完整的操作系统外壳——浮动窗口、启动器、任务栏、小部件、壁纸、回收站、Docker 管理器、转发、服务、日志、批量执行——整个桌面可以移交给系统浏览器（仅本机回环地址可达）。Docker 窗从头到尾说参考管理器的语言：事件流驱动的列表、带模板的创建向导、批量操作、带通知分组的更新巡检、清理中心、卷页、升级事务、受重建闸门保护的 Compose YAML 编辑，以及日志的搜索、合并、复制与下载。界面的图表统一到一套六原语词汇与一条阈值。在这之下，SSH 连接学会管好自己的会话名额：带 events 流优雅让位的预算，以及第一条连接将满时骑上第二条连接的承载池。
+
+#### 新增
+
+**承载与预算**
+
+- **连接池：** 一个主机会保有一组连接（按主机、端口、账号、凭据种类、路由为键）；每个新通道落在剩余名额最多的连接上，第 8 个通道触发第二条连接而不是占走最后一个名额——上限三条，死连接按首次遇到的死亡标记下线并用同一钉选键与已存凭据原位补满，空闲连接在下次发放时关闭；事件流永不路由、永不扩容（8796e26、75ac7b5）。
+- **通道预算：** 连接给每个打开的会话通道按用途（events、日志、pty、exec）记账，通道结束时释放；越过上限 8 的打开在到达服务器前就被拒绝，信封写明算术与持有者；预算满且持有者含事件流时先关它、把名额让给新的请求（4ca2007）。
+- **容器工作台接入预算：** 合并日志视图先问剩余名额，只开装得下的流（锚点流总是尝试，宾客按面板写明的裁剪）；让位的事件流用结束事件通知界面，界面改为每十秒读一次列表、在提示条说明、把重连留给人（14635b6）。
+- **预算行为用探针钉住：** lab 测试证明计数跟随持有流到其结束、超上限的打开到不了服务器、满预算让位并移交名额；界面测试证明让位降级到十秒刷新且不自动重抢、非预算拒绝保持退避、合并只开装得下的量（b34b87c）。
+
+**Docker 管理器（参考语言）**
+
+- **事件流自动跟进：** 引擎自己的事件流喂列表，一阵变动落定后自读，流回来即强制全量对齐；无能力位的引擎保持手动刷新且绝不被轮询（204198b、057958f）。
+- **日志流跨重启自愈：** 跟踪因容器停止而结束时，抽屉盯着列表等它回到运行态并自动重开、等待期有提示；连续三次重开一行都没收到就把视图交还给人（057958f）。
+- **操作幂等：** 迟到的容器操作是「带名字的成功」而不是错误——引擎早已落定的 stop/remove、与自己赛跑的 pause，全管道回答 AlreadySatisfied；同一写操作的第二次点击遇到第一次调用（204198b、057958f）。
+- **healthcheck 徽标：** 容器行在状态旁画出引擎的健康判定（ps 加 `.Health` 列；无 healthcheck 时不上线），概览把运行中容器的失败判定计入不健康（204198b、057958f）。
+- **批量操作：** 勾选即成批——start 立即执行；stop/remove 一次确认、后果对整批说明；每行等待时有自己的加载词；引擎的回答归一成一份汇总——成功、已达标、被拒并点名前十条（37acbb1）。
+- **镜像更新列三态：** 未检查/已是最新/有新版本；页面自己的「检查更新」按钮分批扫每个引擎能问的镜像，进行中按钮上读计数、列表全程可用（37acbb1）。
+- **更新通知：** 巡检发现新版本时通知中心按自己的镜像分组收一条；重跑巡检不重复说（37acbb1）。
+- **清理中心：** 引擎的 `system df` 读数先行——四行各写占用与可回收——分级 prune 与它们会改变的数字并排，卷默认不勾且警告写在旁边；每个破坏性动词只过页面自己的确认，一个被拒的类别不拦其余，跑完重读算术就是回执（d742917）。
+- **卷页：** 名称、驱动、挂载点、daemon 肯给的大小——页面无任何创建入口；仍被容器挂载的卷被引擎拒绝，引擎原句留在条栏上（d742917）。
+- **一键升级事务：** 行菜单的「升级」先拉镜像引用，拉取未回答前不发生任何破坏——失败或已是最新都让旧容器安然无恙——然后停、删、按 inspect 逐项回读的参数创建替换；删除之后的失败保留原请求供重试，原镜像还在引擎上可手动回退（d742917）。
+- **引擎生命周期词：** `system df` 与 `volume ls` 为读，分级 prune——已停容器、未挂载卷（裸命令、永不 `--all`）、悬空构建缓存、一次一个具名卷——每个破坏性动词都带 acknowledged 旗标与自己的日志条目，卷能力位在引擎打开时探测一次，升级携带 `run --entrypoint`（22dfd8f）。
+- **镜像 tags：** 镜像抽屉列出仓库的 tags——每 tag 一行带大小与日期，穿着更新列自己的三态；巡检分几条车道问 registry，没人问过的 tag 读作未检查，引擎的回答经既有桥接走一条只读 `image_tags`（b91320a、bf5b421）。
+- **层视图读数：** 层序号与每个大小进数字轨道，命令保持等宽（bf5b421）。
+- **创建向导模板：** 第一步把一组答案存成命名模板，按 clone 的方式回填，可在架上应用或删除——本地明文存储且文案说明这一点，clone 询问仍是更强的预填（4eed753）。
+
+**日志三大件**
+
+- **搜索：** 查询按字面或正则读，命中画标记、字段旁读 n/m、上一步/下一步回环并滚到命中行——流从不因搜索重启，搜索运行时到达的行当场参与匹配，引擎拒绝的正则在字段旁说明而不是抛出（7384f70）。
+- **合并视图：** 最多四个容器并成一个视图，每行由写它的容器加前缀、按来源配色，前缀可开关，结束的宾客标记 ended 而其余继续（7384f70）。
+- **复制全部与下载：** 交出的就是屏上的——只含已收行、按视图的过滤来、合并行带前缀——下载按来源容器与日期命名（7384f70）。
+- **Compose 按服务过滤：** 服务从行自己的 `name |` 前缀读进下拉，前缀按服务配色，没话可说的服务如实说明而不是画成空白（7384f70）。
+
+**桌面工作台（Linux 桌面）**
+
+- **新连接类型「Linux 桌面」：** 前页即桌面工作台的 SSH 会话——系统卡、文件快捷入口、可进终端/文件浏览器/监控页的条目、确认与策略矩阵之后的电源动作；底下仍是普通 SSH 会话（00c2c5a 等）。
+- **成为操作系统外壳：** 壁纸铺满标签、图标网格、双击/回车开图标、任务栏与电源动作；启动器、可移动可缩放可最大化的浮动窗口、桌面上的终端/文件/监控/系统面板/回收站窗口（fdb5dd8 等）。
+- **回收站：** 走机器已有的 freedesktop 布局、全程经会话自己的文件通道——不装任何东西。文件浏览器删除默认入回收站；条目可放回、彻底删除、整桶清空（确认与策略矩阵）。
+- **系统面板：** 服务（systemd 状态、启停开关）、块设备树、账户、接口与路由、journal 尾部、防火墙状态、每挂载点的用量环；crontab 与最近二十次登录（1e7a147）。
+- **桌面 Docker 管理器：** 机器自己的 Docker 引擎，随桌面连接开关；容器/镜像/日志/容器终端（c800bd1 等）。
+- **转发/服务/日志跟踪/批量执行四个桌面窗：** 三种转发形状与策略闸问答、监听端口与开通道入口、`tail -F` 跟踪、多主机批量（f8dab9e 等）。
+- **浏览器承载：** 标签的动作把桌面移交给系统浏览器——仅本机回环可达、每次运行一个随机令牌、应用侧收成托管卡；字节仍在移动时离开页面会先问（5e5b255、2d94d22）。
+- **创建向导：** 三步（基本/高级分区卡/审阅）、逐行即时校验、创建后启动、高级七字段全部到达请求（39fae03、699ea39、3b86ae5）。
+- **网络页与 Compose 页：** 网络的创建表单（CIDR/网关即输即查）与在用拒绝原句；Compose 的项目状态、创建向导、up/down/restart 的谨慎闸与日志窗（9c18ef3、6254720）。
+- **Clone/Monitor/详情：** 行菜单的 Clone 按 inspect 预填且副本不启动；Monitor 对话框只在被看时采样并画出三线；详情加标签分节（17883b0、da714bf）。
+- **通知中心：** 传输完成/失败、日志流结束、容器任务结束、电源回执按分组落进铃铛（a388faa）。
+- **空态插画与浅色主题：** 每种空场景一幅线绘插画三档尺寸；工作台令牌分浅色默认与深色两套，壁纸上的字保持固定白（7b4c618、75da8ca）。
+
+**图表与三态**
+
+- **六原语词汇：** 条行、面积、环、迷你条、状态瓦片、widgets 趋势条——全部取主题令牌、全部走唯一阈值（90 琥珀、95 红）（0a29895）。
+- **监控面板占用条首次按档染色；** 系统面板磁盘环补琥珀档；Docker 三趋势从折线改面积、内存线按读数取档（0a29895）。
+- **监控窗重构：** 主机名下的状态带、CPU/内存趋势图、处理器占比条组、磁盘分级容量条、swap 环——静态细节降到首屏之下（045c94f）。
+- **图表不撒谎：** 历史只在样本到达时生长、量不出间隔不发点、未应答的主机有空态与立即重试（045c94f）。
+- **面板三态：** 系统面板摘要行与失败过滤、服务窗骨架/失败重试/空态去转发、日志窗行/秒频率条、转发窗状态灯与空态聚焦表单、批量点灯统一、回收站数字轨道、传输行速率（1998c42）。
+
+**文件与批量面板的记忆**
+
+- **文件面板记住习惯：** 上次排序、**最近**目录菜单、类型筛选条——设备侧、每会话（1eb6cfb）。
+- **批量历史：** 命令历史设备侧记录、弹层一键回填、上下键游走（7ae6366）。
+- **传输失败汇总：** 失败集中一个对话框点名前十、逐个重试；头部「完成 N / 剩余 M」计数（77e98b9）。
+
+#### 修复
+
+- **Docker v29 改名健康列：** 模板里 `.Health` 被拒时用改名后的列再问一次并记住引擎口味，窗口打开即满而不再是拒绝横幅（3de88aa）。
+- **无判定的命令不再止于「运行时拒绝 docker ps」：** 通道先于退出状态结束会在信封上标记，幂等读同连接再问一次（改变引擎的动词绝不重复），横幅与连接失败块把引擎原话画在摘要句下一行（c811b1d）。
+- **窗口回桌不再悬在桌外：** 最大化恢复与最小化显示都把记忆几何钳进当前工作区——转发窗半截标题与桌面变小两种情形都整窗落地（4c96c4b）。
+- **设置关闭三问与按钮动词一致**（保存并关闭/放弃修改/留在当前页面，双语）（39eef29）。
+- **批量窗空列表说明真实原因**（库为空 vs 全是非批量会话）并给出打开会话编辑器的入口（987fba8）。
+- **日志跟踪窗的跟踪按钮**改用桌面 accent 主按钮（ab94ff3）。
+- **标题栏在设置页上下文也保持无障碍名**，标签条按钮补 `aria-label`（66535c6）。
+- **终端连接不再被自己的监控赶出通道：** 超时或被拒而放弃的命令现在发送 Close，服务器释放名额而不是握到整条连接死——「无法打开或使用 SSH 通道」的根因（3dce0a6）。
+- **监控退避而不是撞墙：** 拒绝通道的主机按 10s 倍增至一分钟上限的节奏再采样，每连接同时只一个采样（3dce0a6）。
+- **断线重连指数退避**（2s 起倍增至 30s 封顶带抖动），立即以失败计数与剩余秒数作答（3dce0a6）。
+- **拒绝通道有自己的错误码**（SSH-CHANNEL-REFUSED），界面说得出是什么错（3dce0a6）。
+- **小部件跳拍：** 上一个采样未回来就跳过本拍，不再每拍叠一条命令（3dce0a6）。
+- **创建入口回到容器页工具栏**、桌面容器行自带五个操作按钮、内存列、日志行内打开、传输窗空态说明、内存采样等连接打开、滚动条/文件树边框/侧栏标签/VMware 分隔符修复。
+
+#### 说明
+
+- 浏览器版随同一 release 提供 amd64 与 arm64 归档。
+- 安装包未做代码签名，macOS 构建未公证。本项目尚未经过安全审计。
+- 加速源（registry mirror）写入未实施：触及 security-model 不变量，须先过 PIP。
+
 
 From 0.4.0 each release is written in both languages under one version heading. The GitHub release
 body uses the Chinese part; the update manifest keeps both and the application shows the one its
